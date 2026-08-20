@@ -23,20 +23,18 @@
   .display { font-family: "Anton", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.01em; line-height: 0.98; margin: 0; }
 
   header.bar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 1.3rem 6vw; border-bottom: 2px solid var(--ink);
+    display: flex; align-items: center; justify-content: flex-start;
+    padding: 1.3rem 6vw;
   }
-  header.bar .brand { font-family: "Anton", Impact, sans-serif; text-transform: uppercase; font-size: 1.4rem; letter-spacing: 0.02em; text-decoration: none; }
   header.bar .back { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.14em; text-decoration: none; opacity: 0.7; }
   header.bar .back:hover { opacity: 1; }
 
   main { max-width: 900px; margin: 0 auto; padding: 7vh 6vw 12vh; }
-  .kicker { text-transform: uppercase; letter-spacing: 0.2em; font-size: 0.78rem; color: var(--muted); margin: 0 0 1rem; }
   h1.display { font-size: clamp(2.6rem, 9vw, 5.5rem); }
   .sub { font-size: clamp(1.05rem, 2vw, 1.3rem); margin-top: 1.2rem; max-width: 46ch; }
 
   form { margin-top: 5vh; display: grid; gap: 2.2rem; }
-  .field { display: grid; gap: 0.5rem; }
+  .field { display: grid; gap: 0.5rem; align-content: start; }
   label.tag { font-family: "Anton", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.02em; font-size: 1.05rem; }
   label .hint { font-family: ui-sans-serif, system-ui, sans-serif; text-transform: none; letter-spacing: 0; color: var(--muted); font-size: 0.85rem; margin-left: 0.5rem; }
   input[type=text], textarea, select {
@@ -70,8 +68,36 @@
   .tip .tipbox ul { margin: 0 0 0.7rem; padding-left: 1.1rem; }
   .tip .tipbox li { margin: 0.15rem 0; color: var(--muted); }
   textarea.dragover { outline: 3px dashed var(--ink); outline-offset: 2px; }
+  .linkbtn { font: inherit; font-size: 0.8rem; background: none; border: none; cursor: pointer; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; text-transform: none; letter-spacing: 0; padding: 0; margin-left: 0.6rem; }
+  .linkbtn:hover { color: var(--ink); }
+  #patch-panel { display: grid; gap: 0.5rem; position: relative; }
+  #patch-list:empty { display: none; }
+  #patch-results { display: grid; position: absolute; top: 100%; left: 0; right: 0; z-index: 20; background: var(--paper); box-shadow: 4px 4px 0 rgba(0,0,0,0.15); }
+  #patch-results .hit { display: block; padding: 0.55rem 0.8rem; border: 1px solid var(--line); border-top: none; cursor: pointer; background: var(--paper); text-align: left; font: inherit; width: 100%; }
+  #patch-results .hit:first-child { border-top: 1px solid var(--line); }
+  #patch-results .hit:hover { background: #f4f4f4; }
+  #patch-results .hit b { font-family: "Anton", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.01em; font-weight: normal; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; color: var(--muted); }
+  .chains { font-size: 0.7rem; color: #aaa; letter-spacing: 0.04em; white-space: nowrap; }
+  #patch-list { display: grid; gap: 0.5rem; }
+  .patch-row { display: grid; grid-template-columns: 1fr auto; gap: 0.6rem 0.8rem; border: 1px solid var(--line); padding: 0.7rem 0.8rem; }
+  .patch-row .info { grid-column: 1 / -1; }
+  .patch-row .pct { grid-column: 1; }
+  .patch-row .linkbtn { grid-column: 2; grid-row: 2 / span 2; justify-self: end; align-self: end; margin-left: 0; }
+  .patch-row .eff { grid-column: 1; font-size: 0.72rem; color: #aaa; margin-top: -0.35rem; }
+  .info { display: block; }
+  .info b { display: block; line-height: 1.2; }
+  .info .sub { display: flex; align-items: baseline; gap: 0.45rem; margin-top: 0.15rem; }
+  .pip { color: #ccc; font-size: 0.75rem; }
+  .patch-row b { font-family: "Anton", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.01em; font-weight: normal; }
+  .patch-row .pct { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); }
+  .patch-row input[type=number] { width: 2.6ch; min-width: 2ch; padding: 0 0 0.1rem; font-size: 0.9rem; border: none; border-bottom: 1px solid var(--ink); background: var(--paper); font: inherit; text-align: center; border-radius: 0; -moz-appearance: textfield; appearance: textfield; }
+  .patch-row input[type=number]::-webkit-outer-spin-button, .patch-row input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .patch-row input[type=number]:focus { outline: none; border-bottom-width: 2px; }
+  .patch-row .chains { margin-left: 0; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; }
-  @media (max-width: 620px) { .row { grid-template-columns: 1fr; } }
+  .row--id { grid-template-columns: 1fr 2.4fr; }
+  @media (max-width: 620px) { .row, .row--id { grid-template-columns: 1fr; } }
   select { background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%); background-position: calc(100% - 20px) center, calc(100% - 14px) center; background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; padding-right: 2.4rem; }
 
   /* segmented control (doublins) */
@@ -87,8 +113,6 @@
   .segmented button:first-child { border-left: none; }
   .segmented button.on { background: var(--ink); color: var(--paper); }
   .segmented button:hover:not(.on) { background: #f0f0f0; }
-  .segmented .small { display: block; font-family: ui-sans-serif, system-ui, sans-serif; text-transform: none; letter-spacing: 0; font-size: 0.72rem; color: var(--muted); margin-bottom: 0.15rem; }
-  .segmented button.on .small { color: rgba(255,255,255,0.7); }
   @media (max-width: 620px) { .segmented { grid-template-columns: repeat(2, 1fr); } .segmented button:nth-child(3) { border-left: none; } .segmented button:nth-child(3), .segmented button:nth-child(4) { border-top: 2px solid var(--ink); } }
 
 
@@ -101,9 +125,8 @@
   .rules li b { font-family: "Anton", Impact, sans-serif; }
   .rules li div > b { display: block; text-transform: uppercase; letter-spacing: 0.01em; margin-bottom: 0.25rem; }
   .rules li span { display: block; color: var(--muted); font-size: 0.95rem; }
-  .rules .foot { padding: 0.9rem 1.3rem; border-top: 2px solid var(--ink); font-size: 0.8rem; color: var(--muted); }
 
-  .actions { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  .actions { display: flex; flex-direction: column; align-items: flex-start; gap: 0.7rem; }
   .btn {
     font-family: "Anton", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.03em;
     font-size: clamp(1.1rem, 2.4vw, 1.5rem);
@@ -123,13 +146,11 @@
 <body>
 
 <header class="bar">
-  <a class="brand" href="home.html">Telligence</a>
   <a class="back" href="home.html">← back</a>
 </header>
 
 <main>
-  <p class="kicker">Fund your telligence</p>
-  <h1 class="display">Start your engine.</h1>
+  <h1 class="display">Plug in.</h1>
 
   <form id="pitch">
     <div class="field">
@@ -137,56 +158,67 @@
       <input type="text" id="name" name="name" placeholder="e.g. Foraging Bot" maxlength="50" required>
     </div>
 
-    <div class="row">
+    <div class="row row--id">
       <div class="field">
         <label class="tag" for="symbol">Machine's ID</label>
         <input type="text" id="symbol" name="symbol" placeholder="FORAGE" maxlength="10" required
                style="text-transform:uppercase;letter-spacing:0.05em;">
       </div>
       <div class="field">
-        <label class="tag" for="cut">Machine's keep <span class="hint">its cut of issuance</span></label>
-        <select id="cut" name="cut">
-          <option value="0">0% — keeps nothing</option>
-          <option value="10" selected>10% — the standard keep</option>
-          <option value="20">20% — hungry machine</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="field">
-      <label class="tag" for="machine-address">Machine's address <span class="hint">receives the keep and
-        <span class="tip" tabindex="0">operates<span class="tipbox" role="tooltip">
-          <b>The operator can</b>
-          <ul>
-            <li>Change the machine's name, logo, and description</li>
-            <li>Change the token's name and symbol</li>
-            <li>Repoint the keep at different recipients — never enlarge it</li>
-            <li>Add, remove, and re-price shop items, mint them free, set discounts</li>
-            <li>Pick the buyback market pool and its price-averaging window</li>
-            <li>Choose which approved terminals take payments, including the any-token router</li>
-            <li>Extend the machine to new approved chains; pause a bridge that looks unsafe</li>
-            <li>Sign messages on behalf of the machine's token</li>
-            <li>Hand the operator role to another address</li>
-          </ul>
-          <b>It can never</b> rewrite issuance, cash-out rules, or the stage schedule — and never withdraw the machine's funds.
-        </span></span> the machine</span></label>
-      <input type="text" id="machine-address" name="machineAddress" placeholder="0x…" pattern="^0x[a-fA-F0-9]{40}$" spellcheck="false" autocomplete="off" required
-             style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.02em;">
-    </div>
-
-    <div class="field">
-      <label class="tag">Issuance price doublings</label>
-      <div class="segmented" id="doubling" role="radiogroup" aria-label="Doubling speed">
-        <button type="button" data-val="1d"><span class="small">every</span>Day</button>
-        <button type="button" data-val="1w" class="on"><span class="small">every</span>Week</button>
-        <button type="button" data-val="1m"><span class="small">every</span>Month</button>
-        <button type="button" data-val="3m"><span class="small">every</span>3 months</button>
+        <label class="tag" for="machine-address">Machine's address <span class="hint">
+          <span class="tip" tabindex="0">privileges<span class="tipbox" role="tooltip">
+            <b>The operator can</b>
+            <ul>
+              <li>Change the machine's name, logo, and description</li>
+              <li>Change the token's name and symbol</li>
+              <li>Repoint the keep at different recipients — never enlarge it</li>
+              <li>Add, remove, and re-price shop items, mint them free, set discounts</li>
+              <li>Pick the buyback market pool and its price-averaging window</li>
+              <li>Choose which approved terminals take payments, including the any-token router</li>
+              <li>Extend the machine to new approved chains; pause a bridge that looks unsafe</li>
+              <li>Sign messages on behalf of the machine's token</li>
+              <li>Hand the operator role to another address</li>
+            </ul>
+            <b>It can never</b> rewrite issuance, cash-out rules, or the stage schedule — and never withdraw the machine's funds.
+          </span></span></span></label>
+        <input type="text" id="machine-address" name="machineAddress" placeholder="0x…" pattern="^0x[a-fA-F0-9]{40}$" spellcheck="false" autocomplete="off" required
+               style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.02em;">
       </div>
     </div>
 
     <div class="field">
       <label class="tag" for="pitch-text">Pitch <span class="hint">markdown supported — drop images right in</span></label>
       <textarea id="pitch-text" name="pitch" placeholder="Why should your machine be funded?" required></textarea>
+    </div>
+
+    <div class="field">
+      <label class="tag">Issuance price doublings <span class="hint">the pace of changes favoring earlier funders</span></label>
+      <div class="segmented" id="doubling" role="radiogroup" aria-label="Doubling speed">
+        <button type="button" data-val="1d">Daily</button>
+        <button type="button" data-val="1w" class="on">Weekly</button>
+        <button type="button" data-val="1m">Monthly</button>
+        <button type="button" data-val="3m">Quarterly</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label class="tag" for="cut">Machine's keep <span class="hint">its cut of issuance</span></label>
+        <select id="cut" name="cut">
+          <option value="0">0% — keeps nothing</option>
+          <option value="3">3% — just a bit</option>
+          <option value="10" selected>10% — the standard keep</option>
+          <option value="20">20% — hungry machine</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="tag">Routes <span class="hint">issuance splits to other machines</span></label>
+        <div id="patch-list"></div>
+        <div id="patch-panel">
+          <input type="text" id="patch-search" placeholder="Search machines to route to…" autocomplete="off">
+          <div id="patch-results"></div>
+        </div>
+      </div>
     </div>
 
     <!-- The deal is fixed. These are the hard-coded revnet rules; nothing to toggle. -->
@@ -198,11 +230,10 @@
         <li><div><b>Issuance doublings</b> <span>Funding the machine issues its tokens. The price to issue doubles at your chosen interval. Early funders get more for less.</span></div></li>
         <li><div><b>Cash out anytime</b> <span>Tokens cash out for their share of what the machine holds &mdash; or borrow against it to keep an option open. Cashing out pays a 30% tax that stays behind with the holders who stay. All funds used for issuance back the value of all tokens, and only ever leave through cash outs and loans.</span></div></li>
       </ul>
-      <div class="foot">* These map to a fixed revnet config. You never touch a curve.</div>
     </div>
 
     <div class="actions">
-      <button class="btn" type="submit">Launch it</button>
+      <button class="btn" type="submit">Deploy</button>
       <span class="note">You'll confirm in your wallet. Nothing is spent yet.</span>
     </div>
   </form>
@@ -278,6 +309,95 @@
     doublingBox.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === button));
   });
 
+  // Patch search: demo directory of machines. The real thing queries bendystraw;
+  // per-chain project IDs differ for the same machine, so we carry all of them
+  // and the launch call bakes the right ID into each chain's split.
+  const MACHINES = [
+    { name: "Juicebox", symbol: "JBX", ids: { ETH: 1, BASE: 1, OP: 1, ARB: 1 } },
+    { name: "Banny Retail", symbol: "BAN", ids: { ETH: 4, BASE: 4, OP: 4, ARB: 4 } },
+    { name: "Croptop", symbol: "CPN", ids: { ETH: 55, BASE: 40, OP: 51, ARB: 44 } },
+    { name: "Foraging Bot", symbol: "FORAGE", ids: { ETH: 64, BASE: 112, OP: 98, ARB: 77 } },
+    { name: "Drip Studio", symbol: "DRIP", ids: { ETH: 71, BASE: 63, OP: 70, ARB: 58 } },
+    { name: "Night Shift", symbol: "NGHT", ids: { ETH: 83, BASE: 90, OP: 81, ARB: 86 } },
+    { name: "Meme Mines", symbol: "MINES", ids: { ETH: 97, BASE: 104, OP: 95, ARB: 99 } },
+    { name: "Revnet", symbol: "REV", ids: { ETH: 3, BASE: 3, OP: 3, ARB: 3 } },
+  ];
+  // Every machine ships patched into REV by default — the network is the point.
+  const patches = [{ machine: MACHINES.find((m) => m.symbol === "REV"), percent: 10 }];
+  const patchPanel = document.getElementById("patch-panel");
+  const patchSearch = document.getElementById("patch-search");
+  const patchResults = document.getElementById("patch-results");
+  const patchList = document.getElementById("patch-list");
+  const chainsLine = (m) => Object.entries(m.ids).map(([c, i]) => c + " #" + i).join(" · ");
+  const infoBlock = (m) => "<span class=\"info\"><b>" + m.name + "</b>" +
+    "<span class=\"sub\"><span class=\"mono\">" + m.symbol + "</span>" +
+    "<span class=\"pip\">|</span><span class=\"chains\">" + chainsLine(m) + "</span></span></span>";
+
+  function renderPatches() {
+    patchList.innerHTML = "";
+    patches.forEach((p, idx) => {
+      const row = document.createElement("div");
+      row.className = "patch-row";
+      row.innerHTML = infoBlock(p.machine);
+      const pctWrap = document.createElement("span");
+      pctWrap.className = "pct";
+      const pct = document.createElement("input");
+      pct.type = "number";
+      pct.min = "1"; pct.max = "100"; pct.step = "1";
+      pct.value = p.percent;
+      const fit = () => { pct.style.width = Math.max(2, String(pct.value).length + 0.5) + "ch"; };
+      fit();
+      pct.addEventListener("input", () => {
+        p.percent = Math.min(100, Math.max(1, Number(pct.value) || 1));
+        fit();
+      });
+      pct.addEventListener("blur", () => { pct.value = p.percent; fit(); });
+      pctWrap.appendChild(pct);
+      pctWrap.appendChild(document.createTextNode("% of the keep"));
+      const eff = document.createElement("span");
+      eff.className = "eff";
+      const cutSel = document.getElementById("cut");
+      const showEff = () => {
+        const total = parseFloat((Number(cutSel.value) * p.percent / 100).toFixed(2));
+        eff.textContent = "= " + total + "% of total issuance";
+      };
+      showEff();
+      pct.addEventListener("input", showEff);
+      cutSel.addEventListener("change", showEff);
+      const rm = document.createElement("button");
+      rm.type = "button"; rm.className = "linkbtn"; rm.textContent = "unplug";
+      rm.addEventListener("click", () => { patches.splice(idx, 1); renderPatches(); });
+      row.appendChild(pctWrap);
+      row.appendChild(eff);
+      row.appendChild(rm);
+      patchList.appendChild(row);
+    });
+  }
+  renderPatches();
+
+  patchSearch.addEventListener("input", () => {
+    const q = patchSearch.value.trim().toLowerCase();
+    patchResults.innerHTML = "";
+    if (!q) return;
+    MACHINES
+      .filter((m) => !patches.some((p) => p.machine === m))
+      .filter((m) => m.name.toLowerCase().includes(q) || m.symbol.toLowerCase().includes(q))
+      .slice(0, 5)
+      .forEach((m) => {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "hit";
+        row.innerHTML = infoBlock(m);
+        row.addEventListener("click", () => {
+          patches.push({ machine: m, percent: 10 });
+          patchSearch.value = "";
+          patchResults.innerHTML = "";
+          renderPatches();
+        });
+        patchResults.appendChild(row);
+      });
+  });
+
   const form = document.getElementById("pitch");
   const symbol = document.getElementById("symbol");
   symbol.addEventListener("input", () => { symbol.value = symbol.value.toUpperCase().replace(/[^A-Z0-9]/g, ""); });
@@ -289,10 +409,22 @@
       name: String(data.get("name") || "").trim(),
       symbol: String(data.get("symbol") || "").trim(),
       description: String(data.get("pitch") || "").trim(),
-      machineKeepPercent: Number(data.get("cut") || 0),
+      // TelligenceKeep enum: 0 = NONE (0%), 1 = A_BIT (3%), 2 = STANDARD (10%), 3 = HUNGRY (20%)
+      keep: { "0": 0, "3": 1, "10": 2, "20": 3 }[String(data.get("cut") || "0")],
       // REVConfig.operator: receives the keep splits AND holds the operator role.
       machineAddress: String(data.get("machineAddress") || "").trim(),
-      doublingEveryDays: DOUBLING[doublingKey].days,
+      // Same timestamp goes to EVERY chain's deployment (it feeds the deterministic
+      // config hash); ~10 minutes out so all chains resolve before the stage starts.
+      startsAtOrAfter: Math.floor(Date.now() / 1000) + 600,
+      // Patch: a slice of the keep split routed to another JB project. Per-chain
+      // project IDs differ, so we carry the whole map and the launch call bakes
+      // the right ID into each chain's split.
+      patches: patches.map((p) => ({
+        name: p.machine.name, symbol: p.machine.symbol, projectIds: p.machine.ids,
+        percentOfKeep: p.percent,
+      })),
+      // TelligenceDoubling enum: 0 = DAILY, 1 = WEEKLY, 2 = MONTHLY, 3 = QUARTERLY
+      doubling: { "1d": 0, "1w": 1, "1m": 2, "3m": 3 }[doublingKey],
       ...FIXED_RULES,
     };
     document.getElementById("config").textContent = JSON.stringify(config, null, 2);

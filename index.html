@@ -55,6 +55,10 @@
   header.bar nav a:hover { opacity: 1; }
 
   /* ---- hero ---- */
+  /* machine field background */
+  #field { position: fixed; inset: 0; z-index: 0; }
+  .hero { position: relative; z-index: 1; pointer-events: none; }
+  .hero a { pointer-events: auto; }
   .hero { min-height: 100svh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 6vw; text-align: center; }
   .hero h1 { font-size: min(15vw, 22vh); }
   .hero .tag {
@@ -64,9 +68,18 @@
     font-size: clamp(0.9rem, 2vw, 1.2rem);
   }
   .cta { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-top: 4vh; }
-  .powered { margin: 1.6rem 0 0; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.18em; }
-  .powered a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--muted); }
-  .powered a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+  .start {
+    font-size: 1.05rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--ink);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  .start:hover { text-decoration-thickness: 2px; }
+  .powered { position: absolute; bottom: 1.6rem; left: 0; right: 0; text-align: center; font-size: 0.75rem; margin: 0; color: #aaa; }
+  .powered a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+  .powered a:hover { color: var(--muted); }
   .btn {
     font-family: "Anton", Impact, sans-serif;
     text-transform: uppercase;
@@ -181,14 +194,423 @@
 </head>
 <body>
 
+<canvas id="field" aria-hidden="true"></canvas>
+<script>
+// ponytail: patch bay with verlet-rope cables — real gravity, drape, swing, and
+// settle. Grab a plug and the cord carries its own weight to the next jack.
+(() => {
+  const canvas = document.getElementById("field");
+  const ctx = canvas.getContext("2d");
+  const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const N = 16;                       // rope points per cable
+  let w, h, dpr, jacks = [], cables = [], panel, t = 0;
+  const mouse = { x: -1e9, y: -1e9 };
+  let drag = null;
+
+  function size() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    w = canvas.width = innerWidth * dpr;
+    h = canvas.height = innerHeight * dpr;
+    canvas.style.width = innerWidth + "px";
+    canvas.style.height = innerHeight + "px";
+
+    // the panel: 1/4" jacks — hex nut, washer, threaded ring, dark bore
+    const gap = 96 * dpr;
+    const JR = 12 * dpr;                 // jack radius
+    jacks = [];
+    panel = document.createElement("canvas");
+    panel.width = w; panel.height = h;
+    const pctx = panel.getContext("2d");
+    const ink = (a) => "rgba(0,0,0," + a + ")";
+
+    // pass 1: hardware, snapped to the grid
+    for (let gx = gap / 2; gx < w; gx += gap) {
+      for (let gy = gap / 2; gy < h; gy += gap) {
+        const x = gx, y = gy;
+        jacks.push({ x, y });
+        pctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = Math.PI / 6 + (i * Math.PI) / 3;
+          pctx[i ? "lineTo" : "moveTo"](x + Math.cos(a) * JR * 1.45, y + Math.sin(a) * JR * 1.45);
+        }
+        pctx.closePath();
+        pctx.strokeStyle = ink(0.07);
+        pctx.lineWidth = 1.6 * dpr;
+        pctx.stroke();
+        pctx.beginPath(); pctx.arc(x, y, JR, 0, 7);
+        pctx.fillStyle = ink(0.05); pctx.fill();
+        pctx.beginPath(); pctx.arc(x, y, JR * 0.78, 0, 7);
+        pctx.strokeStyle = ink(0.14); pctx.lineWidth = 2 * dpr; pctx.stroke();
+        pctx.beginPath(); pctx.arc(x, y, JR * 0.44, 0, 7);
+        pctx.fillStyle = ink(0.22); pctx.fill();
+      }
+    }
+    const cols = Math.floor(w / gap), rows = Math.floor(h / gap);
+
+    // pass 2: signal-flow chains, centered in the bands between jack rows
+    function arrowHead(x, y, angle) {
+      const sArrow = 4.5 * dpr;
+      pctx.beginPath();
+      pctx.moveTo(x, y);
+      pctx.lineTo(x - Math.cos(angle - 0.4) * sArrow, y - Math.sin(angle - 0.4) * sArrow);
+      pctx.moveTo(x, y);
+      pctx.lineTo(x - Math.cos(angle + 0.4) * sArrow, y - Math.sin(angle + 0.4) * sArrow);
+      pctx.stroke();
+    }
+    pctx.lineWidth = 1 * dpr;
+    const boxes = [];
+    const CHAINS = [
+      [["PITCH", "DETECTOR"], ["ISSUANCE", "OSC"], ["SPLIT", "FILTER"], ["KEEP", "MIXER"], ["CASH OUT", "AMP"]],
+      [["FEED", "IN"], ["DOUBLING", "CLK"], ["曲線", "整形"], ["TREASURY", "SUM"]],
+      [["OMNI", "BUS"], ["SUCKER", "BRIDGE"], ["剰余", "還流"], ["SURPLUS", "RETURN"]],
+    ];
+    CHAINS.forEach((chain, ci) => {
+      const band = 1 + ci * Math.max(2, Math.floor((rows - 2) / CHAINS.length));
+      const y = gap / 2 + band * gap + gap / 2 - 12 * dpr;   // between rows
+      let col = 0.5 + ((Math.random() * 2) | 0);
+      let prevRight = null;
+      for (const [l1, l2] of chain) {
+        const bw = (Math.max(l1.length, l2.length) * 5.6 + 16) * dpr;
+        const bh = 24 * dpr;
+        const x = gap / 2 + col * gap - bw / 2;
+        if (x + bw > w - gap / 2) break;
+        pctx.strokeStyle = ink(0.14);
+        pctx.strokeRect(x, y, bw, bh);
+        pctx.font = "600 " + 6.8 * dpr + "px ui-sans-serif, system-ui, sans-serif";
+        pctx.fillStyle = ink(0.2);
+        pctx.textAlign = "center";
+        pctx.fillText(l1, x + bw / 2, y + 9.5 * dpr);
+        pctx.fillText(l2, x + bw / 2, y + 18.5 * dpr);
+        if (prevRight !== null) {
+          pctx.strokeStyle = ink(0.14);
+          pctx.beginPath();
+          pctx.moveTo(prevRight, y + bh / 2);
+          pctx.lineTo(x, y + bh / 2);
+          pctx.stroke();
+          arrowHead(x, y + bh / 2, 0);
+        }
+        boxes.push({ x: x - 6 * dpr, y: y - 6 * dpr, w: bw + 12 * dpr, h: bh + 12 * dpr });
+        prevRight = x + bw;
+        col += 2;
+      }
+    });
+
+    // pass 3: L-shaped traces between neighboring jacks
+    pctx.strokeStyle = ink(0.10);
+    for (let i = 0; i < 26; i++) {
+      const a = jacks[(Math.random() * jacks.length) | 0];
+      const cand = jacks.filter((j) => j !== a && Math.abs(j.x - a.x) < gap * 2.2 && Math.abs(j.y - a.y) < gap * 2.2);
+      if (!cand.length) continue;
+      const b = cand[(Math.random() * cand.length) | 0];
+      const r2 = JR * 1.6;
+      pctx.strokeStyle = ink(0.10);
+      pctx.beginPath();
+      pctx.moveTo(a.x + Math.sign(b.x - a.x) * r2, a.y);
+      pctx.lineTo(b.x, a.y);
+      pctx.lineTo(b.x, b.y - Math.sign(b.y - a.y) * r2);
+      pctx.stroke();
+      arrowHead(b.x, b.y - Math.sign(b.y - a.y) * r2, Math.sign(b.y - a.y) > 0 ? Math.PI / 2 : -Math.PI / 2);
+    }
+
+    // pass 4: designations — multilingual, collision-aware
+    const LABELS = [
+      "SIGNAL IN", "REV OUT", "KEEP OUT", "SPLIT IN", "ISSUANCE", "CASH OUT",
+      "PITCH IN", "TREASURY", "MINT CLK", "SURPLUS", "OMNI BUS", "WEIGHT CUT",
+      "BASE CV", "OPERATOR", "FEED", "DOUBLING", "GATE", "SUCKER BUS",
+      "信號入", "收益出", "金庫", "餵入",                 // zh
+      "信号入力", "発行", "引出し",                       // ja
+      "TÍN HIỆU VÀO", "NUÔI MÁY", "RÚT RA",              // vi
+      "신호 입력", "발행",                                // ko
+      "∿ OUT", "Σ IN", "⏚ GND", "⊕ MIX", "→ ◉",          // symbols
+      "EXT PAY IN", "TOKEN OUT", "TAX RET", "CURVE FREQ", "SPARE",
+    ];
+    const SUBS = ["-5V~+5V", "0V~+5V", "USD~ETH", "0x", "50Ω", "24H~90D", "±∞", "半減"];
+    function clear(x, y, tw, th) {
+      return !boxes.some((r) => x + tw / 2 > r.x && x - tw / 2 < r.x + r.w && y > r.y && y - th < r.y + r.h);
+    }
+    for (const j of jacks) {
+      if (Math.random() >= 0.66) continue;
+      const label = LABELS[(Math.random() * LABELS.length) | 0];
+      const ly = j.y - JR * 1.85;
+      const tw = label.length * 5 * dpr;
+      if (!clear(j.x, ly, tw, 9 * dpr)) continue;
+      pctx.font = "600 " + 7.5 * dpr + "px ui-sans-serif, system-ui, sans-serif";
+      pctx.textAlign = "center";
+      pctx.fillStyle = ink(0.26);
+      pctx.fillText(label, j.x, ly);
+      if (Math.random() < 0.3) {
+        const sub = SUBS[(Math.random() * SUBS.length) | 0];
+        const sy = j.y + JR * 2.4;
+        if (clear(j.x, sy, sub.length * 4.5 * dpr, 8 * dpr)) {
+          pctx.font = 6.5 * dpr + "px ui-monospace, Menlo, monospace";
+          pctx.fillStyle = ink(0.18);
+          pctx.fillText(sub, j.x, sy);
+        }
+      }
+    }
+
+    // pass 5: waveform + amp glyphs, kept clear of boxes
+    for (let i = 0; i < 22; i++) {
+      const j = jacks[(Math.random() * jacks.length) | 0];
+      const gx = j.x + JR * 1.7, gy = j.y + (Math.random() < 0.5 ? -1 : 1) * JR * 1.4;
+      if (!clear(gx + 20 * dpr, gy, 40 * dpr, 14 * dpr)) continue;
+      const kind = (Math.random() * 4) | 0;
+      pctx.strokeStyle = ink(0.16);
+      pctx.lineWidth = 1 * dpr;
+      pctx.beginPath();
+      const u = 3.2 * dpr;
+      if (kind === 0) {
+        for (let k = 0; k <= 12; k++) {
+          const px = gx + k * u * 0.5, py = gy + Math.sin(k * 0.9) * u;
+          k ? pctx.lineTo(px, py) : pctx.moveTo(px, py);
+        }
+      } else if (kind === 1) {
+        pctx.moveTo(gx, gy + u);
+        pctx.lineTo(gx, gy - u); pctx.lineTo(gx + u * 2, gy - u); pctx.lineTo(gx + u * 2, gy + u);
+        pctx.lineTo(gx + u * 4, gy + u); pctx.lineTo(gx + u * 4, gy - u); pctx.lineTo(gx + u * 6, gy - u);
+      } else if (kind === 2) {
+        pctx.moveTo(gx, gy + u);
+        pctx.lineTo(gx + u * 2, gy - u); pctx.lineTo(gx + u * 2, gy + u);
+        pctx.lineTo(gx + u * 4, gy - u); pctx.lineTo(gx + u * 4, gy + u);
+      } else {
+        pctx.moveTo(gx, gy - u * 1.4); pctx.lineTo(gx, gy + u * 1.4); pctx.lineTo(gx + u * 2.4, gy);
+        pctx.closePath();
+        pctx.moveTo(gx + u * 2.4, gy); pctx.lineTo(gx + u * 4, gy);
+      }
+      pctx.stroke();
+      if (kind === 3) arrowHead(gx + 4 * u, gy, 0);
+    }
+
+    const COLORS = [
+      "rgba(0,0,0,0.24)",         // ink
+      "rgba(214,48,49,0.42)",     // red
+      "rgba(0,0,0,0.15)",         // pale ink
+      "rgba(230,126,34,0.42)",    // orange
+      "rgba(226,107,168,0.42)",   // pink
+      "rgba(212,172,13,0.45)",    // yellow
+      "rgba(0,0,0,0.28)",         // heavy ink
+      "rgba(41,128,185,0.40)",    // blue
+    ];
+    cables = Array.from({ length: 11 }, (_, i) => {
+      const [a, b] = pickPair();
+      const c = {
+        a, b, na: a, nb: b, move: 1,
+        slack: 1.12 + Math.random() * 0.45,   // how much extra cord it carries
+        color: COLORS[i % COLORS.length],
+        width: (3.8 + Math.random() * 2.6) * dpr,
+        pts: [], prev: [],
+      };
+      ropeInit(c);
+      return c;
+    });
+    if (!REDUCED) for (let i = 0; i < 240; i++) step(); // pre-settle so it opens draped
+  }
+
+  function pickPair() {
+    const a = jacks[(Math.random() * jacks.length) | 0];
+    let b = a, tries = 0;
+    while (tries++ < 30) {
+      b = jacks[(Math.random() * jacks.length) | 0];
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      if (d > w * 0.12 && d < w * 0.55) break;
+    }
+    return [a, b];
+  }
+
+  function ropeInit(c) {
+    c.pts = []; c.prev = [];
+    for (let i = 0; i < N; i++) {
+      const k = i / (N - 1);
+      const x = c.a.x + (c.b.x - c.a.x) * k;
+      const y = c.a.y + (c.b.y - c.a.y) * k + Math.sin(k * Math.PI) * 20 * dpr;
+      c.pts.push({ x, y });
+      c.prev.push({ x, y });
+    }
+  }
+
+  function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
+
+  function step() {
+    const G = 0.85 * dpr;               // gravity
+    const DAMP = 0.97;                  // air
+
+    for (const c of cables) {
+      // pins ease toward their (possibly re-patched) jacks
+      if (c.move < 1) c.move = Math.min(c.move + (c.moveSpeed || 0.012), 1);
+      const k = ease(c.move);
+      const ax = c.a.x + (c.na.x - c.a.x) * k, ay = c.a.y + (c.na.y - c.a.y) * k;
+      const bx = c.b.x + (c.nb.x - c.b.x) * k, by = c.b.y + (c.nb.y - c.b.y) * k;
+      if (c.move === 1 && !(drag && drag.cable === c)) { c.a = c.na; c.b = c.nb; }
+
+      // rest length follows pin distance, with the cord's own slack
+      const rest = (Math.hypot(bx - ax, by - ay) * c.slack) / (N - 1);
+
+      // verlet: free points fall, drift, remember momentum
+      for (let i = 1; i < N - 1; i++) {
+        const p = c.pts[i], q = c.prev[i];
+        const vx = (p.x - q.x) * DAMP;
+        const vy = (p.y - q.y) * DAMP + G;
+        q.x = p.x; q.y = p.y;
+        p.x += vx; p.y += vy;
+      }
+      // pin the ends
+      c.pts[0].x = ax; c.pts[0].y = ay;
+      c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
+
+      // satisfy segment lengths (stiffness via iterations)
+      for (let iter = 0; iter < 4; iter++) {
+        for (let i = 0; i < N - 1; i++) {
+          const p = c.pts[i], q = c.pts[i + 1];
+          const dx = q.x - p.x, dy = q.y - p.y;
+          const d = Math.hypot(dx, dy) || 1e-6;
+          const diff = (d - rest) / d / 2;
+          const ox = dx * diff, oy = dy * diff;
+          if (i > 0) { p.x += ox; p.y += oy; }
+          if (i < N - 2) { q.x -= ox; q.y -= oy; }
+        }
+        c.pts[0].x = ax; c.pts[0].y = ay;
+        c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
+      }
+    }
+  }
+
+  function drawCable(c) {
+    const pts = c.pts;
+    // soft shadow under the cord — the panel sits behind it
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.16)";
+    ctx.shadowBlur = 5 * dpr;
+    ctx.shadowOffsetY = 4 * dpr;
+    ropePath(pts, 0);
+    ctx.strokeStyle = c.color;
+    ctx.lineWidth = c.width * 1.7;
+    ctx.stroke();
+    ctx.restore();
+    // sheen riding the top of the cord
+    ropePath(pts, -c.width * 0.35);
+    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.lineWidth = Math.max(1, c.width * 0.32);
+    ctx.stroke();
+    // plug barrels along the cord's true entry angle
+    for (const [p0, p1] of [[pts[0], pts[1]], [pts[N - 1], pts[N - 2]]]) {
+      const len = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
+      const ux = (p1.x - p0.x) / len, uy = (p1.y - p0.y) / len;
+      const barrel = 15 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p0.x + ux * barrel, p0.y + uy * barrel);
+      ctx.strokeStyle = c.color.replace(/[0-9.]+\)$/, "0.55)");
+      ctx.lineWidth = c.width * 2.4;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(p0.x + ux * barrel, p0.y + uy * barrel, c.width * 1.05, 0, 7);
+      ctx.fillStyle = c.color.replace(/[0-9.]+\)$/, "0.45)");
+      ctx.fill();
+    }
+  }
+
+  function ropePath(pts, oy) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y + oy);
+    for (let i = 1; i < N - 1; i++) {
+      const mx = (pts[i].x + pts[i + 1].x) / 2;
+      const my = (pts[i].y + pts[i + 1].y) / 2 + oy;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y + oy, mx, my);
+    }
+    ctx.lineTo(pts[N - 1].x, pts[N - 1].y + oy);
+  }
+
+  function draw() {
+    t += 0.016;
+    step();
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(panel, 0, 0);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (const c of cables) drawCable(c);
+
+    // the machine re-patches itself now and then
+    if (!REDUCED && Math.random() < 0.006) {
+      const c = cables[(Math.random() * cables.length) | 0];
+      if (c.move === 1 && !(drag && drag.cable === c)) {
+        const [na, nb] = pickPair();
+        if (Math.random() < 0.5) { c.na = na; c.nb = c.b; } else { c.na = c.a; c.nb = nb; }
+        c.moveSpeed = 0.012;
+        c.move = 0;
+      }
+    }
+    if (!REDUCED) requestAnimationFrame(draw);
+  }
+
+  const GRAB = () => 18 * dpr;
+  function plugAt(x, y) {
+    for (const c of cables) {
+      if (Math.hypot(c.pts[0].x - x, c.pts[0].y - y) < GRAB()) return { cable: c, end: "a" };
+      if (Math.hypot(c.pts[N - 1].x - x, c.pts[N - 1].y - y) < GRAB()) return { cable: c, end: "b" };
+    }
+    return null;
+  }
+
+  canvas.addEventListener("pointermove", (e) => {
+    mouse.x = e.clientX * dpr; mouse.y = e.clientY * dpr;
+    if (drag) {
+      const c = drag.cable, end = drag.end === "a" ? c.a : c.b;
+      end.x = mouse.x;
+      end.y = mouse.y;
+    } else {
+      canvas.style.cursor = plugAt(mouse.x, mouse.y) ? "grab" : "default";
+    }
+  });
+
+  function trySeat() {
+    const c = drag.cable, end = drag.end === "a" ? c.a : c.b;
+    let best = null, bd = 44 * dpr;
+    for (const j of jacks) {
+      const d = Math.hypot(j.x - end.x, j.y - end.y);
+      if (d < bd) { bd = d; best = j; }
+    }
+    if (!best) return false; // not over a hole — keep carrying the plug
+    if (drag.end === "a") c.na = best; else c.nb = best;
+    c.moveSpeed = 0.12;
+    c.move = 0;
+    drag = null;
+    canvas.style.cursor = "default";
+    return true;
+  }
+
+  canvas.addEventListener("pointerdown", (e) => {
+    if (drag) { trySeat(); return; } // carrying from a missed release: click a hole to seat
+    const hit = plugAt(e.clientX * dpr, e.clientY * dpr);
+    if (!hit) return;
+    const c = hit.cable;
+    const i = hit.end === "a" ? 0 : N - 1;
+    const point = { x: c.pts[i].x, y: c.pts[i].y };
+    if (hit.end === "a") { c.a = point; c.na = point; } else { c.b = point; c.nb = point; }
+    c.move = 1;
+    drag = { cable: c, end: hit.end };
+    canvas.style.cursor = "grabbing";
+    canvas.setPointerCapture(e.pointerId);
+  });
+
+  canvas.addEventListener("pointerup", () => {
+    if (!drag) return;
+    trySeat(); // only lets go over a hole; otherwise the plug stays in hand
+  });
+
+  addEventListener("resize", size);
+  size();
+  if (REDUCED) { for (let i = 0; i < 240; i++) step(); }
+  draw(); // reduced motion: one settled, draped frame
+})();
+</script>
+
 <!-- ============ HERO ============ -->
 <section class="hero" style="border-bottom:none;">
   <h1 class="display">Fund your<br>telligence</h1>
-  <p class="tag">Power your machine</p>
   <div class="cta">
-    <a class="btn" href="create.html">Start</a>
+    <a class="start" href="create.html">Start</a>
   </div>
-  <p class="powered"><a href="https://revnet.money" target="_blank" rel="noopener">Runs on revnets</a></p>
+  <p class="powered">Runs on <a href="https://revnet.money" target="_blank" rel="noopener">revnets</a></p>
 </section>
 
 

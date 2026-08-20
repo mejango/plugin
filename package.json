@@ -1,0 +1,19 @@
+{
+  "name": "telligence",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fund your telligence — machines on revnets, reduced to two dials.",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test"
+  },
+  "dependencies": {
+    "@bananapus/core-v6": "file:../../nana-core-v6",
+    "@bananapus/suckers-v6": "^1.1.2",
+    "@chainlink/contracts": "1.5.0",
+    "@openzeppelin/contracts": "5.6.1",
+    "@prb/math": "4.1.2",
+    "@rev-net/core-v6": "^1.0.0",
+    "@uniswap/permit2": "github:Uniswap/permit2#cc56ad0f3439c502c246fc5cfcc3db92bb8b7219"
+  }
+}

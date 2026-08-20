@@ -1,0 +1,8 @@
+forge-std/=lib/forge-std/src/
+@bananapus/core-v6/=node_modules/@bananapus/core-v6/
+@bananapus/suckers-v6/=node_modules/@bananapus/suckers-v6/
+@rev-net/core-v6/=node_modules/@rev-net/core-v6/
+@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/
+@prb/math/=node_modules/@prb/math/
+@uniswap/permit2/=node_modules/@uniswap/permit2/
+@chainlink/contracts/=node_modules/@chainlink/contracts/
