@@ -203,6 +203,17 @@
   const ctx = canvas.getContext("2d");
   const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const N = 16;                       // rope points per cable
+  // one seed per tab: every page renders the SAME panel and cable deal
+  const seedKey = "telligence-field-seed";
+  let seed = Number(sessionStorage.getItem(seedKey)) || 0;
+  if (!seed) { seed = ((Math.random() * 2 ** 31) | 0) || 1; sessionStorage.setItem(seedKey, seed); }
+  let _s = seed >>> 0;
+  const rand = () => {
+    _s = (_s + 0x6D2B79F5) | 0;
+    let q = Math.imul(_s ^ (_s >>> 15), 1 | _s);
+    q = (q + Math.imul(q ^ (q >>> 7), 61 | q)) ^ q;
+    return ((q ^ (q >>> 14)) >>> 0) / 4294967296;
+  };
   let w, h, dpr, jacks = [], cables = [], panel, t = 0, JR = 0;
   const mouse = { x: -1e9, y: -1e9 };
   let drag = null;                    // { cable, ends: ["a"] | ["a","b"] }
@@ -215,8 +226,8 @@
     canvas.style.height = innerHeight + "px";
 
     // the panel: 1/4" jacks — hex nut, washer, threaded ring, dark bore
-    const gap = 96 * dpr;
-    JR = 12 * dpr;
+    const gap = 120 * dpr;
+    JR = 19 * dpr;
     jacks = [];
     panel = document.createElement("canvas");
     panel.width = w; panel.height = h;
@@ -248,7 +259,7 @@
 
     // signal-flow chains, centered in the bands between jack rows
     function arrowHead(x, y, angle) {
-      const sArrow = 4.5 * dpr;
+      const sArrow = 6 * dpr;
       pctx.beginPath();
       pctx.moveTo(x, y);
       pctx.lineTo(x - Math.cos(angle - 0.4) * sArrow, y - Math.sin(angle - 0.4) * sArrow);
@@ -266,20 +277,20 @@
     CHAINS.forEach((chain, ci) => {
       const band = 1 + ci * Math.max(2, Math.floor((rows - 2) / CHAINS.length));
       const y = gap / 2 + band * gap + gap / 2 - 12 * dpr;
-      let col = 0.5 + ((Math.random() * 2) | 0);
+      let col = 0.5 + ((rand() * 2) | 0);
       let prevRight = null;
       for (const [l1, l2] of chain) {
-        const bw = (Math.max(l1.length, l2.length) * 5.6 + 16) * dpr;
-        const bh = 24 * dpr;
+        const bw = (Math.max(l1.length, l2.length) * 6.6 + 18) * dpr;
+        const bh = 28 * dpr;
         const x = gap / 2 + col * gap - bw / 2;
         if (x + bw > w - gap / 2) break;
         pctx.strokeStyle = ink(0.14);
         pctx.strokeRect(x, y, bw, bh);
-        pctx.font = "600 " + 6.8 * dpr + "px ui-sans-serif, system-ui, sans-serif";
+        pctx.font = "600 " + 8 * dpr + "px ui-sans-serif, system-ui, sans-serif";
         pctx.fillStyle = ink(0.2);
         pctx.textAlign = "center";
-        pctx.fillText(l1, x + bw / 2, y + 9.5 * dpr);
-        pctx.fillText(l2, x + bw / 2, y + 18.5 * dpr);
+        pctx.fillText(l1, x + bw / 2, y + 11 * dpr);
+        pctx.fillText(l2, x + bw / 2, y + 21.5 * dpr);
         if (prevRight !== null) {
           pctx.strokeStyle = ink(0.14);
           pctx.beginPath();
@@ -296,10 +307,10 @@
 
     // L-shaped traces between neighboring jacks
     for (let i = 0; i < 26; i++) {
-      const a = jacks[(Math.random() * jacks.length) | 0];
+      const a = jacks[(rand() * jacks.length) | 0];
       const cand = jacks.filter((j) => j !== a && Math.abs(j.x - a.x) < gap * 2.2 && Math.abs(j.y - a.y) < gap * 2.2);
       if (!cand.length) continue;
-      const b = cand[(Math.random() * cand.length) | 0];
+      const b = cand[(rand() * cand.length) | 0];
       const r2 = JR * 1.6;
       pctx.strokeStyle = ink(0.10);
       pctx.beginPath();
@@ -327,19 +338,19 @@
       return !boxes.some((r) => x + tw / 2 > r.x && x - tw / 2 < r.x + r.w && y > r.y && y - th < r.y + r.h);
     }
     for (const j of jacks) {
-      if (Math.random() >= 0.66) continue;
-      const label = LABELS[(Math.random() * LABELS.length) | 0];
+      if (rand() >= 0.66) continue;
+      const label = LABELS[(rand() * LABELS.length) | 0];
       const ly = j.y - JR * 1.85;
-      if (!clearOf(j.x, ly, label.length * 5 * dpr, 9 * dpr)) continue;
-      pctx.font = "600 " + 7.5 * dpr + "px ui-sans-serif, system-ui, sans-serif";
+      if (!clearOf(j.x, ly, label.length * 6 * dpr, 9 * dpr)) continue;
+      pctx.font = "600 " + 9 * dpr + "px ui-sans-serif, system-ui, sans-serif";
       pctx.textAlign = "center";
       pctx.fillStyle = ink(0.26);
       pctx.fillText(label, j.x, ly);
-      if (Math.random() < 0.3) {
-        const sub = SUBS[(Math.random() * SUBS.length) | 0];
+      if (rand() < 0.3) {
+        const sub = SUBS[(rand() * SUBS.length) | 0];
         const sy = j.y + JR * 2.4;
         if (clearOf(j.x, sy, sub.length * 4.5 * dpr, 8 * dpr)) {
-          pctx.font = 6.5 * dpr + "px ui-monospace, Menlo, monospace";
+          pctx.font = 7.5 * dpr + "px ui-monospace, Menlo, monospace";
           pctx.fillStyle = ink(0.18);
           pctx.fillText(sub, j.x, sy);
         }
@@ -348,14 +359,14 @@
 
     // waveform + amp glyphs
     for (let i = 0; i < 22; i++) {
-      const j = jacks[(Math.random() * jacks.length) | 0];
-      const gx = j.x + JR * 1.7, gy = j.y + (Math.random() < 0.5 ? -1 : 1) * JR * 1.4;
+      const j = jacks[(rand() * jacks.length) | 0];
+      const gx = j.x + JR * 1.7, gy = j.y + (rand() < 0.5 ? -1 : 1) * JR * 1.4;
       if (!clearOf(gx + 20 * dpr, gy, 40 * dpr, 14 * dpr)) continue;
-      const kind = (Math.random() * 4) | 0;
+      const kind = (rand() * 4) | 0;
       pctx.strokeStyle = ink(0.16);
       pctx.lineWidth = 1 * dpr;
       pctx.beginPath();
-      const u = 3.2 * dpr;
+      const u = (3.6 + rand() * 2.6) * dpr;
       if (kind === 0) {
         for (let k = 0; k <= 12; k++) {
           const px = gx + k * u * 0.5, py = gy + Math.sin(k * 0.9) * u;
@@ -394,13 +405,13 @@
       if (!a || !b) break;
       const c = {
         a, b, na: a, nb: b, move: 1,
-        slack: 1.12 + Math.random() * 0.45,        // how much extra cord it carries
+        slack: 1.12 + rand() * 0.45,        // how much extra cord it carries
         color: COLORS[i % COLORS.length],
-        wear: 0.72 + Math.random() * 0.5,          // no two cords aged alike
-        hueJit: [0, 1, 2].map(() => (Math.random() - 0.5) * 34), // dye lot variance
-        braid: 0.8 + Math.random() * 0.9,          // braid weave density
-        gloss: 0.3 + Math.random() * 0.35,         // some cords matte, some shiny
-        width: 5 * dpr,
+        wear: 0.72 + rand() * 0.5,          // no two cords aged alike
+        hueJit: [0, 1, 2].map(() => (rand() - 0.5) * 34), // dye lot variance
+        braid: 0.8 + rand() * 0.9,          // braid weave density
+        gloss: 0.3 + rand() * 0.35,         // some cords matte, some shiny
+        width: 8.5 * dpr,
         pts: [], prev: [],
       };
       ropeInit(c);
@@ -408,16 +419,40 @@
       c.rest = c.len / (N - 1);
       cables.push(c);
     }
+    // restore the tab's cable arrangement (user moves carry across pages)
+    try {
+      const saved = JSON.parse(sessionStorage.getItem("telligence-cables") || "null");
+      if (saved && saved.jackCount === jacks.length && saved.ends.length === cables.length) {
+        saved.ends.forEach(([ai, bi, len], i) => {
+          const c = cables[i];
+          c.a = c.na = jacks[ai];
+          c.b = c.nb = jacks[bi];
+          c.len = len;
+          c.rest = len / (N - 1);
+          ropeInit(c);
+        });
+      }
+    } catch (_) {}
+    saveCables();
     if (!REDUCED) for (let i = 0; i < 240; i++) step(); // pre-settle so it opens draped
+  }
+
+  function saveCables() {
+    try {
+      sessionStorage.setItem("telligence-cables", JSON.stringify({
+        jackCount: jacks.length,
+        ends: cables.map((c) => [jacks.indexOf(c.na), jacks.indexOf(c.nb), c.len]),
+      }));
+    } catch (_) {}
   }
 
   function pickPair() {
     const free = jacks.filter((j) => !jackTaken(j));
     if (free.length < 2) return [null, null];
-    const a = free[(Math.random() * free.length) | 0];
+    const a = free[(rand() * free.length) | 0];
     let b = null, tries = 0;
     while (tries++ < 40) {
-      const cand = free[(Math.random() * free.length) | 0];
+      const cand = free[(rand() * free.length) | 0];
       if (cand === a) continue;
       const d = Math.hypot(cand.x - a.x, cand.y - a.y);
       if (d > w * 0.12 && d < w * 0.55) { b = cand; break; }
@@ -439,8 +474,8 @@
   function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
 
   function step() {
-    const G = 0.85 * dpr;               // gravity
-    const DAMP = 0.97;                  // air
+    const G = 2.3 * dpr;                // gravity ~9.8 m/s² at this pixel scale
+    const DAMP = 0.992;                 // light air drag — cords fall, not float
 
     for (const c of cables) {
       if (c.move < 1) c.move = Math.min(c.move + (c.moveSpeed || 0.012), 1);
@@ -613,25 +648,6 @@
     ctx.lineJoin = "round";
     for (const c of cables) drawCable(c);
 
-    // the machine re-patches itself now and then, within each cord's reach
-    if (!REDUCED && Math.random() < 0.006) {
-      const c = cables[(Math.random() * cables.length) | 0];
-      if (c && c.move === 1 && !(drag && drag.cable === c)) {
-        const moveA = Math.random() < 0.5;
-        const fixed = moveA ? c.b : c.a;
-        const reach = jacks.filter((j) => {
-          if (jackTaken(j)) return false;
-          const d = Math.hypot(j.x - fixed.x, j.y - fixed.y);
-          return d > c.len * 0.2 && d < c.len * 0.9;
-        });
-        if (reach.length) {
-          const j = reach[(Math.random() * reach.length) | 0];
-          if (moveA) { c.na = j; c.nb = c.b; } else { c.na = c.a; c.nb = j; }
-          c.moveSpeed = 0.012;
-          c.move = 0;
-        }
-      }
-    }
     if (!REDUCED) requestAnimationFrame(draw);
   }
 
@@ -695,6 +711,7 @@
     if (endName === "a") c.na = best; else c.nb = best;
     c.moveSpeed = 0.12;
     c.move = 0;
+    saveCables();
     drag.ends.shift();
     if (!drag.ends.length) {
       drag = null;
