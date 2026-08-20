@@ -83,8 +83,10 @@
   .patch-row { display: grid; grid-template-columns: 1fr auto; gap: 0.6rem 0.8rem; border: 1px solid var(--line); padding: 0.7rem 0.8rem; }
   .patch-row .info { grid-column: 1 / -1; }
   .patch-row .pct { grid-column: 1; }
-  .patch-row .linkbtn { grid-column: 2; grid-row: 2 / span 2; justify-self: end; align-self: end; margin-left: 0; }
+  .patch-row .linkbtn { grid-column: 2; grid-row: 2 / span 3; justify-self: end; align-self: end; margin-left: 0; }
   .patch-row .eff { grid-column: 1; font-size: 0.72rem; color: #aaa; margin-top: -0.35rem; }
+  .patch-row .lock { grid-column: 1; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--muted); text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .patch-row .lock input { accent-color: var(--ink); margin: 0; }
   .info { display: block; }
   .info b { display: block; line-height: 1.2; }
   .info .sub { display: flex; align-items: baseline; gap: 0.45rem; margin-top: 0.15rem; }
@@ -323,7 +325,7 @@
     { name: "Revnet", symbol: "REV", ids: { ETH: 3, BASE: 3, OP: 3, ARB: 3 } },
   ];
   // Every machine ships patched into REV by default — the network is the point.
-  const patches = [{ machine: MACHINES.find((m) => m.symbol === "REV"), percent: 10 }];
+  const patches = [{ machine: MACHINES.find((m) => m.symbol === "REV"), percent: 10, locked: false }];
   const patchPanel = document.getElementById("patch-panel");
   const patchSearch = document.getElementById("patch-search");
   const patchResults = document.getElementById("patch-results");
@@ -364,11 +366,20 @@
       showEff();
       pct.addEventListener("input", showEff);
       cutSel.addEventListener("change", showEff);
+      const lockWrap = document.createElement("label");
+      lockWrap.className = "lock";
+      const lock = document.createElement("input");
+      lock.type = "checkbox";
+      lock.checked = !!p.locked;
+      lock.addEventListener("change", () => { p.locked = lock.checked; });
+      lockWrap.appendChild(lock);
+      lockWrap.appendChild(document.createTextNode("lock forever"));
       const rm = document.createElement("button");
       rm.type = "button"; rm.className = "linkbtn"; rm.textContent = "unplug";
       rm.addEventListener("click", () => { patches.splice(idx, 1); renderPatches(); });
       row.appendChild(pctWrap);
       row.appendChild(eff);
+      row.appendChild(lockWrap);
       row.appendChild(rm);
       patchList.appendChild(row);
     });
@@ -389,7 +400,7 @@
         row.className = "hit";
         row.innerHTML = infoBlock(m);
         row.addEventListener("click", () => {
-          patches.push({ machine: m, percent: 10 });
+          patches.push({ machine: m, percent: 10, locked: false });
           patchSearch.value = "";
           patchResults.innerHTML = "";
           renderPatches();
@@ -419,9 +430,11 @@
       // Patch: a slice of the keep split routed to another JB project. Per-chain
       // project IDs differ, so we carry the whole map and the launch call bakes
       // the right ID into each chain's split.
-      patches: patches.map((p) => ({
+      // Routes map to TelligenceRoute[]: beneficiary is ALWAYS the machine's
+      // address (hardcoded in the contract); locked => lockedUntil = uint48 max.
+      routes: patches.map((p) => ({
         name: p.machine.name, symbol: p.machine.symbol, projectIds: p.machine.ids,
-        percentOfKeep: p.percent,
+        percentOfKeep: p.percent, locked: p.locked,
       })),
       // TelligenceDoubling enum: 0 = DAILY, 1 = WEEKLY, 2 = MONTHLY, 3 = QUARTERLY
       doubling: { "1d": 0, "1w": 1, "1m": 2, "3m": 3 }[doublingKey],

@@ -14,7 +14,8 @@ import {
     TelligenceDeployer,
     TelligenceDoubling,
     TelligenceKeep,
-    TelligenceMachine
+    TelligenceMachine,
+    TelligenceRoute
 } from "../src/TelligenceDeployer.sol";
 
 contract MockREVDeployer is IREVDeployerMinimal {
@@ -64,7 +65,8 @@ contract TelligenceDeployerTest is Test {
             keep: keep,
             doubling: doubling,
             startsAtOrAfter: uint48(1_800_000_000),
-            salt: bytes32("salt")
+            salt: bytes32("salt"),
+            routes: new TelligenceRoute[](0)
         });
     }
 
@@ -108,6 +110,35 @@ contract TelligenceDeployerTest is Test {
         assertEq(deployer.doublingSeconds(TelligenceDoubling.WEEKLY), 7 days);
         assertEq(deployer.doublingSeconds(TelligenceDoubling.MONTHLY), 30 days);
         assertEq(deployer.doublingSeconds(TelligenceDoubling.QUARTERLY), 90 days);
+    }
+
+    function test_routesSplitTheKeepWithMachineAsBeneficiary() public view {
+        TelligenceMachine memory m = _machine(TelligenceKeep.STANDARD, TelligenceDoubling.WEEKLY);
+        m.routes = new TelligenceRoute[](2);
+        m.routes[0] = TelligenceRoute({projectId: 3, percentOfKeep: 10, locked: true});
+        m.routes[1] = TelligenceRoute({projectId: 4, percentOfKeep: 25, locked: false});
+        REVConfig memory config = deployer.houseConfig(m);
+
+        assertEq(config.stageConfigurations[0].splits.length, 3);
+        assertEq(config.stageConfigurations[0].splits[0].projectId, 3);
+        assertEq(config.stageConfigurations[0].splits[0].percent, uint32(uint256(JBConstants.SPLITS_TOTAL_PERCENT) * 10 / 100));
+        assertEq(config.stageConfigurations[0].splits[0].beneficiary, machineAddress);
+        assertEq(config.stageConfigurations[0].splits[0].lockedUntil, type(uint48).max);
+        assertEq(config.stageConfigurations[0].splits[1].projectId, 4);
+        assertEq(config.stageConfigurations[0].splits[1].lockedUntil, 0);
+        assertEq(config.stageConfigurations[0].splits[1].beneficiary, machineAddress);
+        assertEq(config.stageConfigurations[0].splits[2].projectId, 0);
+        assertEq(config.stageConfigurations[0].splits[2].percent, uint32(uint256(JBConstants.SPLITS_TOTAL_PERCENT) * 65 / 100));
+        assertEq(config.stageConfigurations[0].splits[2].beneficiary, machineAddress);
+    }
+
+    function test_revertsWhenRoutesExceedKeep() public {
+        TelligenceMachine memory m = _machine(TelligenceKeep.STANDARD, TelligenceDoubling.WEEKLY);
+        m.routes = new TelligenceRoute[](2);
+        m.routes[0] = TelligenceRoute({projectId: 3, percentOfKeep: 60, locked: false});
+        m.routes[1] = TelligenceRoute({projectId: 4, percentOfKeep: 41, locked: false});
+        vm.expectRevert(abi.encodeWithSelector(TelligenceDeployer.TelligenceDeployer_RoutesExceedKeep.selector, 101));
+        deployer.houseConfig(m);
     }
 
     function test_revertsOnBadInputs() public {

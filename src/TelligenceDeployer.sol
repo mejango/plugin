@@ -42,6 +42,17 @@ enum TelligenceDoubling {
     QUARTERLY
 }
 
+/// @notice A slice of the keep routed to another Juicebox project on this chain.
+/// @dev The frontend resolves the per-chain twin ID for omnichain projects; each chain's deployment carries its own.
+/// @custom:member projectId The local-chain ID of the project this route pays.
+/// @custom:member percentOfKeep How much of the keep flows there, out of 100.
+/// @custom:member locked If true, the route is locked forever — no operator can ever repoint or remove it.
+struct TelligenceRoute {
+    uint64 projectId;
+    uint16 percentOfKeep;
+    bool locked;
+}
+
 /// @notice A machine, as its entrepreneur describes it: identity, the address that runs it, and its two dials.
 /// @custom:member name The machine's name.
 /// @custom:member id The machine's ID — its token's ticker.
@@ -53,6 +64,8 @@ enum TelligenceDoubling {
 /// deploys to — it feeds the deterministic config hash — so the frontend picks one value (~10 minutes out, giving
 /// every chain time to resolve) and passes it to each chain's deployment.
 /// @custom:member salt Deployment salt — same machine + salt across chains gives matching addresses.
+/// @custom:member routes Slices of the keep routed to other projects. The machine's address is always the
+/// beneficiary of every route — whatever tokens the routed project mints come back to the machine.
 struct TelligenceMachine {
     string name;
     string id;
@@ -62,6 +75,7 @@ struct TelligenceMachine {
     TelligenceDoubling doubling;
     uint48 startsAtOrAfter;
     bytes32 salt;
+    TelligenceRoute[] routes;
 }
 
 /// @notice Starts telligence machines: revnets reduced to the two configs a machine sets — its keep and how fast its
@@ -72,6 +86,7 @@ struct TelligenceMachine {
 contract TelligenceDeployer {
     error TelligenceDeployer_NoMachine();
     error TelligenceDeployer_NoStartTime();
+    error TelligenceDeployer_RoutesExceedKeep(uint256 totalPercent);
 
     /// @notice Cashing out pays a 30% tax that stays behind with the holders who stay.
     uint16 public constant CASH_OUT_TAX_RATE = 3000;
@@ -129,10 +144,27 @@ contract TelligenceDeployer {
         if (machine.machine == address(0)) revert TelligenceDeployer_NoMachine();
         if (machine.startsAtOrAfter == 0) revert TelligenceDeployer_NoStartTime();
 
-        // The machine takes its whole keep.
-        JBSplit[] memory splits = new JBSplit[](1);
-        splits[0] = JBSplit({
-            percent: JBConstants.SPLITS_TOTAL_PERCENT,
+        // The keep splits between the machine and its routes. The machine's address is
+        // ALWAYS the beneficiary — routed projects mint their tokens back to the machine.
+        uint256 numberOfRoutes = machine.routes.length;
+        JBSplit[] memory splits = new JBSplit[](numberOfRoutes + 1);
+        uint256 routedPercent;
+        for (uint256 i; i < numberOfRoutes; i++) {
+            TelligenceRoute calldata route = machine.routes[i];
+            routedPercent += route.percentOfKeep;
+            splits[i] = JBSplit({
+                percent: uint32((uint256(JBConstants.SPLITS_TOTAL_PERCENT) * route.percentOfKeep) / 100),
+                projectId: route.projectId,
+                beneficiary: machine.machine,
+                preferAddToBalance: false,
+                lockedUntil: route.locked ? type(uint48).max : 0,
+                hook: IJBSplitHook(address(0))
+            });
+        }
+        if (routedPercent > 100) revert TelligenceDeployer_RoutesExceedKeep(routedPercent);
+        // The machine takes whatever the routes leave behind.
+        splits[numberOfRoutes] = JBSplit({
+            percent: uint32(JBConstants.SPLITS_TOTAL_PERCENT - (uint256(JBConstants.SPLITS_TOTAL_PERCENT) * routedPercent) / 100),
             projectId: 0,
             beneficiary: machine.machine,
             preferAddToBalance: false,
