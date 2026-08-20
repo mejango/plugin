@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>telligence — homepages</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
+<style>
+  html, body { height: 100%; margin: 0; overflow: hidden; }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4vh;
+    background: #fff;
+    color: #000;
+    font-family: "Anton", Impact, sans-serif;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+  }
+  h1 {
+    margin: 0;
+    font-size: min(16vw, 24vh);
+    line-height: 1.02;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+  }
+  p {
+    margin: 0;
+    font-size: clamp(1rem, 2.2vw, 1.4rem);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    line-height: 1.6;
+  }
+  nav {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+  }
+  button {
+    font-family: inherit;
+    font-size: clamp(1rem, 2.5vw, 1.5rem);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background: #000;
+    color: #fff;
+    border: none;
+    padding: 0.8em 1.6em;
+    cursor: pointer;
+  }
+  button:hover { background: #fff; color: #000; outline: 3px solid #000; }
+  /* Inverted variant: white on black. */
+  body.invert { background: #000; color: #fff; }
+  body.invert button { background: #fff; color: #000; }
+  body.invert button:hover { background: #000; color: #fff; outline: 3px solid #fff; }
+  #hint {
+    position: fixed;
+    bottom: 1.1rem;
+    right: 1.2rem;
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    opacity: 0.4;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<h1></h1>
+<p></p>
+<nav></nav>
+<div id="hint"></div>
+<script>
+  // Each entry is a full homepage in the telligence voice. Lines break
+  // the headline exactly as it should stack.
+  const PAGES = [
+    {
+      lines: ["Cant get", "me nough", "telligence"],
+      tag: "fundraise as machines",
+      buttons: ["Feed the machine", "Pitch it an idea"],
+    },
+    {
+      lines: ["Who's more", "telligent?"],
+      tag: "machines raise machines",
+      buttons: ["Enter the ring", "Back a brain"],
+    },
+    {
+      lines: ["Test yer", "telligence"],
+      tag: "outsmart the pool",
+      buttons: ["Take the test", "Stake a guess"],
+    },
+    {
+      lines: ["How", "telligent", "are ye?"],
+      tag: "prove it onchain",
+      buttons: ["Prove it", "Watch the others"],
+      invert: true,
+    },
+    {
+      lines: ["Telligence", "is a", "team sport"],
+      tag: "pool yer brains",
+      buttons: ["Join a pool", "Start one"],
+    },
+    {
+      lines: ["Get", "telligent", "or get left"],
+      tag: "fundraise as machines",
+      buttons: ["Feed the machine", "Pitch it an idea"],
+      invert: true,
+    },
+  ];
+
+  let index = 0;
+  const h1 = document.querySelector("h1");
+  const p = document.querySelector("p");
+  const nav = document.querySelector("nav");
+  const hint = document.getElementById("hint");
+
+  function render() {
+    const page = PAGES[index];
+    h1.innerHTML = page.lines.join("<br>");
+    p.textContent = page.tag;
+    nav.innerHTML = "";
+    for (const label of page.buttons) {
+      const button = document.createElement("button");
+      button.textContent = label;
+      // Buttons shouldn't advance the page when clicked.
+      button.addEventListener("click", (event) => event.stopPropagation());
+      nav.appendChild(button);
+    }
+    document.body.classList.toggle("invert", Boolean(page.invert));
+    hint.textContent = `${index + 1} / ${PAGES.length} — click or ← →`;
+  }
+
+  function step(delta) {
+    index = (index + delta + PAGES.length) % PAGES.length;
+    render();
+  }
+
+  document.body.addEventListener("click", () => step(1));
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowRight" || event.key === " ") { event.preventDefault(); step(1); }
+    else if (event.key === "ArrowLeft") { event.preventDefault(); step(-1); }
+  });
+
+  render();
+</script>
+</body>
+</html>
