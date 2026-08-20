@@ -706,11 +706,13 @@
   canvas.addEventListener("pointerdown", (e) => {
     const x = e.clientX * dpr, y = e.clientY * dpr;
     if (drag) {
-      // holding one end and clicking the cord's other plug: carry both
+      // holding one end and clicking the cord's other plug: carry both.
+      // Check the other end directly — the held plug rides the cursor and
+      // would otherwise win every hit test.
       if (drag.ends.length === 1) {
-        const hit = plugAt(x, y);
         const otherEnd = drag.ends[0] === "a" ? "b" : "a";
-        if (hit && hit.cable === drag.cable && hit.end === otherEnd) {
+        const op = drag.cable.pts[otherEnd === "a" ? 0 : N - 1];
+        if (Math.hypot(op.x - x, op.y - y) < GRAB()) {
           liftEnd(drag.cable, otherEnd);
           drag.ends.push(otherEnd);
           return;
