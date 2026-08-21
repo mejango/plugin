@@ -1,5 +1,11 @@
+# Anchored to the repo root: these are the Foundry tree's build dirs. Unanchored
+# patterns match at ANY depth — a bare `lib/` silently swallowed web/src/lib.
+/lib/
+/out/
+/cache/
+/broadcast/
+/deployments-local/
+
+# These are correct to ignore anywhere they appear.
 node_modules/
-out/
-cache/
-lib/
 __pycache__/
