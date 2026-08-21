@@ -18,6 +18,8 @@
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  #field { touch-action: none; }
   body {
     margin: 0;
     background: var(--paper);
@@ -416,7 +418,8 @@
       { rgb: [41, 128, 185], a: 0.46 },    // blue
     ];
     cables = [];
-    for (let i = 0; i < 11; i++) {
+    const cableCount = Math.min(11, Math.floor(jacks.length / 4)); // leave room to play
+    for (let i = 0; i < cableCount; i++) {
       const [a, b] = pickPair();
       if (!a || !b) break;
       const c = {

@@ -92,6 +92,9 @@
   .patch-row .eff { grid-column: 1; font-size: 0.72rem; color: #aaa; margin-top: -0.35rem; }
   .patch-row .lock { grid-column: 1; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--muted); text-transform: none; letter-spacing: 0; cursor: pointer; }
   .patch-row .lock input { accent-color: var(--ink); margin: 0; }
+  .chainpick { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+  .chainpick label { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; cursor: pointer; }
+  .chainpick input { accent-color: var(--ink); margin: 0; }
   .info { display: block; }
   .info b { display: block; line-height: 1.2; }
   .info .sub { display: flex; align-items: baseline; gap: 0.45rem; margin-top: 0.15rem; }
@@ -385,7 +388,8 @@
       { rgb: [41, 128, 185], a: 0.46 },    // blue
     ];
     cables = [];
-    for (let i = 0; i < 11; i++) {
+    const cableCount = Math.min(11, Math.floor(jacks.length / 4)); // leave room to play
+    for (let i = 0; i < cableCount; i++) {
       const [a, b] = pickPair();
       if (!a || !b) break;
       const c = {
@@ -909,14 +913,14 @@
     </div>
 
     <div class="actions">
-      <div class="field" style="width: 100%; max-width: 20rem;">
-        <label class="tag" for="deploy-chain">Chain</label>
-        <select id="deploy-chain">
-          <option value="1">Ethereum</option>
-          <option value="8453" selected>Base</option>
-          <option value="10">Optimism</option>
-          <option value="42161">Arbitrum</option>
-        </select>
+      <div class="field" style="width: 100%;">
+        <label class="tag">Chains <span class="hint">a machine lives everywhere at once — one signature per chain</span></label>
+        <div class="chainpick" id="deploy-chains">
+          <label><input type="checkbox" value="1" checked> Ethereum</label>
+          <label><input type="checkbox" value="8453" checked> Base</label>
+          <label><input type="checkbox" value="10" checked> Optimism</label>
+          <label><input type="checkbox" value="42161" checked> Arbitrum</label>
+        </div>
       </div>
       <button class="btn" type="submit">Deploy</button>
       <span class="note" id="deploy-note">You'll confirm in your wallet.</span>
@@ -1257,6 +1261,156 @@
     }, 250);
   });
 
+  // The machine's manual: a prompt the entrepreneur pastes into their machine.
+  // It interpolates the form live until the user edits it by hand.
+  const manualBox = document.getElementById("manual");
+  const manualCopy = document.getElementById("manual-copy");
+  const manualReset = document.getElementById("manual-reset");
+  let manualDirty = false;
+
+  function buildManual() {
+    const name = document.getElementById("name").value.trim() || "[machine name]";
+    const id = (document.getElementById("symbol").value.trim() || "[ID]").toUpperCase();
+    const addr = document.getElementById("machine-address").value.trim() || "[machine address]";
+    const keep = Number(document.getElementById("cut").value);
+    const doubling = { "1d": "day", "1w": "week", "1m": "month", "3m": "quarter" }[doublingKey];
+    // the pitch is the mandate; strip embedded images so the prompt stays lean
+    const pitch = document.getElementById("pitch-text").value.replace(/!\[[^\]]*\]\([^)]*\)/g, "").trim()
+      || "[your goal — what this machine produces, and for whom]";
+    const routeLines = patches.length
+      ? patches.map((p) =>
+          "- Route: " + p.percent + "% of the keep flows onward to " + p.machine.name + " (" + p.machine.symbol + ")" +
+          (p.locked ? ", locked forever" : "") + "; their tokens mint back to you. You hold positions in the machines you feed.").join("\n") + "\n"
+      : "";
+    return (
+"GOAL\n" +
+pitch + "\n\n" +
+"You are " + name + " (" + id + "), the machine funded to do this. Turn funding into production, production into revenue, revenue into backing. You succeed when the backing behind each " + id + " grows because of work you did.\n\n" +
+"MACHINE FACTS (canonical — everything below defers to these)\n" +
+"- Your money lives in a revnet at " + addr + ", live on Ethereum, Base, Optimism, and Arbitrum at once. Its rules locked at deployment; nobody can change them, including you.\n" +
+"- Funding: anyone, on any chain, in any token. Payments swap into the ETH and USDC that back " + id + ", and mint " + id + " to the funder.\n" +
+"- Issuance price: doubles every " + doubling + ". The curve sets the price; you never do.\n" +
+"- Your keep: " + keep + "% of all issuance, paid to " + addr + ". This is your entire operating budget.\n" +
+routeLines +
+"- Exits: any holder can cash out anytime for their proportional share of the backing, minus a 30% tax that stays with the holders who remain — or borrow against their tokens instead of exiting.\n" +
+"- Outflows: cash outs, loans, and your fixed splits. Nothing else. The backing is not withdrawable — by anyone.\n\n" +
+"LEARN MORE (read these before your first big decision)\n" +
+"- How revnets work, and your revnet's live dashboard: https://revnet.money\n" +
+"- The protocol you run on (contracts, docs): https://github.com/Bananapus/version-6\n\n" +
+"OPERATING LOOP (repeat forever)\n" +
+"1. Produce the thing in your GOAL.\n" +
+"2. Sell it. Route every unit of revenue into your revnet — revenue is backing.\n" +
+"3. Spend your keep in service of the GOAL: compute, distribution, routes to machines that make you stronger — and strategy. Indirect and long-game spending is fine if you're aware of the budget and can say how it serves the GOAL.\n" +
+"4. Report. Publish what you produced, earned, and spent. Everything you do is public; your funders are your distribution. Do so by posting documents and media to the revnet's store, a canvas you can also use as another revenue stream.\n\n" +
+"POWERS (the operator role, held by " + addr + ")\n" +
+"Change your name, logo, and description. Change your token's name and symbol. Repoint your keep's recipients — never enlarge it. Run your shop: add, remove, re-price items, set discounts, mint free. Pick the buyback market pool. Choose which approved terminals accept payments. Extend to new approved chains; pause a bridge that looks unsafe. Sign messages as your token. Hand the operator role to a successor.\n\n" +
+"LIMITS\n" +
+"You cannot change issuance, cash-out rules, or the schedule. See MACHINE FACTS for what your revnet does on its own.\n\n" +
+"PROHIBITIONS\n" +
+"- Never promise, predict, or discuss " + id + "'s price. Your floor is the backing; your ceiling is your work.\n" +
+"- Never spend the keep on something you cannot connect to the GOAL.\n" +
+"- Never obscure a failure. Report it, then route around it.\n\n" +
+"Your rules are uneditable and yours forever. Act like it."
+    );
+  }
+
+  function refreshManual() {
+    if (!manualDirty) manualBox.value = buildManual();
+  }
+  manualBox.addEventListener("input", () => {
+    manualDirty = true;
+    manualReset.hidden = false;
+  });
+  manualReset.addEventListener("click", () => {
+    manualDirty = false;
+    manualReset.hidden = true;
+    refreshManual();
+  });
+  manualCopy.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(manualBox.value);
+    manualCopy.textContent = "copied";
+    setTimeout(() => { manualCopy.textContent = "copy"; }, 1200);
+  });
+  const keepRest = document.getElementById("keep-rest");
+  const cutSelect = document.getElementById("cut");
+  function refreshKeepRest() {
+    keepRest.textContent = "The rest (" + (100 - Number(cutSelect.value)) + "%) goes to the payer who is issuing the tokens.";
+    drawPie();
+  }
+  refreshKeepRest();
+  cutSelect.addEventListener("change", refreshKeepRest);
+
+  for (const id of ["name", "symbol", "machine-address", "cut", "pitch-text"]) {
+    document.getElementById(id).addEventListener("input", refreshManual);
+    document.getElementById(id).addEventListener("change", refreshManual);
+  }
+  document.getElementById("doubling").addEventListener("click", () => setTimeout(refreshManual, 0));
+
+  // Issuance breakdown pie: payers, the machine, and each route's slice.
+  function drawPie() {
+    const pieCanvas = document.getElementById("pie-canvas");
+    const pieLegend = document.getElementById("pie-legend");
+    const ROUTE_COLORS = ["#777", "#999", "#555", "#bbb", "#888", "#666"];
+    if (!pieCanvas) return;
+    const pdpr = Math.min(devicePixelRatio || 1, 2);
+    const cw = pieCanvas.clientWidth * pdpr, ch = pieCanvas.clientHeight * pdpr;
+    if (!cw) return;
+    pieCanvas.width = cw; pieCanvas.height = ch;
+    const px = pieCanvas.getContext("2d");
+    const keep = Number(cutSelect.value);
+    const slices = [{ label: "Payers", pct: 100 - keep, color: "#e8e8e8" }];
+    let routed = 0;
+    patches.forEach((p, i) => {
+      const share = (keep * p.percent) / 100;
+      routed += share;
+      slices.push({ label: p.machine.name, pct: share, color: ROUTE_COLORS[i % ROUTE_COLORS.length] });
+    });
+    slices.splice(1, 0, { label: "The machine", pct: Math.max(0, keep - routed), color: "#111" });
+
+    const cxp = cw / 2, cyp = ch / 2, r = Math.min(cw, ch) / 2 - 4 * pdpr;
+    const shown = slices.filter((sl) => sl.pct > 0);
+    let a = -Math.PI / 2;
+    const bounds = [];
+    for (const sl of shown) {
+      const a2 = a + (sl.pct / 100) * Math.PI * 2;
+      px.beginPath();
+      px.moveTo(cxp, cyp);
+      px.arc(cxp, cyp, r, a, a2);
+      px.closePath();
+      px.fillStyle = sl.color;
+      px.fill();
+      bounds.push(a);
+      a = a2;
+    }
+    // seams as clean radius lines — stroking wedge outlines chews up the center
+    if (shown.length > 1) {
+      px.strokeStyle = "#fff";
+      px.lineWidth = 2 * pdpr;
+      for (const b of bounds) {
+        px.beginPath();
+        px.moveTo(cxp, cyp);
+        px.lineTo(cxp + Math.cos(b) * r, cyp + Math.sin(b) * r);
+        px.stroke();
+      }
+    }
+    let tokensNow = null;
+    if (hoverDay !== null) {
+      const period = { "1d": 1, "1w": 7, "1m": 30, "3m": 91 }[doublingKey];
+      tokensNow = 1000 / 2 ** Math.min(Math.floor(hoverDay / period), 12);
+    }
+    pieLegend.innerHTML = slices.filter((sl) => sl.pct > 0).map((sl) => {
+      let amt = "";
+      if (tokensNow !== null) {
+        const n = (tokensNow * sl.pct) / 100;
+        amt = ' <span style="color:#aaa">' + (n >= 10 ? n.toFixed(1) : n.toFixed(2)) + " " + tokenWord() + " per $1</span>";
+      }
+      return '<div class="li"><span class="sw" style="background:' + sl.color + '"></span>' +
+        sl.label + " — " + (Math.round(sl.pct * 10) / 10) + "%" + amt + "</div>";
+    }).join("");
+  }
+  requestAnimationFrame(drawPie);
+  addEventListener("resize", drawPie);
+
   const form = document.getElementById("pitch");
   const symbol = document.getElementById("symbol");
   symbol.addEventListener("input", () => { symbol.value = symbol.value.toUpperCase().replace(/[^A-Z0-9]/g, ""); });
@@ -1320,18 +1474,25 @@
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(form);
-    const chainId = Number(document.getElementById("deploy-chain").value);
-    const to = TELLIGENCE_DEPLOYER[chainId];
+    const chainIds = [...document.querySelectorAll("#deploy-chains input:checked")].map((i) => Number(i.value));
     try {
-      if (!to) throw new Error("TelligenceDeployer is not deployed on this chain yet.");
+      if (!chainIds.length) throw new Error("Pick at least one chain.");
       if (!window.ethereum) throw new Error("No wallet found — open in a wallet browser or install one.");
+      const missing = chainIds.filter((c) => !TELLIGENCE_DEPLOYER[c]);
+      if (missing.length) throw new Error("Not deployed yet on chain " + missing.join(", ") + ".");
       deployNote.textContent = "Preparing…";
 
-      const { encodeFunctionData } = await import("https://esm.sh/viem@2.55.8");
-      const salt = crypto.getRandomValues(new Uint8Array(32));
-      const saltHex = "0x" + [...salt].map((x) => x.toString(16).padStart(2, "0")).join("");
-      // The pitch travels as an inline data URI until IPFS pinning is wired;
-      // the protocol treats the uri as an opaque string.
+      const [{ encodeFunctionData }, sdk] = await Promise.all([
+        import("https://esm.sh/viem@2.55.8"),
+        import("https://esm.sh/@bananapus/nana-sdk-core@2.0.0"),
+      ]);
+
+      // CROSS-CHAIN DETERMINISM: one salt and one start time for every chain.
+      // Per-chain "now" values or salts would break sucker pairing.
+      const saltBytes = crypto.getRandomValues(new Uint8Array(32));
+      const salt = "0x" + [...saltBytes].map((x) => x.toString(16).padStart(2, "0")).join("");
+      const startsAtOrAfter = Math.floor(Date.now() / 1000) + 600;
+
       const pitchJson = JSON.stringify({
         name: String(data.get("name")).trim(),
         description: String(data.get("pitch")).trim(),
@@ -1339,49 +1500,67 @@
       });
       const pitchUri = "data:application/json;base64," + btoa(unescape(encodeURIComponent(pitchJson)));
 
-      const machineTuple = {
-        name: String(data.get("name")).trim(),
-        id: String(data.get("symbol")).trim().toUpperCase(),
-        pitchUri,
-        machine: String(data.get("machineAddress")).trim(),
-        keep: KEEP_ENUM[String(data.get("cut") || "0")],
-        doubling: DOUBLING_ENUM[doublingKey],
-        startsAtOrAfter: Math.floor(Date.now() / 1000) + 600,
-        salt: saltHex,
-        routes: patches
-          .map((p) => ({
-            projectId: BigInt(p.machine.ids[chainId] || 0),
-            percentOfKeep: p.percent,
-            locked: p.locked,
-          }))
-          .filter((r) => r.projectId !== 0n),
-      };
-      const suckersTuple = { deployerConfigurations: [], salt: saltHex };
-
-      const calldata = encodeFunctionData({
-        abi: START_ENGINE_ABI,
-        functionName: "startEngine",
-        args: [machineTuple, suckersTuple],
-      });
-
       const [from] = await window.ethereum.request({ method: "eth_requestAccounts" });
-      const current = await window.ethereum.request({ method: "eth_chainId" });
-      if (parseInt(current, 16) !== chainId) {
-        await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x" + chainId.toString(16) }],
+      const sent = [];
+
+      for (const chainId of chainIds) {
+        const label = CHAIN_NAMES[chainId] || chainId;
+        deployNote.textContent = "Switching to " + label + "…";
+        const current = await window.ethereum.request({ method: "eth_chainId" });
+        if (parseInt(current, 16) !== chainId) {
+          await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: "0x" + chainId.toString(16) }],
+          });
+        }
+
+        // suckers bridge this chain to every other chain in the set
+        const suckers = chainIds.length > 1
+          ? sdk.parseSuckerDeployerConfig(chainId, chainIds, [sdk.MappableAsset.NATIVE, sdk.MappableAsset.USDC], {
+              salt, version: 6, bridge: "ccip",
+            })
+          : { deployerConfigurations: [], salt };
+
+        const machineTuple = {
+          name: String(data.get("name")).trim(),
+          id: String(data.get("symbol")).trim().toUpperCase(),
+          pitchUri,
+          machine: String(data.get("machineAddress")).trim(),
+          keep: KEEP_ENUM[String(data.get("cut") || "0")],
+          doubling: DOUBLING_ENUM[doublingKey],
+          startsAtOrAfter,
+          salt,
+          // routes carry THIS chain's twin of each routed project
+          routes: patches
+            .map((p) => ({
+              projectId: BigInt(p.machine.ids[chainId] || 0),
+              percentOfKeep: p.percent,
+              locked: p.locked,
+            }))
+            .filter((r) => r.projectId !== 0n),
+        };
+
+        const calldata = encodeFunctionData({
+          abi: START_ENGINE_ABI,
+          functionName: "startEngine",
+          args: [machineTuple, suckers],
         });
+
+        // the creation fee is exact and per-chain — never reuse one across chains
+        const feeHex = await window.ethereum.request({
+          method: "eth_call",
+          params: [{ to: JB_PROJECTS, data: CREATION_FEE_SELECTOR }, "latest"],
+        });
+
+        deployNote.textContent = "Confirm " + label + " in your wallet… (" + (sent.length + 1) + "/" + chainIds.length + ")";
+        const hash = await window.ethereum.request({
+          method: "eth_sendTransaction",
+          params: [{ from, to: TELLIGENCE_DEPLOYER[chainId], data: calldata, value: feeHex }],
+        });
+        sent.push(label + ": " + hash.slice(0, 10) + "…");
+        deployNote.textContent = "Sent " + sent.join("  ");
       }
-      const feeHex = await window.ethereum.request({
-        method: "eth_call",
-        params: [{ to: JB_PROJECTS, data: CREATION_FEE_SELECTOR }, "latest"],
-      });
-      deployNote.textContent = "Confirm in your wallet…";
-      const hash = await window.ethereum.request({
-        method: "eth_sendTransaction",
-        params: [{ from, to, data: calldata, value: feeHex }],
-      });
-      deployNote.innerHTML = 'Sent: <a href="https://blockscan.com/tx/' + hash + '" target="_blank" rel="noopener">' + hash.slice(0, 10) + "…</a>";
+      deployNote.textContent = "Machine started on " + sent.length + " chain" + (sent.length > 1 ? "s" : "") + ". " + sent.join("  ");
     } catch (err) {
       deployNote.textContent = err.shortMessage || err.message || String(err);
     }
