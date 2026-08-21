@@ -136,6 +136,11 @@
   .segmented button:first-child { border-left: none; }
   .segmented button.on { background: var(--ink); color: var(--paper); }
   .segmented button:hover:not(.on) { background: #f0f0f0; }
+  @media (max-width: 620px) {
+    .actions { align-items: stretch; }
+    .actions .btn { width: 100%; text-align: center; }
+    .actions .note { text-align: center; }
+  }
   @media (max-width: 620px) { .segmented { grid-template-columns: repeat(2, 1fr); } .segmented button:nth-child(3) { border-left: none; } .segmented button:nth-child(3), .segmented button:nth-child(4) { border-top: 2px solid var(--ink); } }
 
 
@@ -149,7 +154,7 @@
   .rules li div > b { display: block; text-transform: uppercase; letter-spacing: 0.01em; margin-bottom: 0.25rem; }
   .rules li span { display: block; color: var(--muted); font-size: 0.95rem; }
 
-  .actions { display: flex; flex-direction: column; align-items: flex-start; gap: 0.7rem; }
+  .actions { display: flex; flex-direction: column; align-items: flex-end; gap: 0.7rem; }
   .btn {
     font-family: "Anton", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.03em;
     font-size: clamp(1.1rem, 2.4vw, 1.5rem);
@@ -793,7 +798,7 @@
 </script>
 
 <header class="bar">
-  <a class="back" href="home.html">← back</a>
+  <a class="back" href="./">← back</a>
 </header>
 
 <main>
