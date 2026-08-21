@@ -9,3 +9,6 @@
 # These are correct to ignore anywhere they appear.
 node_modules/
 __pycache__/
+
+# incremental typecheck cache
+*.tsbuildinfo

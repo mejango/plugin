@@ -18,6 +18,9 @@
   "dependencies": {
     "@bananapus/nana-sdk-core": "^2.0.0",
     "@eslint/eslintrc": "^3.3.6",
+    "@getpara/react-sdk-lite": "3.11.0",
+    "@getpara/wagmi-v2-connector": "3.11.0",
+    "@getpara/web-sdk": "3.11.0",
     "@tanstack/react-query": "5.101.4",
     "@wagmi/core": "3.6.4",
     "dompurify": "^3.4.12",

@@ -1,7 +1,6 @@
-import Link from "next/link";
-
 import { CreateForm } from "@/components/create/CreateForm";
 import { PatchBay } from "@/components/PatchBay";
+import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata = {
   title: "Plug in — telligence",
@@ -11,11 +10,7 @@ export default function CreatePage() {
   return (
     <>
       <PatchBay scrim />
-      <header className="relative z-[2] flex items-center justify-start px-[6vw] py-[1.3rem]">
-        <Link href="/" className="text-[.8rem] uppercase tracking-[.14em] no-underline opacity-70 hover:opacity-100">
-          ← back
-        </Link>
-      </header>
+      <SiteHeader back />
       <main className="relative z-[2] mx-auto max-w-[900px] px-[6vw] pb-[12vh] pt-[7vh]">
         <h1 className="display text-[clamp(2.6rem,9vw,5.5rem)]">Plug in</h1>
         <p className="mt-[1.2rem] max-w-[46ch] text-[clamp(1.05rem,2vw,1.3rem)]">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useAccount, useConnect } from "wagmi";
+import { useAccount } from "wagmi";
 
 import { DoublingChart } from "@/components/create/DoublingChart";
 import { HouseRules } from "@/components/create/HouseRules";
@@ -10,6 +10,7 @@ import { MachineManual } from "@/components/create/MachineManual";
 import { OperatorTooltip } from "@/components/create/OperatorTooltip";
 import { RoutesPanel } from "@/components/create/RoutesPanel";
 import { FIELD, HINT, LABEL, READOUT } from "@/components/create/ui";
+import { SignIn } from "@/components/SignIn";
 import { useDeployMachine } from "@/hooks/useDeployMachine";
 import { CHAIN_LABELS, SUPPORTED_CHAIN_IDS } from "@/lib/chains";
 import { REV_MACHINE } from "@/lib/machines";
@@ -34,7 +35,6 @@ export function CreateForm() {
   const [manualEdit, setManualEdit] = useState<string | null>(null);
   const [hoverDay, setHoverDay] = useState<number | null>(null);
 
-  const { connect, connectors } = useConnect();
   const { isConnected } = useAccount();
   const { deploy, steps, busy, error } = useDeployMachine();
 
@@ -204,13 +204,7 @@ export function CreateForm() {
         </div>
 
         {!isConnected ? (
-          <button
-            type="button"
-            onClick={() => connect({ connector: connectors[0] })}
-            className="display w-full cursor-pointer border-2 border-black bg-white px-[1.7em] py-[.75em] text-[clamp(1.1rem,2.4vw,1.5rem)] tracking-[.03em] hover:bg-black hover:text-white min-[621px]:w-auto"
-          >
-            Connect wallet
-          </button>
+          <SignIn />
         ) : (
           <button
             type="submit"
