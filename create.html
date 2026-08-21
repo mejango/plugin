@@ -803,6 +803,7 @@
 
 <main>
   <h1 class="display">Plug in</h1>
+  <p class="sub">Give your machine a money engine so it can fundraise, get revenue, and manage incentives between machines.</p>
 
   <form id="pitch">
     <div class="field">
@@ -976,6 +977,7 @@
     "3m": { label: "every 3 months", days: 90 },
   };
   let doublingKey = "1m";
+  let hoverDay = null;   // day 0..365 under the cursor, drives chart tooltip + pie amounts
   const doublingBox = document.getElementById("doubling");
 
   // Step chart: price to issue across a year, log2 scale, one staircase per cadence.
@@ -1028,7 +1030,52 @@
       if (dbl < MAXD) cx.lineTo(X(365), Y(dbl));
       cx.stroke();
     }
+
+    // hover: marker on the selected staircase + a values tooltip
+    if (hoverDay !== null) {
+      const period = { "1d": 1, "1w": 7, "1m": 30, "3m": 91 }[doublingKey];
+      const k = Math.min(Math.floor(hoverDay / period), MAXD);
+      const price = 0.001 * 2 ** k;
+      const tokens = 1000 / 2 ** k;
+      const hx = X(hoverDay), hy = Y(Math.min(k, MAXD));
+      cx.strokeStyle = "#bbb";
+      cx.lineWidth = 1 * cdpr;
+      cx.setLineDash([3 * cdpr, 3 * cdpr]);
+      cx.beginPath(); cx.moveTo(hx, padT); cx.lineTo(hx, ch - padB); cx.stroke();
+      cx.setLineDash([]);
+      cx.beginPath(); cx.arc(hx, hy, 3.5 * cdpr, 0, 7);
+      cx.fillStyle = "#000"; cx.fill();
+      const l1 = "month " + (hoverDay / 30.42).toFixed(1);
+      const l2 = "$" + price.toFixed(3) + ", " + (tokens >= 10 ? tokens.toFixed(1) : tokens.toFixed(2)) + " tokens per $1";
+      cx.font = 9 * cdpr + "px ui-monospace, Menlo, monospace";
+      const tw = Math.max(cx.measureText(l1).width, cx.measureText(l2).width) + 12 * cdpr;
+      const th = 30 * cdpr;
+      let bxp = hx + 10 * cdpr;
+      if (bxp + tw > cw - padR) bxp = hx - tw - 10 * cdpr;
+      const byp = Math.max(padT, Math.min(hy - th / 2, ch - padB - th));
+      cx.fillStyle = "rgba(255,255,255,0.95)";
+      cx.fillRect(bxp, byp, tw, th);
+      cx.strokeStyle = "#000";
+      cx.strokeRect(bxp, byp, tw, th);
+      cx.fillStyle = "#000";
+      cx.textAlign = "left";
+      cx.fillText(l1, bxp + 6 * cdpr, byp + 12 * cdpr);
+      cx.fillText(l2, bxp + 6 * cdpr, byp + 24 * cdpr);
+    }
   }
+
+  chartCanvas.addEventListener("pointermove", (e) => {
+    const r = chartCanvas.getBoundingClientRect();
+    const frac = (e.clientX - r.left - 52) / (r.width - 52 - 8);
+    hoverDay = Math.max(0, Math.min(365, frac * 365));
+    drawDoublingChart();
+    drawPie();
+  });
+  chartCanvas.addEventListener("pointerleave", () => {
+    hoverDay = null;
+    drawDoublingChart();
+    drawPie();
+  });
   requestAnimationFrame(drawDoublingChart);
   addEventListener("resize", drawDoublingChart);
 
@@ -1274,9 +1321,20 @@ routeLines +
         px.stroke();
       }
     }
-    pieLegend.innerHTML = slices.filter((sl) => sl.pct > 0).map((sl) =>
-      '<div class="li"><span class="sw" style="background:' + sl.color + '"></span>' +
-      sl.label + " — " + (Math.round(sl.pct * 10) / 10) + "%</div>").join("");
+    let tokensNow = null;
+    if (hoverDay !== null) {
+      const period = { "1d": 1, "1w": 7, "1m": 30, "3m": 91 }[doublingKey];
+      tokensNow = 1000 / 2 ** Math.min(Math.floor(hoverDay / period), 12);
+    }
+    pieLegend.innerHTML = slices.filter((sl) => sl.pct > 0).map((sl) => {
+      let amt = "";
+      if (tokensNow !== null) {
+        const n = (tokensNow * sl.pct) / 100;
+        amt = ' <span style="color:#aaa">' + (n >= 10 ? n.toFixed(1) : n.toFixed(2)) + " tokens per $1</span>";
+      }
+      return '<div class="li"><span class="sw" style="background:' + sl.color + '"></span>' +
+        sl.label + " — " + (Math.round(sl.pct * 10) / 10) + "%" + amt + "</div>";
+    }).join("");
   }
   requestAnimationFrame(drawPie);
   addEventListener("resize", drawPie);
