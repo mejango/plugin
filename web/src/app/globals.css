@@ -15,7 +15,7 @@ body {
 
 /* The display face carries the whole brand; loaded once, used everywhere. */
 .display {
-  font-family: "Anton", Impact, sans-serif;
+  font-family: var(--font-display), Impact, sans-serif;
   text-transform: uppercase;
   letter-spacing: 0.01em;
   line-height: 0.98;

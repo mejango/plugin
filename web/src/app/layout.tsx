@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
+import { Anton } from "next/font/google";
 
 import { Providers } from "@/app/providers";
+
+// Self-hosted by Next: no CDN round-trip, no swap flash on the one face that
+// carries the whole brand.
+const anton = Anton({ weight: "400", subsets: ["latin"], display: "swap", variable: "--font-display" });
 
 import "./globals.css";
 
@@ -15,12 +20,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet" />
-      </head>
-      <body>
+      <body className={anton.variable}>
         <Providers>{children}</Providers>
       </body>
     </html>

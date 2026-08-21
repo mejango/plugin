@@ -12,10 +12,12 @@
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit --incremental false",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run lint && npm run test"
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "gen:abi": "node scripts/gen-abi.mjs"
   },
   "dependencies": {
     "@bananapus/nana-sdk-core": "^2.0.0",
+    "@eslint/eslintrc": "^3.3.6",
     "@tanstack/react-query": "5.101.4",
     "@wagmi/core": "3.6.4",
     "dompurify": "^3.4.12",
@@ -28,6 +30,7 @@
     "wagmi": "3.7.4"
   },
   "devDependencies": {
+    "@eslint/compat": "^2.1.0",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "26.1.1",
     "@types/react": "19.2.17",
