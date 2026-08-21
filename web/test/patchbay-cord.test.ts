@@ -39,8 +39,14 @@ function run(ext: number, { frames = 2400, stiff = 0.05, fromStraight = false } 
   };
   const gEff = G * (1 - Math.min(0.25, stiff * 0.9));
   const gSub = gEff / (SUB * SUB);
+  let taut = 0;
+  if (ext > 0.92) {
+    const t = Math.min(1, (ext - 0.92) / 0.07);
+    const ramp = t * t * (3 - 2 * t);
+    taut = (ramp * ramp * 0.5) / SUB;
+  }
   const sags: number[] = [];
-  let rSum = 0, sSum = 0, tSum = 0, n = 0;
+  let rSum = 0, sSum = 0, mSum = 0, tSum = 0, n = 0;
 
   for (let f = 0; f < frames; f++) {
     for (let i = 1; i < N - 1; i++) {
@@ -66,27 +72,27 @@ function run(ext: number, { frames = 2400, stiff = 0.05, fromStraight = false } 
         }
         pin();
       }
+      if (taut > 0) {
+        for (let i = 1; i < N - 1; i++) {
+          const k2 = i / (N - 1);
+          const tx = ax + (bx - ax) * k2, ty = ay + (by - ay) * k2;
+          const pnt = pts[i], q = prev[i];
+          pnt.x += (tx - pnt.x) * taut; pnt.y += (ty - pnt.y) * taut;
+          q.x += (pnt.x - q.x) * taut; q.y += (pnt.y - q.y) * taut;
+        }
+      }
     }
     for (let i = 1; i < N - 1; i++) {
       const p = pts[i], q = prev[i];
       q.x = p.x - (p.x - q.x) * SUB; q.y = p.y - (p.y - q.y) * SUB;
     }
     relaxBendMemory(pts, prev, kink, Math.min(0.35, stiff * 3), 0.55, N);
-    if (ext > 0.88) {
-      let t2 = Math.min(1, (ext - 0.88) / 0.07);
-      t2 = t2 * t2 * (3 - 2 * t2);
-      const pull = t2 * t2 * 0.35;
-      for (let i = 1; i < N - 1; i++) {
-        const k2 = i / (N - 1);
-        const tx = ax + (bx - ax) * k2, ty = ay + (by - ay) * k2;
-        const pnt = pts[i], q = prev[i];
-        pnt.x += (tx - pnt.x) * pull; pnt.y += (ty - pnt.y) * pull;
-        q.x += (pnt.x - q.x) * pull; q.y += (pnt.y - q.y) * pull;
-      }
-    }
     sags.push(sagOf(pts, ax, ay, bx, by));
     if (f >= frames - 300) {
       rSum += arc(pts) / len;
+      let mv = 0;
+      for (let i = 1; i < N - 1; i++) mv += Math.hypot(pts[i].x - prev[i].x, pts[i].y - prev[i].y);
+      mSum += mv / (N - 2);
       sSum += sagOf(pts, ax, ay, bx, by) / len;
       tSum += tiltOf(pts, ax, ay, bx, by);
       n++;
@@ -94,7 +100,7 @@ function run(ext: number, { frames = 2400, stiff = 0.05, fromStraight = false } 
   }
   const finalSag = (sSum / n) * len;
   const fall = sags.findIndex((s) => s >= finalSag * 0.9);
-  return { ratio: rSum / n, sag: sSum / n, tilt: tSum / n, fallFrames: fall < 0 ? frames : fall };
+  return { ratio: rSum / n, sag: sSum / n, tilt: tSum / n, motion: mSum / n, fallFrames: fall < 0 ? frames : fall };
 }
 
 const EXTS = [0.2, 0.35, 0.5, 0.65, 0.8, 0.9, 0.97];
@@ -104,9 +110,11 @@ describe("cord behaviour", () => {
     // A compliant solver stretches in proportion to tension, and tension tracks
     // end separation — the cord visibly grew and shrank as an end was dragged.
     // One big step spanned 16%; four substeps bring it under 5%.
-    const ratios = EXTS.map((e) => run(e).ratio);
+    // Measured below the tension ramp, so this is the solver's own stretch and
+    // not the deliberate compression that makes a stretched cord look taut.
+    const ratios = EXTS.filter((e) => e <= 0.85).map((e) => run(e).ratio);
     const spread = Math.max(...ratios) - Math.min(...ratios);
-    expect(spread).toBeLessThan(0.05);
+    expect(spread).toBeLessThan(0.03);
   });
 
   it("still falls under gravity at the same rate", () => {
@@ -132,10 +140,22 @@ describe("cord behaviour", () => {
     expect(run(0.97).tilt).toBeLessThan(18);
   });
 
+  it("comes to rest at every extension, including mid-tension", () => {
+    // The squiggle. The tension pull used to land once a frame, at full
+    // strength, against a length solver running four times as often — they
+    // traded shoves forever, worst right where the ramp is partway in. Applying
+    // a quarter of the pull inside each substep lets them settle together.
+    for (const stiff of [0.015, 0.05, 0.09]) {
+      for (const ext of [0.9, 0.93, 0.95, 0.97]) {
+        expect(run(ext, { stiff }).motion).toBeLessThan(0.4);
+      }
+    }
+  });
+
   it("behaves the same across the stiffness range", () => {
     for (const stiff of [0.015, 0.05, 0.09]) {
-      const ratios = EXTS.map((e) => run(e, { stiff }).ratio);
-      expect(Math.max(...ratios) - Math.min(...ratios)).toBeLessThan(0.05);
+      const ratios = EXTS.filter((e) => e <= 0.85).map((e) => run(e, { stiff }).ratio);
+      expect(Math.max(...ratios) - Math.min(...ratios)).toBeLessThan(0.03);
       expect(run(0.97, { stiff }).tilt).toBeLessThan(18);
     }
   });

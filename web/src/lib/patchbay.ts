@@ -385,6 +385,20 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       // stiffness shaves a little droop, but gravity always wins
       const gEff = G * (1 - Math.min(0.25, c.stiff * 0.9));
       const gSub = gEff / (SUB * SUB);
+
+      // Tension rises smoothly with extension — no threshold, no snap — and the
+      // pull toward straight fades in over the last few percent.
+      const ext = Math.hypot(bx - ax, by - ay) / c.len;
+      let taut = 0;
+      if (ext > 0.92) {
+        const t = Math.min(1, (ext - 0.92) / 0.07);
+        const ramp = t * t * (3 - 2 * t);             // smoothstep
+        // Divided across the substeps: the pull and the length solver then
+        // settle with each other every substep instead of trading full-strength
+        // shoves once a frame, which is what set the cords squiggling. Same
+        // total authority per frame, a quarter of the residual motion.
+        taut = (ramp * ramp * 0.5) / SUB;
+      }
       // Verlet stores velocity as a displacement, so it carries the timestep:
       // to take SUB smaller steps, shrink it by SUB, and gravity by SUB squared.
       for (let i = 1; i < N - 1; i++) {
@@ -416,6 +430,18 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
           c.pts[0].x = ax; c.pts[0].y = ay;
           c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
         }
+
+        if (taut > 0) {
+          for (let i = 1; i < N - 1; i++) {
+            const k2 = i / (N - 1);
+            const tx = ax + (bx - ax) * k2, ty = ay + (by - ay) * k2;
+            const pnt = c.pts[i], q = c.prev[i];
+            pnt.x += (tx - pnt.x) * taut;
+            pnt.y += (ty - pnt.y) * taut;
+            q.x += (pnt.x - q.x) * taut;              // momentum bleeds, never zeroes
+            q.y += (pnt.y - q.y) * taut;
+          }
+        }
       }
       for (let i = 1; i < N - 1; i++) {
         const p = c.pts[i], q = c.prev[i];
@@ -425,24 +451,6 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
 
       relaxBendMemory(c.pts, c.prev, c.kinkLocal, Math.min(0.35, c.stiff * 3), BEND_DAMP, N);
 
-      // tension rises smoothly with extension — no threshold, no snap. The pull
-      // toward straight and the momentum bleed both fade in over the last third.
-      const pinDist = Math.hypot(bx - ax, by - ay);
-      const ext = pinDist / c.len;
-      if (ext > 0.88) {
-        let t2 = Math.min(1, (ext - 0.88) / 0.07);
-        t2 = t2 * t2 * (3 - 2 * t2);                  // smoothstep
-        const pull = t2 * t2 * 0.35;                  // only the last few percent firm up
-        for (let i = 1; i < N - 1; i++) {
-          const k2 = i / (N - 1);
-          const tx = ax + (bx - ax) * k2, ty = ay + (by - ay) * k2;
-          const pnt = c.pts[i], q = c.prev[i];
-          pnt.x += (tx - pnt.x) * pull;
-          pnt.y += (ty - pnt.y) * pull;
-          q.x += (pnt.x - q.x) * pull;                // momentum bleeds, never zeroes
-          q.y += (pnt.y - q.y) * pull;
-        }
-      }
 
     }
   }
