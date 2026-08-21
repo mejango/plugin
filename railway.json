@@ -3,17 +3,12 @@
   "build": {
     "builder": "NIXPACKS",
     "nixpacksPlan": {
+      "providers": [],
       "phases": {
         "setup": {
           "nixPkgs": [
             "python3"
           ]
-        },
-        "install": {
-          "cmds": []
-        },
-        "build": {
-          "cmds": []
         }
       }
     }

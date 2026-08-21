@@ -824,7 +824,6 @@
         </div>
       </div>
       <div class="field">
-        <label class="tag">Issuance breakdown <span class="hint">who gets the tokens</span></label>
         <div class="pie-wrap readout">
           <canvas id="pie-canvas"></canvas>
           <div id="pie-legend"></div>
@@ -931,7 +930,7 @@
     if (!cw) return;
     chartCanvas.width = cw; chartCanvas.height = ch;
     const cx = chartCanvas.getContext("2d");
-    const padL = 44 * cdpr, padR = 8 * cdpr, padT = 10 * cdpr, padB = 22 * cdpr;
+    const padL = 52 * cdpr, padR = 8 * cdpr, padT = 10 * cdpr, padB = 22 * cdpr;
     const plotW = cw - padL - padR, plotH = ch - padT - padB;
     const MAXD = 12;                       // top of chart: 2^12 = 4096x
     const X = (day) => padL + (day / 365) * plotW;
@@ -946,7 +945,8 @@
     for (const d of [0, 4, 8, 12]) {
       cx.beginPath(); cx.moveTo(padL, Y(d)); cx.lineTo(cw - padR, Y(d)); cx.stroke();
       cx.textAlign = "right";
-      cx.fillText((2 ** d).toLocaleString() + "x", padL - 5 * cdpr, Y(d) + 3 * cdpr);
+      // real issuance pricing: 1,000 tokens per USD at start => $0.001, doubling from there
+      cx.fillText("$" + (0.001 * 2 ** d).toFixed(3), padL - 5 * cdpr, Y(d) + 3 * cdpr);
     }
     // x labels: quarters
     for (const m of [0, 3, 6, 9, 12]) {
