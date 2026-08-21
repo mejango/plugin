@@ -24,7 +24,10 @@ const tiltOf = (p: P[], ax: number, ay: number, bx: number, by: number) => {
 };
 
 /** One cable through the real step loop: substeps, solver, bend memory, taut. */
-function run(ext: number, { frames = 2400, stiff = 0.05, fromStraight = false } = {}) {
+function run(
+  ext: number,
+  { frames = 2400, stiff = 0.05, fromStraight = false, shoveAt = -1 } = {},
+) {
   const len = 270, rest = len / (N - 1);
   const ax = 0, ay = 0, bx = len * ext, by = 0;
   const pts: P[] = [], prev: P[] = [], kink: number[] = [];
@@ -39,16 +42,20 @@ function run(ext: number, { frames = 2400, stiff = 0.05, fromStraight = false } 
   };
   const gEff = G * (1 - Math.min(0.25, stiff * 0.9));
   const gSub = gEff / (SUB * SUB);
-  let taut = 0;
+  let taut = 0, tautBleed = 0;
   if (ext > 0.92) {
     const t = Math.min(1, (ext - 0.92) / 0.07);
     const ramp = t * t * (3 - 2 * t);
-    taut = (ramp * ramp * 0.5) / SUB;
+    const tension = ramp * ramp;
+    taut = (tension * 0.5) / SUB;
+    tautBleed = tension;
   }
-  const sags: number[] = [];
+  const sags: number[] = [], midX: number[] = [];
   let rSum = 0, sSum = 0, mSum = 0, tSum = 0, n = 0;
 
   for (let f = 0; f < frames; f++) {
+    // A sideways shove, once the cord has settled, to measure the swing.
+    if (f === shoveAt) for (let i = 1; i < N - 1; i++) prev[i].x = pts[i].x - 3;
     for (let i = 1; i < N - 1; i++) {
       const p = pts[i], q = prev[i];
       q.x = p.x - (p.x - q.x) / SUB; q.y = p.y - (p.y - q.y) / SUB;
@@ -78,7 +85,7 @@ function run(ext: number, { frames = 2400, stiff = 0.05, fromStraight = false } 
           const tx = ax + (bx - ax) * k2, ty = ay + (by - ay) * k2;
           const pnt = pts[i], q = prev[i];
           pnt.x += (tx - pnt.x) * taut; pnt.y += (ty - pnt.y) * taut;
-          q.x += (pnt.x - q.x) * taut; q.y += (pnt.y - q.y) * taut;
+          q.x += (pnt.x - q.x) * tautBleed; q.y += (pnt.y - q.y) * tautBleed;
         }
       }
     }
@@ -86,8 +93,11 @@ function run(ext: number, { frames = 2400, stiff = 0.05, fromStraight = false } 
       const p = pts[i], q = prev[i];
       q.x = p.x - (p.x - q.x) * SUB; q.y = p.y - (p.y - q.y) * SUB;
     }
-    relaxBendMemory(pts, prev, kink, Math.min(0.35, stiff * 3), 0.55, N);
+    relaxBendMemory(pts, prev, kink, Math.min(0.35, stiff * 3), 0.7, N);
     sags.push(sagOf(pts, ax, ay, bx, by));
+    let sx = 0;
+    for (let i = 1; i < N - 1; i++) sx += pts[i].x;
+    midX.push(sx / (N - 2));
     if (f >= frames - 300) {
       rSum += arc(pts) / len;
       let mv = 0;
@@ -100,7 +110,21 @@ function run(ext: number, { frames = 2400, stiff = 0.05, fromStraight = false } 
   }
   const finalSag = (sSum / n) * len;
   const fall = sags.findIndex((s) => s >= finalSag * 0.9);
-  return { ratio: rSum / n, sag: sSum / n, tilt: tSum / n, motion: mSum / n, fallFrames: fall < 0 ? frames : fall };
+  let swingAmp = 0, halfCycles = 0;
+  if (shoveAt > 0) {
+    const base = midX[shoveAt - 1];
+    const after = midX.slice(shoveAt);
+    swingAmp = Math.max(...after.slice(0, 60).map((v) => Math.abs(v - base)));
+    let sign = Math.sign(after[0] - base);
+    for (let i = 1; i < Math.min(after.length, 400); i++) {
+      const sg = Math.sign(after[i] - base);
+      if (sg !== 0 && sg !== sign) { halfCycles++; sign = sg; }
+    }
+  }
+  return {
+    ratio: rSum / n, sag: sSum / n, tilt: tSum / n, motion: mSum / n,
+    fallFrames: fall < 0 ? frames : fall, swingAmp, halfCycles,
+  };
 }
 
 const EXTS = [0.2, 0.35, 0.5, 0.65, 0.8, 0.9, 0.97];
@@ -117,13 +141,18 @@ describe("cord behaviour", () => {
     expect(spread).toBeLessThan(0.03);
   });
 
-  it("still falls under gravity at the same rate", () => {
+  it("falls under gravity without stalling or snapping", () => {
     // The guard this file exists for. An earlier fix pinned length exactly by
     // rescaling the cord every frame, which made it snap into shape in 5 frames
-    // instead of falling in 22 — correct on paper, and read as broken gravity.
-    // Substepping is the same physics at a finer step, so the fall is unchanged.
+    // — correct on paper, and read as broken gravity.
+    //
+    // The window is wide on purpose. It sat at 22 frames while bend damping bled
+    // absolute velocity, which dragged on the fall as much as on the swing;
+    // damping relative velocity instead put it back near 10, which is what the
+    // gravity constant was originally tuned against. Both are fine to look at.
+    // What is not fine is either end: a snap, or a cord that never gets there.
     const fall = run(0.45, { fromStraight: true }).fallFrames;
-    expect(fall).toBeGreaterThan(15);
+    expect(fall).toBeGreaterThan(7);
     expect(fall).toBeLessThan(30);
   });
 
@@ -147,9 +176,20 @@ describe("cord behaviour", () => {
     // a quarter of the pull inside each substep lets them settle together.
     for (const stiff of [0.015, 0.05, 0.09]) {
       for (const ext of [0.9, 0.93, 0.95, 0.97]) {
-        expect(run(ext, { stiff }).motion).toBeLessThan(0.4);
+        expect(run(ext, { stiff }).motion).toBeLessThan(0.25);
       }
     }
+  });
+
+  it("swings freely when shoved sideways", () => {
+    // The guard for this one. Bend damping used to bleed a point's ABSOLUTE
+    // velocity along the bend normal — and a hanging cord's normal points
+    // sideways, so it took the swing out with the wobble: a shoved cord moved
+    // 4.5px and never oscillated once. Damping the velocity relative to the
+    // neighbours leaves bulk motion alone, because neighbours carry it too.
+    const s = run(0.45, { shoveAt: 1200 });
+    expect(s.swingAmp).toBeGreaterThan(8);
+    expect(s.halfCycles).toBeGreaterThan(10);
   });
 
   it("behaves the same across the stiffness range", () => {

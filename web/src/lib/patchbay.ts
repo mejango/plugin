@@ -51,9 +51,19 @@ export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
       prev[i + 1].x -= nx * half; prev[i + 1].y -= ny * half;
     }
 
-    const vn = (pnt.x - prev[i].x) * nx + (pnt.y - prev[i].y) * ny;
-    prev[i].x += nx * vn * bendDamp;
-    prev[i].y += ny * vn * bendDamp;
+    // Damp how fast this point is bending RELATIVE to its neighbours, not how
+    // fast it is moving. The two are the same for a zig-zag, where neighbours
+    // move opposite ways, and nothing alike for a swing, where the whole cord
+    // travels together. Damping the absolute velocity along the normal hit both
+    // — and the normal of a hanging cord points sideways, so it took the swing
+    // out entirely: a shoved cord moved 4.5px and never came back. This leaves
+    // it 10px and twenty-odd swings, with the zig-zag still dead.
+    const vx = pnt.x - prev[i].x, vy = pnt.y - prev[i].y;
+    const nbx = ((pm.x - prev[i - 1].x) + (pp.x - prev[i + 1].x)) / 2;
+    const nby = ((pm.y - prev[i - 1].y) + (pp.y - prev[i + 1].y)) / 2;
+    const rn = (vx - nbx) * nx + (vy - nby) * ny;
+    prev[i].x += nx * rn * bendDamp;
+    prev[i].y += ny * rn * bendDamp;
   }
 }
 
@@ -361,7 +371,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   function step() {
     const G = 2.3 * dpr;                // gravity ~9.8 m/s² at this pixel scale
     const DAMP = 0.992;                 // light air drag — cords fall, not float
-    const BEND_DAMP = 0.55;             // see relaxBendMemory
+    const BEND_DAMP = 0.7;              // see relaxBendMemory
     // Four smaller steps per frame rather than one big one. Six Gauss-Seidel
     // passes leave the rope compliant, so it stretched under load by an amount
     // that tracked the tension — the cord visibly grew and shrank as an end was
@@ -389,15 +399,21 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       // Tension rises smoothly with extension — no threshold, no snap — and the
       // pull toward straight fades in over the last few percent.
       const ext = Math.hypot(bx - ax, by - ay) / c.len;
-      let taut = 0;
+      let taut = 0, tautBleed = 0;
       if (ext > 0.92) {
         const t = Math.min(1, (ext - 0.92) / 0.07);
         const ramp = t * t * (3 - 2 * t);             // smoothstep
+        const tension = ramp * ramp;                  // only the last few percent firm up
         // Divided across the substeps: the pull and the length solver then
         // settle with each other every substep instead of trading full-strength
         // shoves once a frame, which is what set the cords squiggling. Same
         // total authority per frame, a quarter of the residual motion.
-        taut = (ramp * ramp * 0.5) / SUB;
+        taut = (tension * 0.5) / SUB;
+        // The bleed is NOT divided. Matching it to the pull left the last of the
+        // squiggle alive on stiff cords at full stretch — the pull kept feeding
+        // motion it was too weak to take back out. Following the tension instead
+        // means a slack cord stays free and a stretched one stops fidgeting.
+        tautBleed = tension;
       }
       // Verlet stores velocity as a displacement, so it carries the timestep:
       // to take SUB smaller steps, shrink it by SUB, and gravity by SUB squared.
@@ -438,8 +454,8 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
             const pnt = c.pts[i], q = c.prev[i];
             pnt.x += (tx - pnt.x) * taut;
             pnt.y += (ty - pnt.y) * taut;
-            q.x += (pnt.x - q.x) * taut;              // momentum bleeds, never zeroes
-            q.y += (pnt.y - q.y) * taut;
+            q.x += (pnt.x - q.x) * tautBleed;
+            q.y += (pnt.y - q.y) * tautBleed;
           }
         }
       }
