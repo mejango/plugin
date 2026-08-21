@@ -6,3 +6,4 @@ forge-std/=lib/forge-std/src/
 @prb/math/=node_modules/@prb/math/
 @uniswap/permit2/=node_modules/@uniswap/permit2/
 @chainlink/contracts/=node_modules/@chainlink/contracts/
+@bananapus/721-hook-v6/=node_modules/@bananapus/721-hook-v6/

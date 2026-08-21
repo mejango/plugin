@@ -7,6 +7,8 @@ import {JBAccountingContext} from "@bananapus/core-v6/src/structs/JBAccountingCo
 import {JBConstants} from "@bananapus/core-v6/src/libraries/JBConstants.sol";
 import {JBCurrencyIds} from "@bananapus/core-v6/src/libraries/JBCurrencyIds.sol";
 import {REVConfig} from "@rev-net/core-v6/src/structs/REVConfig.sol";
+import {REVCroptopAllowedPost} from "@rev-net/core-v6/src/structs/REVCroptopAllowedPost.sol";
+import {REVDeploy721TiersHookConfig} from "@rev-net/core-v6/src/structs/REVDeploy721TiersHookConfig.sol";
 import {REVSuckerDeploymentConfig} from "@rev-net/core-v6/src/structs/REVSuckerDeploymentConfig.sol";
 
 import {
@@ -24,16 +26,25 @@ contract MockREVDeployer is IREVDeployerMinimal {
     address public receivedOperator;
     uint256 public accountingContextCount;
 
+    uint256 public storeTierCount = type(uint256).max;
+    uint32 public storeCurrency;
+    uint8 public storeDecimals;
+
     function deployFor(
         uint256 revnetId,
         REVConfig calldata configuration,
         JBAccountingContext[] calldata accountingContextsToAccept,
-        REVSuckerDeploymentConfig calldata
+        REVSuckerDeploymentConfig calldata,
+        REVDeploy721TiersHookConfig calldata tiered721HookConfiguration,
+        REVCroptopAllowedPost[] calldata
     )
         external
         payable
         returns (uint256, address)
     {
+        storeTierCount = tiered721HookConfiguration.baseline721HookConfiguration.tiersConfig.tiers.length;
+        storeCurrency = tiered721HookConfiguration.baseline721HookConfiguration.tiersConfig.currency;
+        storeDecimals = tiered721HookConfiguration.baseline721HookConfiguration.tiersConfig.decimals;
         receivedValue = msg.value;
         receivedRevnetId = revnetId;
         receivedOperator = configuration.operator;
@@ -50,7 +61,11 @@ contract TelligenceDeployerTest is Test {
     function setUp() public {
         mock = new MockREVDeployer();
         JBAccountingContext[] memory contexts = new JBAccountingContext[](2);
-        contexts[0] = JBAccountingContext({token: JBConstants.NATIVE_TOKEN, decimals: 18, currency: JBCurrencyIds.ETH});
+        contexts[0] = JBAccountingContext({
+            token: JBConstants.NATIVE_TOKEN,
+            decimals: 18,
+            currency: uint32(uint160(JBConstants.NATIVE_TOKEN))
+        });
         contexts[1] =
             JBAccountingContext({token: address(0xdAC0), decimals: 6, currency: uint32(uint160(address(0xdAC0)))});
         deployer = new TelligenceDeployer(mock, contexts);
@@ -99,6 +114,9 @@ contract TelligenceDeployerTest is Test {
         assertEq(mock.receivedRevnetId(), 0);
         assertEq(mock.receivedOperator(), machineAddress);
         assertEq(mock.accountingContextCount(), 2);
+        assertEq(mock.storeTierCount(), 0);
+        assertEq(mock.storeCurrency(), JBCurrencyIds.USD);
+        assertEq(mock.storeDecimals(), 6);
     }
 
     function test_enumMappings() public view {

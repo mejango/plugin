@@ -6,20 +6,30 @@ import {JBConstants} from "@bananapus/core-v6/src/libraries/JBConstants.sol";
 import {JBCurrencyIds} from "@bananapus/core-v6/src/libraries/JBCurrencyIds.sol";
 import {JBSplit} from "@bananapus/core-v6/src/structs/JBSplit.sol";
 import {IJBSplitHook} from "@bananapus/core-v6/src/interfaces/IJBSplitHook.sol";
+import {IJB721TokenUriResolver} from "@bananapus/721-hook-v6/src/interfaces/IJB721TokenUriResolver.sol";
+import {JB721InitTiersConfig} from "@bananapus/721-hook-v6/src/structs/JB721InitTiersConfig.sol";
+import {JB721TierConfig} from "@bananapus/721-hook-v6/src/structs/JB721TierConfig.sol";
+import {REV721TiersHookFlags} from "@rev-net/core-v6/src/structs/REV721TiersHookFlags.sol";
 import {REVAutoIssuance} from "@rev-net/core-v6/src/structs/REVAutoIssuance.sol";
+import {REVBaseline721HookConfig} from "@rev-net/core-v6/src/structs/REVBaseline721HookConfig.sol";
+import {REVCroptopAllowedPost} from "@rev-net/core-v6/src/structs/REVCroptopAllowedPost.sol";
+import {REVDeploy721TiersHookConfig} from "@rev-net/core-v6/src/structs/REVDeploy721TiersHookConfig.sol";
 import {REVConfig} from "@rev-net/core-v6/src/structs/REVConfig.sol";
 import {REVDescription} from "@rev-net/core-v6/src/structs/REVDescription.sol";
 import {REVStageConfig} from "@rev-net/core-v6/src/structs/REVStageConfig.sol";
 import {REVSuckerDeploymentConfig} from "@rev-net/core-v6/src/structs/REVSuckerDeploymentConfig.sol";
 
-/// @notice The 4-arg `REVDeployer.deployFor` overload. Declared locally so this contract only depends on structs.
+/// @notice The 6-arg `REVDeployer.deployFor` overload. The 4-arg convenience overload self-deploys an empty 721
+/// hook with 18 price decimals — wrong for a USD-priced machine — so the config is always ours to send.
 /// The hook return is decoded as a bare address; the selector matches since returns don't affect it.
 interface IREVDeployerMinimal {
     function deployFor(
         uint256 revnetId,
         REVConfig calldata configuration,
         JBAccountingContext[] calldata accountingContextsToAccept,
-        REVSuckerDeploymentConfig calldata suckerDeploymentConfiguration
+        REVSuckerDeploymentConfig calldata suckerDeploymentConfiguration,
+        REVDeploy721TiersHookConfig calldata tiered721HookConfiguration,
+        REVCroptopAllowedPost[] calldata allowedPosts
     )
         external
         payable
@@ -93,6 +103,9 @@ contract TelligenceDeployer {
     /// @notice Cashing out pays a 30% tax that stays behind with the holders who stay.
     uint16 public constant CASH_OUT_TAX_RATE = 3000;
 
+    /// @notice Stage metadata bit that lets suckers deploy — required for omnichain machines.
+    uint16 public constant ALLOW_SUCKER_DEPLOYMENT = 1 << 2;
+
     /// @notice Tokens issued per USD when a machine starts. Doublings scale the price from here.
     uint112 public constant INITIAL_ISSUANCE = 1000e18;
 
@@ -133,7 +146,9 @@ contract TelligenceDeployer {
             revnetId: 0,
             configuration: houseConfig(machine),
             accountingContextsToAccept: _accountingContexts,
-            suckerDeploymentConfiguration: suckers
+            suckerDeploymentConfiguration: suckers,
+            tiered721HookConfiguration: storeConfig(machine),
+            allowedPosts: new REVCroptopAllowedPost[](0)
         });
     }
 
@@ -185,7 +200,7 @@ contract TelligenceDeployer {
             issuanceCutFrequency: doublingSeconds(machine.doubling),
             issuanceCutPercent: ISSUANCE_HALVING,
             cashOutTaxRate: CASH_OUT_TAX_RATE,
-            extraMetadata: 0
+            extraMetadata: ALLOW_SUCKER_DEPLOYMENT
         });
 
         configuration = REVConfig({
@@ -194,6 +209,35 @@ contract TelligenceDeployer {
             operator: machine.machine,
             scopeCashOutsToLocalBalances: false,
             stageConfigurations: stages
+        });
+    }
+
+    /// @notice An empty, correctly USD-priced store for the machine. The operator can stock it later.
+    function storeConfig(TelligenceMachine calldata machine) public pure returns (REVDeploy721TiersHookConfig memory) {
+        return REVDeploy721TiersHookConfig({
+            baseline721HookConfiguration: REVBaseline721HookConfig({
+                name: string.concat(machine.name, " Store"),
+                symbol: string.concat(machine.id, "STORE"),
+                baseUri: "ipfs://",
+                tokenUriResolver: IJB721TokenUriResolver(address(0)),
+                contractUri: machine.pitchUri,
+                tiersConfig: JB721InitTiersConfig({
+                    tiers: new JB721TierConfig[](0),
+                    currency: JBCurrencyIds.USD,
+                    decimals: 6
+                }),
+                flags: REV721TiersHookFlags({
+                    noNewTiersWithReserves: false,
+                    noNewTiersWithVotes: false,
+                    noNewTiersWithOwnerMinting: false,
+                    preventOverspending: false
+                })
+            }),
+            salt: machine.salt,
+            preventOperatorAdjustingTiers: false,
+            preventOperatorUpdatingMetadata: false,
+            preventOperatorMinting: false,
+            preventOperatorIncreasingDiscountPercent: false
         });
     }
 
