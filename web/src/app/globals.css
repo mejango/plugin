@@ -21,3 +21,50 @@ body {
   line-height: 0.98;
   margin: 0;
 }
+
+/*
+ * The sign-in sheet has to be usable above an open dialog, and the top layer is
+ * the only place where that is true, so its host is a dialog too. The sheet
+ * paints its own overlay inside the host, hence the transparent backdrop.
+ * While closed the host stays displayed but collapsed to nothing: it holds
+ * Para's warm-up iframe, which must keep its browsing context between sign-ins.
+ */
+dialog.ui-modal-host {
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  overflow: visible;
+  pointer-events: none;
+}
+
+dialog.ui-modal-host[open] {
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+}
+
+dialog.ui-modal-host::backdrop {
+  background-color: transparent;
+}
+
+/*
+ * `appearance: none` on the shared field style takes the native dropdown arrow
+ * with it, so draw one back on — inline, so it costs no request, and inset far
+ * enough that a long option label never runs into it.
+ */
+.select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23000' stroke-width='1.6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1.1rem center;
+  background-size: 0.72rem;
+  padding-right: 2.9rem;
+}

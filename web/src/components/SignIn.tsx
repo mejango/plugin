@@ -4,6 +4,7 @@ import { getConnections } from "@wagmi/core";
 import { useCallback, useState } from "react";
 import { useAccount, useConfig, useConnect, useConnectors, useDisconnect } from "wagmi";
 
+import { CHIP_SM } from "@/components/chip";
 import { useIsHydrated } from "@/hooks/useIsHydrated";
 import { shortAddress } from "@/lib/format";
 import { useParaAuth } from "@/providers/ParaAuthContext";
@@ -58,8 +59,8 @@ export function SignIn({ compact = false }: { compact?: boolean }) {
   }, [config, disconnectAsync, enabled]);
 
   const base = compact
-    ? "border-2 border-black bg-white/[.75] px-[.9em] py-[.4em] text-[.8rem] uppercase tracking-[.14em] backdrop-blur-[2px]"
-    : "display w-full border-2 border-black bg-white px-[1.7em] py-[.75em] text-[clamp(1.1rem,2.4vw,1.5rem)] tracking-[.03em] min-[621px]:w-auto";
+    ? CHIP_SM
+    : "display w-full border-2 border-black bg-white px-[1.7em] py-[.75em] text-[clamp(1.1rem,2.4vw,1.5rem)] tracking-[.03em] hover:bg-black hover:text-white min-[621px]:w-auto";
 
   if (!hydrated || !isConnected || !address) {
     return (
@@ -74,7 +75,7 @@ export function SignIn({ compact = false }: { compact?: boolean }) {
           if (enabled) requestSignIn();
           else if (connectors[0]) connect({ connector: connectors[0] });
         }}
-        className={`${base} cursor-pointer hover:bg-black hover:text-white`}
+        className={`${base} cursor-pointer`}
       >
         Sign in
       </button>
@@ -90,7 +91,7 @@ export function SignIn({ compact = false }: { compact?: boolean }) {
         setBusy(true);
         void endSession().finally(() => setBusy(false));
       }}
-      className={`${base} group cursor-pointer hover:bg-black hover:text-white disabled:opacity-50`}
+      className={`${base} group cursor-pointer disabled:opacity-50`}
     >
       {/* The address until you mean to leave, then what leaving is called. */}
       <span className="group-hover:hidden">{shortAddress(address)}</span>

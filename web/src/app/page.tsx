@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { CHIP_LG } from "@/components/chip";
 import { PatchBay } from "@/components/PatchBay";
 import { SiteHeader } from "@/components/SiteHeader";
 
@@ -24,7 +25,7 @@ export default function HomePage() {
         <h1 className="display whitespace-nowrap text-[min(31vw,44vh)]">Plug in</h1>
         <Link
           href="/create"
-          className="pointer-events-auto -mt-[1vh] inline-block border-2 border-black bg-white/[.75] px-[1.1em] py-[.55em] text-[1.05rem] uppercase tracking-[0.14em] backdrop-blur-[2px] hover:bg-black hover:text-white max-[620px]:text-[1.35rem]"
+          className={`${CHIP_LG} pointer-events-auto -mt-[1vh] inline-block`}
         >
           Now
         </Link>

@@ -9,7 +9,7 @@ import { IssuancePie } from "@/components/create/IssuancePie";
 import { MachineManual } from "@/components/create/MachineManual";
 import { OperatorTooltip } from "@/components/create/OperatorTooltip";
 import { RoutesPanel } from "@/components/create/RoutesPanel";
-import { FIELD, HINT, LABEL, READOUT } from "@/components/create/ui";
+import { FIELD, HINT, LABEL, READOUT, SELECT } from "@/components/create/ui";
 import { SignIn } from "@/components/SignIn";
 import { useDeployMachine } from "@/hooks/useDeployMachine";
 import { CHAIN_LABELS, SUPPORTED_CHAIN_IDS } from "@/lib/chains";
@@ -136,7 +136,7 @@ export function CreateForm() {
             Machine&apos;s keep <span className={HINT}>its cut of issuance</span>
           </label>
           <select
-            id="cut" className={FIELD}
+            id="cut" className={SELECT}
             value={draft.keepPercent}
             onChange={(e) => set("keepPercent", Number(e.target.value))}
           >

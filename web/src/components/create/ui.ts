@@ -2,6 +2,9 @@
 export const FIELD =
   "w-full border-2 border-black bg-white px-[.9rem] py-[.8rem] text-inherit rounded-none appearance-none focus:outline-3 focus:outline-black focus:outline-offset-2";
 
+/** A field you pick from. Same box, plus the arrow `appearance-none` removed. */
+export const SELECT = `${FIELD} select cursor-pointer`;
+
 export const LABEL = "display text-[1.05rem] tracking-[.02em]";
 
 export const HINT = "ml-2 font-sans text-[.85rem] normal-case tracking-normal text-[#555]";

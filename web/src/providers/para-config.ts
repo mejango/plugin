@@ -23,6 +23,29 @@ export const PARA_THEME = {
   borderRadius: "none" as const,
 };
 
+/**
+ * How Para's own pages should look when they appear inside ours.
+ *
+ * The verification code renders in an iframe in the sheet, so Para's default
+ * portal styling would sit inside a black-bordered panel looking like a foreign
+ * object. Para bakes this into the URL it generates, so it has to travel with
+ * the auth call that asks for one.
+ */
+/** Nothing is fetched: whichever of these the visitor already has wins. */
+const PARA_PORTAL_MONO = 'ui-monospace, SFMono-Regular, Menlo, Monaco, "Courier New", monospace';
+
+export const PARA_PORTAL_THEME = {
+  ...PARA_THEME,
+  // NOT `font`. Para wraps that value in quotes — `"${font}", ui-sans-serif, …`
+  // — so a stack passed there becomes one quoted family name that matches
+  // nothing, and the portal silently renders sans. `cssOverrides` is applied
+  // afterwards, verbatim, and wins.
+  cssOverrides: {
+    fontFamily: PARA_PORTAL_MONO,
+    "--para-font-sans": PARA_PORTAL_MONO,
+  },
+};
+
 let client: ParaWeb | undefined;
 
 /** Constructing Para starts its worker/session machinery. Keep the singleton
