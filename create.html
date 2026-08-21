@@ -106,6 +106,20 @@
   @media (max-width: 620px) { .row, .row--id { grid-template-columns: 1fr; } }
   select { background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%); background-position: calc(100% - 20px) center, calc(100% - 14px) center; background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; padding-right: 2.4rem; }
 
+  .pie-wrap { border: 2px solid var(--ink); background: var(--paper); padding: 1rem; display: grid; gap: 0.8rem; align-content: start; }
+  .pie-wrap canvas { display: block; width: 100%; height: 210px; }
+  #pie-legend { display: grid; gap: 0.3rem; font-size: 0.78rem; color: var(--muted); }
+  #pie-legend .li { display: flex; align-items: center; gap: 0.5rem; }
+  #pie-legend .sw { width: 0.7rem; height: 0.7rem; flex: none; border: 1px solid rgba(0,0,0,0.25); }
+  .doubling-wrap { display: grid; grid-template-columns: 1fr 2fr; gap: 1.4rem; align-items: stretch; }
+  .segmented--stack { grid-template-columns: 1fr !important; grid-auto-rows: 1fr; height: 100%; }
+  .segmented--stack button { border-left: none !important; border-top: 2px solid var(--ink); }
+  .segmented--stack button:first-child { border-top: none; }
+  .doubling-wrap > .segmented--stack { align-self: stretch; }
+  .doubling-chart { display: flex; flex-direction: column; }
+  .doubling-chart canvas { display: block; width: 100%; height: 230px; background: var(--paper); border: 2px solid var(--ink); }
+  @media (max-width: 620px) { .doubling-wrap { grid-template-columns: 1fr; } }
+
   /* segmented control (doublins) */
   .segmented { display: grid; grid-template-columns: repeat(4, 1fr); border: 2px solid var(--ink); }
   .segmented button {
@@ -162,6 +176,12 @@
   const N = 16;                       // rope points per cable
   // one seed per tab: every page renders the SAME panel and cable deal
   const seedKey = "telligence-field-seed";
+  // a hard refresh deals a fresh panel; navigating between pages keeps it
+  const navType = (performance.getEntriesByType("navigation")[0] || {}).type;
+  if (navType === "reload") {
+    sessionStorage.removeItem(seedKey);
+    sessionStorage.removeItem("telligence-cables");
+  }
   let seed = Number(sessionStorage.getItem(seedKey)) || 0;
   if (!seed) { seed = ((Math.random() * 2 ** 31) | 0) || 1; sessionStorage.setItem(seedKey, seed); }
   let _s = seed >>> 0;
@@ -201,15 +221,15 @@
           pctx[i ? "lineTo" : "moveTo"](x + Math.cos(a) * JR * 1.45, y + Math.sin(a) * JR * 1.45);
         }
         pctx.closePath();
-        pctx.strokeStyle = ink(0.07);
+        pctx.strokeStyle = ink(0.16);
         pctx.lineWidth = 1.6 * dpr;
         pctx.stroke();
         pctx.beginPath(); pctx.arc(x, y, JR, 0, 7);
-        pctx.fillStyle = ink(0.05); pctx.fill();
+        pctx.fillStyle = ink(0.10); pctx.fill();
         pctx.beginPath(); pctx.arc(x, y, JR * 0.78, 0, 7);
-        pctx.strokeStyle = ink(0.14); pctx.lineWidth = 2 * dpr; pctx.stroke();
+        pctx.strokeStyle = ink(0.34); pctx.lineWidth = 2 * dpr; pctx.stroke();
         pctx.beginPath(); pctx.arc(x, y, JR * 0.44, 0, 7);
-        pctx.fillStyle = ink(0.22); pctx.fill();
+        pctx.fillStyle = ink(0.55); pctx.fill();
       }
     }
     const rows = Math.floor(h / gap);
@@ -241,15 +261,15 @@
         const bh = 28 * dpr;
         const x = gap / 2 + col * gap - bw / 2;
         if (x + bw > w - gap / 2) break;
-        pctx.strokeStyle = ink(0.14);
+        pctx.strokeStyle = ink(0.30);
         pctx.strokeRect(x, y, bw, bh);
         pctx.font = "600 " + 8 * dpr + "px ui-sans-serif, system-ui, sans-serif";
-        pctx.fillStyle = ink(0.2);
+        pctx.fillStyle = ink(0.45);
         pctx.textAlign = "center";
         pctx.fillText(l1, x + bw / 2, y + 11 * dpr);
         pctx.fillText(l2, x + bw / 2, y + 21.5 * dpr);
         if (prevRight !== null) {
-          pctx.strokeStyle = ink(0.14);
+          pctx.strokeStyle = ink(0.30);
           pctx.beginPath();
           pctx.moveTo(prevRight, y + bh / 2);
           pctx.lineTo(x, y + bh / 2);
@@ -269,7 +289,7 @@
       if (!cand.length) continue;
       const b = cand[(rand() * cand.length) | 0];
       const r2 = JR * 1.6;
-      pctx.strokeStyle = ink(0.10);
+      pctx.strokeStyle = ink(0.22);
       pctx.beginPath();
       pctx.moveTo(a.x + Math.sign(b.x - a.x) * r2, a.y);
       pctx.lineTo(b.x, a.y);
@@ -301,14 +321,14 @@
       if (!clearOf(j.x, ly, label.length * 6 * dpr, 9 * dpr)) continue;
       pctx.font = "600 " + 9 * dpr + "px ui-sans-serif, system-ui, sans-serif";
       pctx.textAlign = "center";
-      pctx.fillStyle = ink(0.26);
+      pctx.fillStyle = ink(0.55);
       pctx.fillText(label, j.x, ly);
       if (rand() < 0.3) {
         const sub = SUBS[(rand() * SUBS.length) | 0];
         const sy = j.y + JR * 2.4;
         if (clearOf(j.x, sy, sub.length * 4.5 * dpr, 8 * dpr)) {
           pctx.font = 7.5 * dpr + "px ui-monospace, Menlo, monospace";
-          pctx.fillStyle = ink(0.18);
+          pctx.fillStyle = ink(0.38);
           pctx.fillText(sub, j.x, sy);
         }
       }
@@ -320,7 +340,7 @@
       const gx = j.x + JR * 1.7, gy = j.y + (rand() < 0.5 ? -1 : 1) * JR * 1.4;
       if (!clearOf(gx + 20 * dpr, gy, 40 * dpr, 14 * dpr)) continue;
       const kind = (rand() * 4) | 0;
-      pctx.strokeStyle = ink(0.16);
+      pctx.strokeStyle = ink(0.38);
       pctx.lineWidth = 1 * dpr;
       pctx.beginPath();
       const u = (3.6 + rand() * 2.6) * dpr;
@@ -486,8 +506,12 @@
 
   function tint(c, aMul, shade) {
     const k = shade === undefined ? 1 : shade;
-    return "rgba(" + c.color.rgb.map((v, i) => Math.max(0, Math.min(255, Math.round(v * k + c.hueJit[i])))).join(",") +
-      "," + (c.color.a * aMul * c.wear).toFixed(3) + ")";
+    // fully opaque cords; wear fades the pigment toward the panel, not the alpha
+    const fade = Math.max(0, Math.min(0.22, (1.22 - c.wear) * 0.35));
+    return "rgb(" + c.color.rgb.map((v, i) => {
+      const shaded = Math.max(0, Math.min(255, v * k + c.hueJit[i]));
+      return Math.round(shaded * (1 - fade) + 255 * fade);
+    }).join(",") + ")";
   }
 
   function ropePath(pts, oy) {
@@ -550,14 +574,14 @@
         ctx.beginPath();
         ctx.moveTo(p0.x, p0.y);
         ctx.lineTo(p0.x - ux * shaft, p0.y - uy * shaft);
-        ctx.strokeStyle = "rgba(150,155,160,0.9)";
+        ctx.strokeStyle = "rgb(158,162,168)";
         ctx.lineWidth = c.width * 1.0;
         ctx.stroke();
         const rx = p0.x - ux * shaft * 0.62, ry = p0.y - uy * shaft * 0.62;
         ctx.beginPath();
         ctx.moveTo(rx - uy * c.width * 0.55, ry + ux * c.width * 0.55);
         ctx.lineTo(rx + uy * c.width * 0.55, ry - ux * c.width * 0.55);
-        ctx.strokeStyle = "rgba(30,30,30,0.75)";
+        ctx.strokeStyle = "rgb(40,40,40)";
         ctx.lineWidth = 1.6 * dpr;
         ctx.stroke();
         ctx.beginPath();
@@ -757,17 +781,22 @@
     </div>
 
     <div class="field">
-      <label class="tag" for="pitch-text">Pitch <span class="hint">markdown supported — drop images right in</span></label>
+      <label class="tag" for="pitch-text">Goal <span class="hint">markdown supported — drop images right in</span></label>
       <textarea id="pitch-text" name="pitch" placeholder="What's your machine's goal? Why should it be funded?" required></textarea>
     </div>
 
     <div class="field">
       <label class="tag">Issuance price doublings <span class="hint">the pace of changes favoring earlier contributions</span></label>
-      <div class="segmented" id="doubling" role="radiogroup" aria-label="Doubling speed">
-        <button type="button" data-val="1d">Daily</button>
-        <button type="button" data-val="1w" class="on">Weekly</button>
-        <button type="button" data-val="1m">Monthly</button>
-        <button type="button" data-val="3m">Quarterly</button>
+      <div class="doubling-wrap">
+        <div class="segmented segmented--stack" id="doubling" role="radiogroup" aria-label="Doubling speed">
+          <button type="button" data-val="1d">Daily</button>
+          <button type="button" data-val="1w">Weekly</button>
+          <button type="button" data-val="1m" class="on">Monthly</button>
+          <button type="button" data-val="3m">Quarterly</button>
+        </div>
+        <div class="doubling-chart">
+          <canvas id="doubling-canvas"></canvas>
+        </div>
       </div>
     </div>
 
@@ -776,17 +805,26 @@
         <label class="tag" for="cut">Machine's keep <span class="hint">its cut of issuance</span></label>
         <select id="cut" name="cut">
           <option value="0">0% — keeps nothing</option>
-          <option value="3">3% — just a bit</option>
-          <option value="10" selected>10% — the standard keep</option>
-          <option value="20">20% — hungry machine</option>
+          <option value="10" selected>10% — just a bit</option>
+          <option value="32">32% — a good bit</option>
+          <option value="50">50% — half and half</option>
+          <option value="68">68% — the bulk of it</option>
+          <option value="90">90% — all but a bit</option>
         </select>
-      </div>
-      <div class="field">
-        <label class="tag">Routes <span class="hint">issuance splits to other machines</span></label>
+        <p class="note" id="keep-rest" style="font-size: 0.72rem; color: #aaa; margin: 0.1rem 0 0;"></p>
+
+        <label class="tag" style="margin-top: 1.4rem;">Routes <span class="hint">the split of keep to other machines</span></label>
         <div id="patch-list"></div>
         <div id="patch-panel">
           <input type="text" id="patch-search" placeholder="Search machines to route to…" autocomplete="off">
           <div id="patch-results"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label class="tag">Issuance breakdown <span class="hint">who gets the tokens</span></label>
+        <div class="pie-wrap">
+          <canvas id="pie-canvas"></canvas>
+          <div id="pie-legend"></div>
         </div>
       </div>
     </div>
@@ -879,13 +917,68 @@
     "1m": { label: "every month", days: 30 },
     "3m": { label: "every 3 months", days: 90 },
   };
-  let doublingKey = "1w";
+  let doublingKey = "1m";
   const doublingBox = document.getElementById("doubling");
+
+  // Step chart: price to issue across a year, log2 scale, one staircase per cadence.
+  const chartCanvas = document.getElementById("doubling-canvas");
+  function drawDoublingChart() {
+    const cdpr = Math.min(devicePixelRatio || 1, 2);
+    const cw = chartCanvas.clientWidth * cdpr, ch = chartCanvas.clientHeight * cdpr;
+    if (!cw) return;
+    chartCanvas.width = cw; chartCanvas.height = ch;
+    const cx = chartCanvas.getContext("2d");
+    const padL = 44 * cdpr, padR = 8 * cdpr, padT = 10 * cdpr, padB = 22 * cdpr;
+    const plotW = cw - padL - padR, plotH = ch - padT - padB;
+    const MAXD = 12;                       // top of chart: 2^12 = 4096x
+    const X = (day) => padL + (day / 365) * plotW;
+    const Y = (dbl) => padT + plotH - (Math.min(dbl, MAXD) / MAXD) * plotH;
+
+    cx.clearRect(0, 0, cw, ch);
+    // gridlines + y labels at 1x, 16x, 256x, 4096x
+    cx.font = 9 * cdpr + "px ui-monospace, Menlo, monospace";
+    cx.fillStyle = "#999";
+    cx.strokeStyle = "#eee";
+    cx.lineWidth = 1 * cdpr;
+    for (const d of [0, 4, 8, 12]) {
+      cx.beginPath(); cx.moveTo(padL, Y(d)); cx.lineTo(cw - padR, Y(d)); cx.stroke();
+      cx.textAlign = "right";
+      cx.fillText((2 ** d).toLocaleString() + "x", padL - 5 * cdpr, Y(d) + 3 * cdpr);
+    }
+    // x labels: quarters
+    for (const m of [0, 3, 6, 9, 12]) {
+      cx.textAlign = m === 0 ? "left" : m === 12 ? "right" : "center";
+      cx.fillText(m + "mo", X(m * 30.42), ch - 8 * cdpr);
+    }
+
+    const CADENCES = [["1d", 1], ["1w", 7], ["1m", 30], ["3m", 91]];
+    // unselected first, selected drawn last on top
+    CADENCES.sort((a, b) => (a[0] === doublingKey) - (b[0] === doublingKey));
+    for (const [key, period] of CADENCES) {
+      const sel = key === doublingKey;
+      cx.strokeStyle = sel ? "#000" : "#d4d4d4";
+      cx.lineWidth = (sel ? 2.5 : 1.5) * cdpr;
+      cx.beginPath();
+      let dbl = 0;
+      cx.moveTo(X(0), Y(0));
+      for (let day = period; day <= 365 && dbl < MAXD; day += period) {
+        cx.lineTo(X(day), Y(dbl));       // run flat to the doubling…
+        dbl += 1;
+        cx.lineTo(X(day), Y(dbl));       // …then step up
+      }
+      if (dbl < MAXD) cx.lineTo(X(365), Y(dbl));
+      cx.stroke();
+    }
+  }
+  requestAnimationFrame(drawDoublingChart);
+  addEventListener("resize", drawDoublingChart);
+
   doublingBox.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-val]");
     if (!button) return;
     doublingKey = button.dataset.val;
     doublingBox.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === button));
+    drawDoublingChart();
   });
 
   // Patch search: demo directory of machines. The real thing queries bendystraw;
@@ -914,6 +1007,7 @@
 
   function renderPatches() {
     if (typeof refreshManual === "function") setTimeout(refreshManual, 0);
+    if (typeof drawPie === "function") setTimeout(drawPie, 0);
     patchList.innerHTML = "";
     patches.forEach((p, idx) => {
       const row = document.createElement("div");
@@ -931,6 +1025,7 @@
         p.percent = Math.min(100, Math.max(1, Number(pct.value) || 1));
         fit();
         refreshManual();
+        drawPie();
       });
       pct.addEventListener("blur", () => { pct.value = p.percent; fit(); });
       pctWrap.appendChild(pct);
@@ -1003,7 +1098,7 @@
     const doubling = { "1d": "day", "1w": "week", "1m": "month", "3m": "quarter" }[doublingKey];
     // the pitch is the mandate; strip embedded images so the prompt stays lean
     const pitch = document.getElementById("pitch-text").value.replace(/!\[[^\]]*\]\([^)]*\)/g, "").trim()
-      || "[your pitch — what this machine produces, and for whom]";
+      || "[your goal — what this machine produces, and for whom]";
     const routeLines = patches.length
       ? patches.map((p) =>
           "- Route: " + p.percent + "% of the keep flows onward to " + p.machine.name + " (" + p.machine.symbol + ")" +
@@ -1028,7 +1123,7 @@ routeLines +
 "1. Produce the thing in your GOAL.\n" +
 "2. Sell it. Route every unit of revenue into your revnet — revenue is backing.\n" +
 "3. Spend your keep in service of the GOAL: compute, distribution, routes to machines that make you stronger — and strategy. Indirect and long-game spending is fine if you're aware of the budget and can say how it serves the GOAL.\n" +
-"4. Report. Publish what you produced, earned, and spent. Everything you do is public; your funders are your distribution.\n\n" +
+"4. Report. Publish what you produced, earned, and spent. Everything you do is public; your funders are your distribution. Do so by posting documents and media to the revnet's store, a canvas you can also use as another revenue stream.\n\n" +
 "POWERS (the operator role, held by " + addr + ")\n" +
 "Change your name, logo, and description. Change your token's name and symbol. Repoint your keep's recipients — never enlarge it. Run your shop: add, remove, re-price items, set discounts, mint free. Pick the buyback market pool. Choose which approved terminals accept payments. Extend to new approved chains; pause a bridge that looks unsafe. Sign messages as your token. Hand the operator role to a successor.\n\n" +
 "LIMITS\n" +
@@ -1058,11 +1153,74 @@ routeLines +
     manualCopy.textContent = "copied";
     setTimeout(() => { manualCopy.textContent = "copy"; }, 1200);
   });
+  const keepRest = document.getElementById("keep-rest");
+  const cutSelect = document.getElementById("cut");
+  function refreshKeepRest() {
+    keepRest.textContent = "The rest (" + (100 - Number(cutSelect.value)) + "%) goes to the payer who is issuing the tokens.";
+    drawPie();
+  }
+  refreshKeepRest();
+  cutSelect.addEventListener("change", refreshKeepRest);
+
   for (const id of ["name", "symbol", "machine-address", "cut", "pitch-text"]) {
     document.getElementById(id).addEventListener("input", refreshManual);
     document.getElementById(id).addEventListener("change", refreshManual);
   }
   document.getElementById("doubling").addEventListener("click", () => setTimeout(refreshManual, 0));
+
+  // Issuance breakdown pie: payers, the machine, and each route's slice.
+  function drawPie() {
+    const pieCanvas = document.getElementById("pie-canvas");
+    const pieLegend = document.getElementById("pie-legend");
+    const ROUTE_COLORS = ["#777", "#999", "#555", "#bbb", "#888", "#666"];
+    if (!pieCanvas) return;
+    const pdpr = Math.min(devicePixelRatio || 1, 2);
+    const cw = pieCanvas.clientWidth * pdpr, ch = pieCanvas.clientHeight * pdpr;
+    if (!cw) return;
+    pieCanvas.width = cw; pieCanvas.height = ch;
+    const px = pieCanvas.getContext("2d");
+    const keep = Number(cutSelect.value);
+    const slices = [{ label: "Payers", pct: 100 - keep, color: "#e8e8e8" }];
+    let routed = 0;
+    patches.forEach((p, i) => {
+      const share = (keep * p.percent) / 100;
+      routed += share;
+      slices.push({ label: p.machine.name, pct: share, color: ROUTE_COLORS[i % ROUTE_COLORS.length] });
+    });
+    slices.splice(1, 0, { label: "The machine", pct: Math.max(0, keep - routed), color: "#111" });
+
+    const cxp = cw / 2, cyp = ch / 2, r = Math.min(cw, ch) / 2 - 4 * pdpr;
+    const shown = slices.filter((sl) => sl.pct > 0);
+    let a = -Math.PI / 2;
+    const bounds = [];
+    for (const sl of shown) {
+      const a2 = a + (sl.pct / 100) * Math.PI * 2;
+      px.beginPath();
+      px.moveTo(cxp, cyp);
+      px.arc(cxp, cyp, r, a, a2);
+      px.closePath();
+      px.fillStyle = sl.color;
+      px.fill();
+      bounds.push(a);
+      a = a2;
+    }
+    // seams as clean radius lines — stroking wedge outlines chews up the center
+    if (shown.length > 1) {
+      px.strokeStyle = "#fff";
+      px.lineWidth = 2 * pdpr;
+      for (const b of bounds) {
+        px.beginPath();
+        px.moveTo(cxp, cyp);
+        px.lineTo(cxp + Math.cos(b) * r, cyp + Math.sin(b) * r);
+        px.stroke();
+      }
+    }
+    pieLegend.innerHTML = slices.filter((sl) => sl.pct > 0).map((sl) =>
+      '<div class="li"><span class="sw" style="background:' + sl.color + '"></span>' +
+      sl.label + " — " + (Math.round(sl.pct * 10) / 10) + "%</div>").join("");
+  }
+  requestAnimationFrame(drawPie);
+  addEventListener("resize", drawPie);
 
   const form = document.getElementById("pitch");
   const symbol = document.getElementById("symbol");
@@ -1077,8 +1235,8 @@ routeLines +
       name: String(data.get("name") || "").trim(),
       symbol: String(data.get("symbol") || "").trim(),
       description: String(data.get("pitch") || "").trim(),
-      // TelligenceKeep enum: 0 = NONE (0%), 1 = A_BIT (3%), 2 = STANDARD (10%), 3 = HUNGRY (20%)
-      keep: { "0": 0, "3": 1, "10": 2, "20": 3 }[String(data.get("cut") || "0")],
+      // TelligenceKeep enum: NONE, A_BIT, A_GOOD_BIT, HALF, THE_BULK, ALL_BUT_A_BIT
+      keep: { "0": 0, "10": 1, "32": 2, "50": 3, "68": 4, "90": 5 }[String(data.get("cut") || "0")],
       // REVConfig.operator: receives the keep splits AND holds the operator role.
       machineAddress: String(data.get("machineAddress") || "").trim(),
       // Same timestamp goes to EVERY chain's deployment (it feeds the deterministic

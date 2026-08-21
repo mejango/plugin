@@ -26,12 +26,14 @@ interface IREVDeployerMinimal {
         returns (uint256, address);
 }
 
-/// @notice The machine's cut of issuance — the house offers three appetites.
+/// @notice The machine's cut of issuance — the house menu of appetites.
 enum TelligenceKeep {
     NONE, // 0% — keeps nothing
-    A_BIT, // 3% — just a bit
-    STANDARD, // 10% — the standard keep
-    HUNGRY // 20% — hungry machine
+    A_BIT, // 10% — just a bit
+    A_GOOD_BIT, // 32% — a good bit
+    HALF, // 50% — half and half
+    THE_BULK, // 68% — the bulk of it
+    ALL_BUT_A_BIT // 90% — all but a bit
 }
 
 /// @notice How often the issuance price doubles.
@@ -198,9 +200,11 @@ contract TelligenceDeployer {
     /// @notice The keep's split percent, out of 10,000.
     function keepPercent(TelligenceKeep keep) public pure returns (uint16) {
         if (keep == TelligenceKeep.NONE) return 0;
-        if (keep == TelligenceKeep.A_BIT) return 300;
-        if (keep == TelligenceKeep.STANDARD) return 1000;
-        return 2000;
+        if (keep == TelligenceKeep.A_BIT) return 1000;
+        if (keep == TelligenceKeep.A_GOOD_BIT) return 3200;
+        if (keep == TelligenceKeep.HALF) return 5000;
+        if (keep == TelligenceKeep.THE_BULK) return 6800;
+        return 9000;
     }
 
     /// @notice The doubling cadence in seconds.

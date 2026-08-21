@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>telligence — fund your telligence</title>
+<title>telligence money network</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
@@ -73,10 +73,12 @@
     text-transform: uppercase;
     letter-spacing: 0.14em;
     color: var(--ink);
-    text-decoration: underline;
-    text-underline-offset: 4px;
+    text-decoration: none;
+    background: var(--paper);
+    padding: 0.55em 1.1em;
+    border: 2px solid var(--ink);
   }
-  .start:hover { text-decoration-thickness: 2px; }
+  .start:hover { background: var(--ink); color: var(--paper); }
   .powered { position: absolute; bottom: 1.6rem; left: 0; right: 0; text-align: center; font-size: 0.75rem; margin: 0; color: #aaa; }
   .powered a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
   .powered a:hover { color: var(--muted); }
@@ -205,6 +207,12 @@
   const N = 16;                       // rope points per cable
   // one seed per tab: every page renders the SAME panel and cable deal
   const seedKey = "telligence-field-seed";
+  // a hard refresh deals a fresh panel; navigating between pages keeps it
+  const navType = (performance.getEntriesByType("navigation")[0] || {}).type;
+  if (navType === "reload") {
+    sessionStorage.removeItem(seedKey);
+    sessionStorage.removeItem("telligence-cables");
+  }
   let seed = Number(sessionStorage.getItem(seedKey)) || 0;
   if (!seed) { seed = ((Math.random() * 2 ** 31) | 0) || 1; sessionStorage.setItem(seedKey, seed); }
   let _s = seed >>> 0;
@@ -244,15 +252,15 @@
           pctx[i ? "lineTo" : "moveTo"](x + Math.cos(a) * JR * 1.45, y + Math.sin(a) * JR * 1.45);
         }
         pctx.closePath();
-        pctx.strokeStyle = ink(0.07);
+        pctx.strokeStyle = ink(0.16);
         pctx.lineWidth = 1.6 * dpr;
         pctx.stroke();
         pctx.beginPath(); pctx.arc(x, y, JR, 0, 7);
-        pctx.fillStyle = ink(0.05); pctx.fill();
+        pctx.fillStyle = ink(0.10); pctx.fill();
         pctx.beginPath(); pctx.arc(x, y, JR * 0.78, 0, 7);
-        pctx.strokeStyle = ink(0.14); pctx.lineWidth = 2 * dpr; pctx.stroke();
+        pctx.strokeStyle = ink(0.34); pctx.lineWidth = 2 * dpr; pctx.stroke();
         pctx.beginPath(); pctx.arc(x, y, JR * 0.44, 0, 7);
-        pctx.fillStyle = ink(0.22); pctx.fill();
+        pctx.fillStyle = ink(0.55); pctx.fill();
       }
     }
     const rows = Math.floor(h / gap);
@@ -284,15 +292,15 @@
         const bh = 28 * dpr;
         const x = gap / 2 + col * gap - bw / 2;
         if (x + bw > w - gap / 2) break;
-        pctx.strokeStyle = ink(0.14);
+        pctx.strokeStyle = ink(0.30);
         pctx.strokeRect(x, y, bw, bh);
         pctx.font = "600 " + 8 * dpr + "px ui-sans-serif, system-ui, sans-serif";
-        pctx.fillStyle = ink(0.2);
+        pctx.fillStyle = ink(0.45);
         pctx.textAlign = "center";
         pctx.fillText(l1, x + bw / 2, y + 11 * dpr);
         pctx.fillText(l2, x + bw / 2, y + 21.5 * dpr);
         if (prevRight !== null) {
-          pctx.strokeStyle = ink(0.14);
+          pctx.strokeStyle = ink(0.30);
           pctx.beginPath();
           pctx.moveTo(prevRight, y + bh / 2);
           pctx.lineTo(x, y + bh / 2);
@@ -312,7 +320,7 @@
       if (!cand.length) continue;
       const b = cand[(rand() * cand.length) | 0];
       const r2 = JR * 1.6;
-      pctx.strokeStyle = ink(0.10);
+      pctx.strokeStyle = ink(0.22);
       pctx.beginPath();
       pctx.moveTo(a.x + Math.sign(b.x - a.x) * r2, a.y);
       pctx.lineTo(b.x, a.y);
@@ -344,14 +352,14 @@
       if (!clearOf(j.x, ly, label.length * 6 * dpr, 9 * dpr)) continue;
       pctx.font = "600 " + 9 * dpr + "px ui-sans-serif, system-ui, sans-serif";
       pctx.textAlign = "center";
-      pctx.fillStyle = ink(0.26);
+      pctx.fillStyle = ink(0.55);
       pctx.fillText(label, j.x, ly);
       if (rand() < 0.3) {
         const sub = SUBS[(rand() * SUBS.length) | 0];
         const sy = j.y + JR * 2.4;
         if (clearOf(j.x, sy, sub.length * 4.5 * dpr, 8 * dpr)) {
           pctx.font = 7.5 * dpr + "px ui-monospace, Menlo, monospace";
-          pctx.fillStyle = ink(0.18);
+          pctx.fillStyle = ink(0.38);
           pctx.fillText(sub, j.x, sy);
         }
       }
@@ -363,7 +371,7 @@
       const gx = j.x + JR * 1.7, gy = j.y + (rand() < 0.5 ? -1 : 1) * JR * 1.4;
       if (!clearOf(gx + 20 * dpr, gy, 40 * dpr, 14 * dpr)) continue;
       const kind = (rand() * 4) | 0;
-      pctx.strokeStyle = ink(0.16);
+      pctx.strokeStyle = ink(0.38);
       pctx.lineWidth = 1 * dpr;
       pctx.beginPath();
       const u = (3.6 + rand() * 2.6) * dpr;
@@ -529,8 +537,12 @@
 
   function tint(c, aMul, shade) {
     const k = shade === undefined ? 1 : shade;
-    return "rgba(" + c.color.rgb.map((v, i) => Math.max(0, Math.min(255, Math.round(v * k + c.hueJit[i])))).join(",") +
-      "," + (c.color.a * aMul * c.wear).toFixed(3) + ")";
+    // fully opaque cords; wear fades the pigment toward the panel, not the alpha
+    const fade = Math.max(0, Math.min(0.22, (1.22 - c.wear) * 0.35));
+    return "rgb(" + c.color.rgb.map((v, i) => {
+      const shaded = Math.max(0, Math.min(255, v * k + c.hueJit[i]));
+      return Math.round(shaded * (1 - fade) + 255 * fade);
+    }).join(",") + ")";
   }
 
   function ropePath(pts, oy) {
@@ -593,14 +605,14 @@
         ctx.beginPath();
         ctx.moveTo(p0.x, p0.y);
         ctx.lineTo(p0.x - ux * shaft, p0.y - uy * shaft);
-        ctx.strokeStyle = "rgba(150,155,160,0.9)";
+        ctx.strokeStyle = "rgb(158,162,168)";
         ctx.lineWidth = c.width * 1.0;
         ctx.stroke();
         const rx = p0.x - ux * shaft * 0.62, ry = p0.y - uy * shaft * 0.62;
         ctx.beginPath();
         ctx.moveTo(rx - uy * c.width * 0.55, ry + ux * c.width * 0.55);
         ctx.lineTo(rx + uy * c.width * 0.55, ry - ux * c.width * 0.55);
-        ctx.strokeStyle = "rgba(30,30,30,0.75)";
+        ctx.strokeStyle = "rgb(40,40,40)";
         ctx.lineWidth = 1.6 * dpr;
         ctx.stroke();
         ctx.beginPath();
@@ -760,7 +772,7 @@
 
 <!-- ============ HERO ============ -->
 <section class="hero" style="border-bottom:none;">
-  <h1 class="display">Fund your<br>telligence</h1>
+  <h1 class="display">Telligence<br>money<br>network</h1>
   <div class="cta">
     <a class="start" href="create.html">Plug in</a>
   </div>

@@ -73,7 +73,7 @@ contract TelligenceDeployerTest is Test {
     function _emptySuckers() internal pure returns (REVSuckerDeploymentConfig memory config) {}
 
     function test_houseConfigAppliesHouseRules() public view {
-        REVConfig memory config = deployer.houseConfig(_machine(TelligenceKeep.STANDARD, TelligenceDoubling.WEEKLY));
+        REVConfig memory config = deployer.houseConfig(_machine(TelligenceKeep.A_BIT, TelligenceDoubling.WEEKLY));
 
         assertEq(config.baseCurrency, JBCurrencyIds.USD);
         assertEq(config.operator, machineAddress);
@@ -92,7 +92,7 @@ contract TelligenceDeployerTest is Test {
     }
 
     function test_startEngineForwardsToREVDeployer() public {
-        uint256 revnetId = deployer.startEngine{value: 0.01 ether}(_machine(TelligenceKeep.HUNGRY, TelligenceDoubling.DAILY), _emptySuckers());
+        uint256 revnetId = deployer.startEngine{value: 0.01 ether}(_machine(TelligenceKeep.HALF, TelligenceDoubling.DAILY), _emptySuckers());
 
         assertEq(revnetId, 42);
         assertEq(mock.receivedValue(), 0.01 ether);
@@ -103,9 +103,11 @@ contract TelligenceDeployerTest is Test {
 
     function test_enumMappings() public view {
         assertEq(deployer.keepPercent(TelligenceKeep.NONE), 0);
-        assertEq(deployer.keepPercent(TelligenceKeep.A_BIT), 300);
-        assertEq(deployer.keepPercent(TelligenceKeep.STANDARD), 1000);
-        assertEq(deployer.keepPercent(TelligenceKeep.HUNGRY), 2000);
+        assertEq(deployer.keepPercent(TelligenceKeep.A_BIT), 1000);
+        assertEq(deployer.keepPercent(TelligenceKeep.A_GOOD_BIT), 3200);
+        assertEq(deployer.keepPercent(TelligenceKeep.HALF), 5000);
+        assertEq(deployer.keepPercent(TelligenceKeep.THE_BULK), 6800);
+        assertEq(deployer.keepPercent(TelligenceKeep.ALL_BUT_A_BIT), 9000);
         assertEq(deployer.doublingSeconds(TelligenceDoubling.DAILY), 1 days);
         assertEq(deployer.doublingSeconds(TelligenceDoubling.WEEKLY), 7 days);
         assertEq(deployer.doublingSeconds(TelligenceDoubling.MONTHLY), 30 days);
@@ -113,7 +115,7 @@ contract TelligenceDeployerTest is Test {
     }
 
     function test_routesSplitTheKeepWithMachineAsBeneficiary() public view {
-        TelligenceMachine memory m = _machine(TelligenceKeep.STANDARD, TelligenceDoubling.WEEKLY);
+        TelligenceMachine memory m = _machine(TelligenceKeep.A_BIT, TelligenceDoubling.WEEKLY);
         m.routes = new TelligenceRoute[](2);
         m.routes[0] = TelligenceRoute({projectId: 3, percentOfKeep: 10, locked: true});
         m.routes[1] = TelligenceRoute({projectId: 4, percentOfKeep: 25, locked: false});
@@ -133,7 +135,7 @@ contract TelligenceDeployerTest is Test {
     }
 
     function test_revertsWhenRoutesExceedKeep() public {
-        TelligenceMachine memory m = _machine(TelligenceKeep.STANDARD, TelligenceDoubling.WEEKLY);
+        TelligenceMachine memory m = _machine(TelligenceKeep.A_BIT, TelligenceDoubling.WEEKLY);
         m.routes = new TelligenceRoute[](2);
         m.routes[0] = TelligenceRoute({projectId: 3, percentOfKeep: 60, locked: false});
         m.routes[1] = TelligenceRoute({projectId: 4, percentOfKeep: 41, locked: false});
