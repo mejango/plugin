@@ -8,7 +8,7 @@ import {
   doublingFor,
   tokensPerDollarAt,
   type DoublingKey,
-} from "@/lib/telligence/house";
+} from "@/lib/plugin/house";
 
 /**
  * The step chart: what a dollar buys across a machine's first year, one

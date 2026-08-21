@@ -1,4 +1,4 @@
-# Deploying TelligenceDeployer
+# Deploying PluginDeployer
 
 One command per chain. REVDeployer v6 is the same address everywhere; USDC differs.
 
@@ -17,6 +17,6 @@ USDC=0xaf88d065e77c8cC2239327C5EDb3A432268e5831 forge script script/Deploy.s.sol
 ```
 
 CREATE2 salt is fixed, so the address matches across chains. After deploying,
-paste the address into `TELLIGENCE_DEPLOYER` in create.html.
+paste the address into `PLUGIN_DEPLOYER` in create.html.
 
 Machine deploys send `JBProjects.creationFee()` as value (read live by the page).

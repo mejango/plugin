@@ -14,9 +14,9 @@ import { SignIn } from "@/components/SignIn";
 import { useDeployMachine } from "@/hooks/useDeployMachine";
 import { CHAIN_LABELS, SUPPORTED_CHAIN_IDS } from "@/lib/chains";
 import { REV_MACHINE } from "@/lib/machines";
-import { DOUBLINGS, KEEPS, DEFAULT_DOUBLING, DEFAULT_KEEP_PERCENT, tokensPerDollarAt, doublingFor } from "@/lib/telligence/house";
-import { buildManual } from "@/lib/telligence/manual";
-import type { MachineDraft, Route } from "@/lib/telligence/types";
+import { DOUBLINGS, KEEPS, DEFAULT_DOUBLING, DEFAULT_KEEP_PERCENT, tokensPerDollarAt, doublingFor } from "@/lib/plugin/house";
+import { buildManual } from "@/lib/plugin/manual";
+import type { MachineDraft, Route } from "@/lib/plugin/types";
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 

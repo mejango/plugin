@@ -1,14 +1,14 @@
 import { encodeFunctionData, type Address, type Hex } from "viem";
 
-import { keepIndex, doublingIndex } from "@/lib/telligence/house";
-import type { MachineDraft } from "@/lib/telligence/types";
-import { telligenceDeployerAbi } from "@/lib/telligence/abi";
+import { keepIndex, doublingIndex } from "@/lib/plugin/house";
+import type { MachineDraft } from "@/lib/plugin/types";
+import { pluginDeployerAbi } from "@/lib/plugin/abi";
 
 /**
- * TelligenceDeployer, one address per chain. Deployed with a fixed CREATE2 salt,
+ * PluginDeployer, one address per chain. Deployed with a fixed CREATE2 salt,
  * so these match once every chain is done — see DEPLOYING.md.
  */
-export const TELLIGENCE_DEPLOYER: Record<number, Address | undefined> = {
+export const PLUGIN_DEPLOYER: Record<number, Address | undefined> = {
   1: undefined,
   10: undefined,
   8453: undefined,
@@ -19,8 +19,8 @@ export const TELLIGENCE_DEPLOYER: Record<number, Address | undefined> = {
 export const JB_PROJECTS: Address = "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691";
 
 export function deployerFor(chainId: number): Address {
-  const address = TELLIGENCE_DEPLOYER[chainId];
-  if (!address) throw new Error(`telligence is not deployed on chain ${chainId} yet`);
+  const address = PLUGIN_DEPLOYER[chainId];
+  if (!address) throw new Error(`plugin is not deployed on chain ${chainId} yet`);
   return address;
 }
 
@@ -79,7 +79,7 @@ export function encodeStartEngine(args: {
   };
 
   return encodeFunctionData({
-    abi: telligenceDeployerAbi,
+    abi: pluginDeployerAbi,
     functionName: "startEngine",
     args: [machine, suckers] as never,
   });

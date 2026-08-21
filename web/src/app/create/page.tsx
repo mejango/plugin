@@ -3,7 +3,7 @@ import { PatchBay } from "@/components/PatchBay";
 import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata = {
-  title: "Plug in — telligence",
+  title: "Plug in — plugin.money",
 };
 
 export default function CreatePage() {

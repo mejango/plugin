@@ -18,7 +18,7 @@ export const CHAIN_LABELS: Record<number, string> = {
   [arbitrum.id]: "Arbitrum",
 };
 
-/** The chains telligence deploys to. A literal union so it lines up with the
+/** The chains plugin deploys to. A literal union so it lines up with the
  *  protocol SDK's own chain-id types instead of widening to `number`. */
 export type SupportedChainId = 1 | 10 | 8453 | 42161;
 

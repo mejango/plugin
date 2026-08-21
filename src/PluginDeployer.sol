@@ -37,7 +37,7 @@ interface IREVDeployerMinimal {
 }
 
 /// @notice The machine's cut of issuance — the house menu of appetites.
-enum TelligenceKeep {
+enum PluginKeep {
     NONE, // 0% — keeps nothing
     A_BIT, // 10% — just a bit
     A_GOOD_BIT, // 32% — a good bit
@@ -47,7 +47,7 @@ enum TelligenceKeep {
 }
 
 /// @notice How often the issuance price doubles.
-enum TelligenceDoubling {
+enum PluginDoubling {
     DAILY,
     WEEKLY,
     MONTHLY,
@@ -59,7 +59,7 @@ enum TelligenceDoubling {
 /// @custom:member projectId The local-chain ID of the project this route pays.
 /// @custom:member percentOfKeep How much of the keep flows there, out of 100.
 /// @custom:member locked If true, the route is locked forever — no operator can ever repoint or remove it.
-struct TelligenceRoute {
+struct PluginRoute {
     uint64 projectId;
     uint16 percentOfKeep;
     bool locked;
@@ -70,35 +70,35 @@ struct TelligenceRoute {
 /// @custom:member id The machine's ID — its token's ticker.
 /// @custom:member pitchUri The metadata URI holding the machine's pitch.
 /// @custom:member machine The machine's address: receives the keep and operates the machine.
-/// @custom:member keep The machine's cut of issuance. See `TelligenceKeep`.
-/// @custom:member doubling How often the issuance price doubles. See `TelligenceDoubling`.
+/// @custom:member keep The machine's cut of issuance. See `PluginKeep`.
+/// @custom:member doubling How often the issuance price doubles. See `PluginDoubling`.
 /// @custom:member startsAtOrAfter When the machine starts. Must be the SAME timestamp on every chain a machine
 /// deploys to — it feeds the deterministic config hash — so the frontend picks one value (~10 minutes out, giving
 /// every chain time to resolve) and passes it to each chain's deployment.
 /// @custom:member salt Deployment salt — same machine + salt across chains gives matching addresses.
 /// @custom:member routes Slices of the keep routed to other projects. The machine's address is always the
 /// beneficiary of every route — whatever tokens the routed project mints come back to the machine.
-struct TelligenceMachine {
+struct PluginMachine {
     string name;
     string id;
     string pitchUri;
     address payable machine;
-    TelligenceKeep keep;
-    TelligenceDoubling doubling;
+    PluginKeep keep;
+    PluginDoubling doubling;
     uint48 startsAtOrAfter;
     bytes32 salt;
-    TelligenceRoute[] routes;
+    PluginRoute[] routes;
 }
 
-/// @notice Starts telligence machines: revnets reduced to the two configs a machine sets — its keep and how fast its
+/// @notice Starts plugin machines: revnets reduced to the two configs a machine sets — its keep and how fast its
 /// issuance price doubles — with everything else locked to house rules.
 /// @dev House rules: issuance priced in USD, one stage that runs forever, issuance halves
 /// (price doubles) every doubling period, a 30% cash-out tax, all production splits to the machine, and the machine
 /// as operator. Accounting contexts (which tokens back machines on this chain) are fixed at construction.
-contract TelligenceDeployer {
-    error TelligenceDeployer_NoMachine();
-    error TelligenceDeployer_NoStartTime();
-    error TelligenceDeployer_RoutesExceedKeep(uint256 totalPercent);
+contract PluginDeployer {
+    error PluginDeployer_NoMachine();
+    error PluginDeployer_NoStartTime();
+    error PluginDeployer_RoutesExceedKeep(uint256 totalPercent);
 
     /// @notice Cashing out pays a 30% tax that stays behind with the holders who stay.
     uint16 public constant CASH_OUT_TAX_RATE = 3000;
@@ -131,11 +131,11 @@ contract TelligenceDeployer {
     }
 
     /// @notice Start a machine.
-    /// @param machine The machine to start. See `TelligenceMachine`.
+    /// @param machine The machine to start. See `PluginMachine`.
     /// @param suckers Cross-chain token bridge config; empty for a single-chain machine.
     /// @return revnetId The started machine's revnet ID.
     function startEngine(
-        TelligenceMachine calldata machine,
+        PluginMachine calldata machine,
         REVSuckerDeploymentConfig calldata suckers
     )
         external
@@ -153,13 +153,13 @@ contract TelligenceDeployer {
     }
 
     /// @notice Build the full revnet config from a machine's two dials, filling the rest with house rules.
-    function houseConfig(TelligenceMachine calldata machine)
+    function houseConfig(PluginMachine calldata machine)
         public
         pure
         returns (REVConfig memory configuration)
     {
-        if (machine.machine == address(0)) revert TelligenceDeployer_NoMachine();
-        if (machine.startsAtOrAfter == 0) revert TelligenceDeployer_NoStartTime();
+        if (machine.machine == address(0)) revert PluginDeployer_NoMachine();
+        if (machine.startsAtOrAfter == 0) revert PluginDeployer_NoStartTime();
 
         // The keep splits between the machine and its routes. The machine's address is
         // ALWAYS the beneficiary — routed projects mint their tokens back to the machine.
@@ -167,7 +167,7 @@ contract TelligenceDeployer {
         JBSplit[] memory splits = new JBSplit[](numberOfRoutes + 1);
         uint256 routedPercent;
         for (uint256 i; i < numberOfRoutes; i++) {
-            TelligenceRoute calldata route = machine.routes[i];
+            PluginRoute calldata route = machine.routes[i];
             routedPercent += route.percentOfKeep;
             splits[i] = JBSplit({
                 percent: uint32((uint256(JBConstants.SPLITS_TOTAL_PERCENT) * route.percentOfKeep) / 100),
@@ -178,7 +178,7 @@ contract TelligenceDeployer {
                 hook: IJBSplitHook(address(0))
             });
         }
-        if (routedPercent > 100) revert TelligenceDeployer_RoutesExceedKeep(routedPercent);
+        if (routedPercent > 100) revert PluginDeployer_RoutesExceedKeep(routedPercent);
         // The machine takes whatever the routes leave behind.
         splits[numberOfRoutes] = JBSplit({
             percent: uint32(JBConstants.SPLITS_TOTAL_PERCENT - (uint256(JBConstants.SPLITS_TOTAL_PERCENT) * routedPercent) / 100),
@@ -213,7 +213,7 @@ contract TelligenceDeployer {
     }
 
     /// @notice An empty, correctly USD-priced store for the machine. The operator can stock it later.
-    function storeConfig(TelligenceMachine calldata machine) public pure returns (REVDeploy721TiersHookConfig memory) {
+    function storeConfig(PluginMachine calldata machine) public pure returns (REVDeploy721TiersHookConfig memory) {
         return REVDeploy721TiersHookConfig({
             baseline721HookConfiguration: REVBaseline721HookConfig({
                 name: string.concat(machine.name, " Store"),
@@ -242,20 +242,20 @@ contract TelligenceDeployer {
     }
 
     /// @notice The keep's split percent, out of 10,000.
-    function keepPercent(TelligenceKeep keep) public pure returns (uint16) {
-        if (keep == TelligenceKeep.NONE) return 0;
-        if (keep == TelligenceKeep.A_BIT) return 1000;
-        if (keep == TelligenceKeep.A_GOOD_BIT) return 3200;
-        if (keep == TelligenceKeep.HALF) return 5000;
-        if (keep == TelligenceKeep.THE_BULK) return 6800;
+    function keepPercent(PluginKeep keep) public pure returns (uint16) {
+        if (keep == PluginKeep.NONE) return 0;
+        if (keep == PluginKeep.A_BIT) return 1000;
+        if (keep == PluginKeep.A_GOOD_BIT) return 3200;
+        if (keep == PluginKeep.HALF) return 5000;
+        if (keep == PluginKeep.THE_BULK) return 6800;
         return 9000;
     }
 
     /// @notice The doubling cadence in seconds.
-    function doublingSeconds(TelligenceDoubling doubling) public pure returns (uint32) {
-        if (doubling == TelligenceDoubling.DAILY) return 1 days;
-        if (doubling == TelligenceDoubling.WEEKLY) return 7 days;
-        if (doubling == TelligenceDoubling.MONTHLY) return 30 days;
+    function doublingSeconds(PluginDoubling doubling) public pure returns (uint32) {
+        if (doubling == PluginDoubling.DAILY) return 1 days;
+        if (doubling == PluginDoubling.WEEKLY) return 7 days;
+        if (doubling == PluginDoubling.MONTHLY) return 30 days;
         return 90 days;
     }
 }

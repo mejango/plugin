@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from "react";
 
-const PARA_SESSION_MARKER = "telligence.para-session";
+const PARA_SESSION_MARKER = "plugin.para-session";
 
 export function hasParaSessionMarker(): boolean {
   try {

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectRow } from "@/lib/bendystraw/operations";
 import { CHAIN_NAMES } from "@/lib/chains";
 import { resolveChainIds, searchMachines } from "@/lib/machines";
-import type { Route } from "@/lib/telligence/types";
+import type { Route } from "@/lib/plugin/types";
 import { FIELD, LINK_BTN } from "@/components/create/ui";
 
 function chainsLine(ids: Record<number, number>): string {

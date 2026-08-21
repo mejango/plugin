@@ -2,7 +2,7 @@ import "server-only";
 
 /**
  * One canonical endpoint, overridable per environment. Mainnet-only for now;
- * add the testnet split here when telligence supports test chains.
+ * add the testnet split here when plugin supports test chains.
  */
 export function bendystrawUrl(): string {
   const base = process.env.NEXT_PUBLIC_BENDYSTRAW_URL ?? "https://bendystraw.up.railway.app";

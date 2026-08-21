@@ -17,10 +17,10 @@ import type { Hex } from "viem";
 import { useAccount, useConfig } from "wagmi";
 
 import { CHAIN_LABELS, assertSupportedChainId } from "@/lib/chains";
-import { telligenceDeployerAbi } from "@/lib/telligence/abi";
-import { JB_PROJECTS, buildPitchUri, deployerFor, type SuckerConfig } from "@/lib/telligence/deploy";
-import { keepIndex, doublingIndex } from "@/lib/telligence/house";
-import type { MachineDraft } from "@/lib/telligence/types";
+import { pluginDeployerAbi } from "@/lib/plugin/abi";
+import { JB_PROJECTS, buildPitchUri, deployerFor, type SuckerConfig } from "@/lib/plugin/deploy";
+import { keepIndex, doublingIndex } from "@/lib/plugin/house";
+import type { MachineDraft } from "@/lib/plugin/types";
 
 export type DeployStep = {
   chainId: number;
@@ -131,7 +131,7 @@ export function useDeployMachine() {
             chainId,
             account: address,
             address: to,
-            abi: telligenceDeployerAbi,
+            abi: pluginDeployerAbi,
             functionName: "startEngine",
             args: [machine, suckers] as never,
             value,

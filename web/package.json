@@ -1,5 +1,5 @@
 {
-  "name": "telligence-web",
+  "name": "plugin-web",
   "private": true,
   "engines": {
     "node": ">=22"

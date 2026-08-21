@@ -6,9 +6,9 @@ import type { Transport } from "viem";
 import type { CreateConnectorFn } from "wagmi";
 
 export const PARA_APP = {
-  appName: "Telligence",
+  appName: "Plugin",
   appDescription: "Fundraise as machines.",
-  appUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "https://telligence.money",
+  appUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "https://plugin.money",
 };
 
 /**

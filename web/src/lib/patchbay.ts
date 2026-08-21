@@ -64,12 +64,12 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const N = 16;                       // rope points per cable
   // one seed per tab: every page renders the SAME panel and cable deal
-  const seedKey = "telligence-field-seed";
+  const seedKey = "plugin-field-seed";
   // a hard refresh deals a fresh panel; navigating between pages keeps it
   const navType = (performance.getEntriesByType("navigation")[0] || {}).type;
   if (navType === "reload") {
     sessionStorage.removeItem(seedKey);
-    sessionStorage.removeItem("telligence-cables");
+    sessionStorage.removeItem("plugin-cables");
   }
   let seed = Number(sessionStorage.getItem(seedKey)) || 0;
   if (!seed) { seed = ((Math.random() * 2 ** 31) | 0) || 1; sessionStorage.setItem(seedKey, seed); }
@@ -305,7 +305,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     }
     // restore the tab's cable arrangement (user moves carry across pages)
     try {
-      const saved = JSON.parse(sessionStorage.getItem("telligence-cables") || "null");
+      const saved = JSON.parse(sessionStorage.getItem("plugin-cables") || "null");
       if (saved && saved.jackCount === jacks.length && saved.ends.length === cables.length) {
         saved.ends.forEach(([ai, bi, len], i) => {
           const c = cables[i];
@@ -323,7 +323,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
 
   function saveCables() {
     try {
-      sessionStorage.setItem("telligence-cables", JSON.stringify({
+      sessionStorage.setItem("plugin-cables", JSON.stringify({
         jackCount: jacks.length,
         ends: cables.map((c) => [jacks.indexOf(c.na), jacks.indexOf(c.nb), c.len]),
       }));

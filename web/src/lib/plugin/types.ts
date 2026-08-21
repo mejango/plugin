@@ -1,6 +1,6 @@
 import type { ChainProjectIds } from "@/lib/bendystraw/operations";
 import type { SupportedChainId } from "@/lib/chains";
-import type { DoublingKey } from "@/lib/telligence/house";
+import type { DoublingKey } from "@/lib/plugin/house";
 
 /** A machine the user routes part of their keep to. */
 export type RouteTarget = {

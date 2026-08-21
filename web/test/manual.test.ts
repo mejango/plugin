@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { buildManual } from "@/lib/telligence/manual";
-import type { MachineDraft } from "@/lib/telligence/types";
+import { buildManual } from "@/lib/plugin/manual";
+import type { MachineDraft } from "@/lib/plugin/types";
 
 const draft: MachineDraft = {
   name: "Foraging Bot",

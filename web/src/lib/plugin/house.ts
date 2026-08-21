@@ -1,9 +1,9 @@
 /**
- * The house rules, in one place. These mirror TelligenceDeployer's enums exactly —
+ * The house rules, in one place. These mirror PluginDeployer's enums exactly —
  * the contract is the authority, this is its vocabulary for the UI.
  */
 
-/** TelligenceKeep. Order IS the enum's order; the index is what goes onchain. */
+/** PluginKeep. Order IS the enum's order; the index is what goes onchain. */
 export const KEEPS = [
   { percent: 0, label: "0% — keeps nothing" },
   { percent: 10, label: "10% — just a bit" },
@@ -13,7 +13,7 @@ export const KEEPS = [
   { percent: 90, label: "90% — all but a bit" },
 ] as const;
 
-/** TelligenceDoubling. Order IS the enum's order. */
+/** PluginDoubling. Order IS the enum's order. */
 export const DOUBLINGS = [
   { key: "1d", label: "Daily", days: 1, word: "day" },
   { key: "1w", label: "Weekly", days: 7, word: "week" },

@@ -1,5 +1,5 @@
-import { doublingFor } from "@/lib/telligence/house";
-import type { MachineDraft } from "@/lib/telligence/types";
+import { doublingFor } from "@/lib/plugin/house";
+import type { MachineDraft } from "@/lib/plugin/types";
 
 /**
  * The machine's manual: a prompt the entrepreneur pastes into their machine.
