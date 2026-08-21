@@ -81,8 +81,11 @@ function messageOf(error: unknown): string | null {
 
 const FIELD =
   "w-full border-2 border-black bg-white px-[.9rem] py-[.7rem] text-inherit rounded-none appearance-none placeholder:text-[#888] focus:outline-3 focus:outline-black focus:outline-offset-2";
+// Sized by the grid rather than fixed, so all seven socials fit one row at any
+// panel width; the wallets sit on the same seven columns so the two rows line up.
 const TILE =
-  "flex h-11 w-11 cursor-pointer items-center justify-center border-2 border-black bg-white hover:bg-black hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
+  "flex aspect-square w-full cursor-pointer items-center justify-center border-2 border-black bg-white hover:bg-black hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
+const TILE_ROW = "grid grid-cols-7 gap-1.5";
 const GO =
   "display cursor-pointer border-2 border-black bg-black px-[1.2em] py-[.45em] text-[1.05rem] tracking-[.03em] text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40";
 const SECTION = "mb-2 mt-5 text-[.7rem] uppercase tracking-[.18em] text-[#777]";
@@ -452,7 +455,7 @@ export default function ParaAuthSheet({
       </form>
 
       <p className={SECTION}>Or, use socials</p>
-      <div className="flex flex-wrap gap-1.5">
+      <div className={TILE_ROW}>
         {OAUTH_METHODS.map(({ method, label }) => (
           <button
             key={method}
@@ -477,7 +480,7 @@ export default function ParaAuthSheet({
           revealing this once they arrive would resize a panel the visitor is
           already looking at — and it is centred, so it jumps. */}
       <p className={SECTION}>… or, a wallet.</p>
-      <div className="flex min-h-11 flex-wrap gap-1.5">
+      <div className={`${TILE_ROW} min-h-11`}>
         {connectors.map((connector) => (
           <button
             key={connector.id}

@@ -645,10 +645,30 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     ctx.drawImage(panel, 0, 0);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    for (const c of cables) drawCable(c);
-    // plugs live above all cord bodies: a passing wire reads as going BEHIND
-    // any seated connection, never through it
+    // Plugs go UNDER the cords, so a wire crossing a seated connection passes in
+    // front of it rather than disappearing behind — a cord draped over a plug
+    // lies on top of it, it does not thread through it.
+    //
+    // A cord must still go behind its OWN plug, or the barrel it is plugged into
+    // is painted over by the cord leaving it, and the connector vanishes. So
+    // each cord is drawn with its own two plugs punched out of the clip: it
+    // covers every other plug on the panel and none of its own.
     for (const c of cables) drawPlugs(c);
+    for (const c of cables) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, w, h);
+      // Matches the boot's far end in drawPlugs (barrel * 1.8), so the cord
+      // emerges exactly where the rubber stops.
+      const hide = 27 * dpr;
+      for (const e of [c.pts[0], c.pts[N - 1]]) {
+        ctx.moveTo(e.x + hide, e.y);
+        ctx.arc(e.x, e.y, hide, 0, 7);
+      }
+      ctx.clip("evenodd");
+      drawCable(c);
+      ctx.restore();
+    }
 
     if (!REDUCED) rafId = requestAnimationFrame(draw);
   }
