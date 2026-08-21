@@ -149,7 +149,7 @@ export function CreateForm() {
           </p>
 
           <label className={`${LABEL} mt-[1.4rem]`}>
-            Routes <span className={HINT}>the split of keep to other machines</span>
+            Plug ins <span className={HINT}>the split of keep to other machines</span>
           </label>
           <RoutesPanel
             routes={draft.routes}

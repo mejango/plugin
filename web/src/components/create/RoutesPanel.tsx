@@ -138,7 +138,7 @@ export function RoutesPanel({
           type="text"
           value={term}
           onChange={(e) => setTerm(e.target.value)}
-          placeholder="Search machines to route to…"
+          placeholder="Search machines to plug in…"
           autoComplete="off"
           className={FIELD}
         />

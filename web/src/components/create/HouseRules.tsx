@@ -9,7 +9,7 @@ const RULES = [
   },
   {
     title: "Splits",
-    body: "The machine's keep and its routes are carved from issuance as splits, enforced by the revnet on every mint. The rest of each mint goes to the payer.",
+    body: "The machine's keep and its plug ins are carved from issuance as splits, enforced by the revnet on every mint. The rest of each mint goes to the payer.",
   },
   {
     title: "Issuance doublings",
