@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>telligence — pitch it an idea</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='50,4 90,27 90,73 50,96 10,73 10,27' fill='none' stroke='%23999' stroke-width='5'/%3E%3Ccircle cx='50' cy='50' r='30' fill='%23eee'/%3E%3Ccircle cx='50' cy='50' r='22' fill='none' stroke='%23777' stroke-width='6'/%3E%3Ccircle cx='50' cy='50' r='12' fill='%23555'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
@@ -106,18 +107,20 @@
   @media (max-width: 620px) { .row, .row--id { grid-template-columns: 1fr; } }
   select { background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%); background-position: calc(100% - 20px) center, calc(100% - 14px) center; background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; padding-right: 2.4rem; }
 
-  .pie-wrap { border: 2px solid var(--ink); background: var(--paper); padding: 1rem; display: grid; gap: 0.8rem; align-content: start; }
+  .readout { position: relative; border: 1px dashed #aaa; background: #fbfbfb; }
+  .readout::before { content: "readout"; position: absolute; top: 0.45rem; right: 0.7rem; font-size: 0.6rem; letter-spacing: 0.2em; text-transform: uppercase; color: #b5b5b5; }
+  .pie-wrap { padding: 1.7rem 1rem 1rem; display: grid; gap: 0.8rem; align-content: start; }
   .pie-wrap canvas { display: block; width: 100%; height: 210px; }
   #pie-legend { display: grid; gap: 0.3rem; font-size: 0.78rem; color: var(--muted); }
   #pie-legend .li { display: flex; align-items: center; gap: 0.5rem; }
   #pie-legend .sw { width: 0.7rem; height: 0.7rem; flex: none; border: 1px solid rgba(0,0,0,0.25); }
   .doubling-wrap { display: grid; grid-template-columns: 1fr 2fr; gap: 1.4rem; align-items: stretch; }
   .segmented--stack { grid-template-columns: 1fr !important; grid-auto-rows: 1fr; height: 100%; }
-  .segmented--stack button { border-left: none !important; border-top: 2px solid var(--ink); }
-  .segmented--stack button:first-child { border-top: none; }
+  .segmented--stack button { border-left: none !important; border-top: 2px solid var(--ink) !important; }
+  .segmented--stack button:first-child { border-top: none !important; }
   .doubling-wrap > .segmented--stack { align-self: stretch; }
-  .doubling-chart { display: flex; flex-direction: column; }
-  .doubling-chart canvas { display: block; width: 100%; height: 230px; background: var(--paper); border: 2px solid var(--ink); }
+  .doubling-chart { display: flex; flex-direction: column; padding: 1.7rem 0.7rem 0.7rem; }
+  .doubling-chart canvas { display: block; width: 100%; height: 230px; flex: 1; }
   @media (max-width: 620px) { .doubling-wrap { grid-template-columns: 1fr; } }
 
   /* segmented control (doublins) */
@@ -382,7 +385,7 @@
       if (!a || !b) break;
       const c = {
         a, b, na: a, nb: b, move: 1,
-        slack: 1.12 + rand() * 0.45,        // how much extra cord it carries
+        slack: 1.04 + rand() * 0.18,        // how much extra cord it carries
         color: COLORS[i % COLORS.length],
         wear: 0.72 + rand() * 0.5,          // no two cords aged alike
         hueJit: [0, 1, 2].map(() => (rand() - 0.5) * 34), // dye lot variance
@@ -794,7 +797,7 @@
           <button type="button" data-val="1m" class="on">Monthly</button>
           <button type="button" data-val="3m">Quarterly</button>
         </div>
-        <div class="doubling-chart">
+        <div class="doubling-chart readout">
           <canvas id="doubling-canvas"></canvas>
         </div>
       </div>
@@ -822,7 +825,7 @@
       </div>
       <div class="field">
         <label class="tag">Issuance breakdown <span class="hint">who gets the tokens</span></label>
-        <div class="pie-wrap">
+        <div class="pie-wrap readout">
           <canvas id="pie-canvas"></canvas>
           <div id="pie-legend"></div>
         </div>

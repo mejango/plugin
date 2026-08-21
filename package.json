@@ -2,7 +2,7 @@
   "name": "telligence",
   "version": "0.1.0",
   "private": true,
-  "description": "Fund your telligence — machines on revnets, reduced to two dials.",
+  "description": "Fund your telligence \u2014 machines on revnets, reduced to two dials.",
   "scripts": {
     "build": "forge build",
     "test": "forge test"

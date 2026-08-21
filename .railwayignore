@@ -1,0 +1,11 @@
+package.json
+package-lock.json
+src/
+test/
+lib/
+node_modules/
+out/
+cache/
+foundry.toml
+remappings.txt
+.gitignore
