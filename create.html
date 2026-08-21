@@ -978,6 +978,8 @@
   };
   let doublingKey = "1m";
   let hoverDay = null;   // day 0..365 under the cursor, drives chart tooltip + pie amounts
+  const tokenWord = () => (document.getElementById("symbol").value.trim() || "tokens").toUpperCase() === "TOKENS"
+    ? "tokens" : document.getElementById("symbol").value.trim().toUpperCase();
   const doublingBox = document.getElementById("doubling");
 
   // Step chart: price to issue across a year, log2 scale, one staircase per cadence.
@@ -1046,7 +1048,7 @@
       cx.beginPath(); cx.arc(hx, hy, 3.5 * cdpr, 0, 7);
       cx.fillStyle = "#000"; cx.fill();
       const l1 = "month " + (hoverDay / 30.42).toFixed(1);
-      const l2 = "$" + price.toFixed(3) + ", " + (tokens >= 10 ? tokens.toFixed(1) : tokens.toFixed(2)) + " tokens per $1";
+      const l2 = (tokens >= 10 ? tokens.toFixed(1) : tokens.toFixed(2)) + " " + tokenWord() + " per $1";
       cx.font = 9 * cdpr + "px ui-monospace, Menlo, monospace";
       const tw = Math.max(cx.measureText(l1).width, cx.measureText(l2).width) + 12 * cdpr;
       const th = 30 * cdpr;
@@ -1330,7 +1332,7 @@ routeLines +
       let amt = "";
       if (tokensNow !== null) {
         const n = (tokensNow * sl.pct) / 100;
-        amt = ' <span style="color:#aaa">' + (n >= 10 ? n.toFixed(1) : n.toFixed(2)) + " tokens per $1</span>";
+        amt = ' <span style="color:#aaa">' + (n >= 10 ? n.toFixed(1) : n.toFixed(2)) + " " + tokenWord() + " per $1</span>";
       }
       return '<div class="li"><span class="sw" style="background:' + sl.color + '"></span>' +
         sl.label + " — " + (Math.round(sl.pct * 10) / 10) + "%" + amt + "</div>";
