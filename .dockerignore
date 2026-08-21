@@ -1,16 +1,7 @@
-# The Dockerfile only needs web/. Keep the Foundry tree and all build output out
-# of the context. Patterns are matched against the whole path, so anchor the
-# repo-root ones with a leading slash — a bare `src/` would also strip web/src.
-**/node_modules
-**/.next
-/out
-/cache
-/lib
-/broadcast
-/src
-/test
-/script
-/foundry.toml
-/remappings.txt
-/package.json
-/package-lock.json
+# Exclude everything, then re-include only what the image builds. Bare-name
+# patterns here match at ANY depth, so a repo-root exclusion like "lib" would
+# also strip web/src/lib. An allow-list has no such ambush.
+*
+!web
+web/node_modules
+web/.next
