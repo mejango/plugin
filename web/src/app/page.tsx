@@ -9,11 +9,9 @@ export default function HomePage() {
     <main className="relative flex min-h-[100svh] flex-col items-center justify-center px-[6vw] text-center">
       <PatchBay />
 
-      {/* Absolute, not in flow: the hero is centred on the viewport, and a bar
+      {/* Floating, not in flow: the hero is centred on the viewport, and a bar
           taking part in that centring would push it down by its own height. */}
-      <div className="absolute inset-x-0 top-0">
-        <SiteHeader />
-      </div>
+      <SiteHeader floating />
 
       {/*
         The hero is see-through to the pointer. The glyphs are huge and the bay
