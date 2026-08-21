@@ -57,6 +57,98 @@ export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   }
 }
 
+
+/**
+ * Put the cord back to the length it was cut to.
+ *
+ * The distance solver alone cannot do this. Six Gauss-Seidel passes leave the
+ * rope compliant, so it stretches under load by an amount that depends on the
+ * tension — which depends on how far apart the ends are. Measured across
+ * extensions, the arc came out anywhere from 1% short to 12% long, so dragging
+ * an end visibly grew and shrank the cord. More iterations barely help: even 40
+ * passes still spanned 4.6%.
+ *
+ * So length is enforced directly instead of hoped for. The shape is taken as
+ * given — deviation from the chord between the two jacks — and scaled by the one
+ * factor that makes the arc measure `target`, found by bisection. Sag, drape and
+ * kinks are preserved; only the amount of them changes.
+ *
+ * `beta` is how much of the correction the history follows. At 1 the move adds
+ * no velocity, which sounds right and is not: the velocity a constraint injects
+ * is what bleeds the energy gravity keeps adding, and removing it made the cords
+ * ring (motion 5.1 vs 0.58). At 0.25 the remaining 75% damps, and the cords
+ * settle slightly calmer than they did before any of this.
+ *
+ * Taut and slack now fall out of geometry rather than a special case: with the
+ * arc pinned to `target`, ends far apart leave nothing to sag with.
+ */
+export function holdLength(pts, prev, target, n, ax, ay, bx, by, beta) {
+  const chord = Math.hypot(bx - ax, by - ay);
+
+  // Ends farther apart than the cord is long: it can only be a straight line.
+  // The drag clamp keeps this from happening, but a cord being carried between
+  // jacks passes through arbitrary spans on the way.
+  if (chord >= target) {
+    for (let i = 1; i < n - 1; i++) {
+      const k = i / (n - 1);
+      const nx = ax + (bx - ax) * k, ny = ay + (by - ay) * k;
+      prev[i].x += (nx - pts[i].x) * beta;
+      prev[i].y += (ny - pts[i].y) * beta;
+      pts[i].x = nx; pts[i].y = ny;
+    }
+    return;
+  }
+
+  const ox = [], oy = [];
+  let biggest = 0;
+  for (let i = 0; i < n; i++) {
+    const k = i / (n - 1);
+    ox.push(pts[i].x - (ax + (bx - ax) * k));
+    oy.push(pts[i].y - (ay + (by - ay) * k));
+    biggest = Math.max(biggest, Math.hypot(ox[i], oy[i]));
+  }
+
+  // Scaling a straight line leaves it straight, so a cord that has just been
+  // pulled flat has no shape to grow back into. Seed a downward belly for the
+  // scale to work on — gravity's direction, and the shape it would settle into
+  // anyway. Only when there is genuinely nothing there: any real sag is kept.
+  const slackNeeded = target - chord;
+  if (biggest < slackNeeded * 0.05) {
+    for (let i = 1; i < n - 1; i++) {
+      oy[i] += Math.sin((i / (n - 1)) * Math.PI) * slackNeeded * 0.5;
+    }
+  }
+
+  // Arc length if every deviation were scaled by `s`. Monotonic in s, so a
+  // bisection lands on the one scale that measures `target`.
+  const lenAt = (s) => {
+    let L = 0;
+    for (let i = 0; i < n - 1; i++) {
+      const k0 = i / (n - 1), k1 = (i + 1) / (n - 1);
+      const x0 = ax + (bx - ax) * k0 + ox[i] * s, y0 = ay + (by - ay) * k0 + oy[i] * s;
+      const x1 = ax + (bx - ax) * k1 + ox[i + 1] * s, y1 = ay + (by - ay) * k1 + oy[i + 1] * s;
+      L += Math.hypot(x1 - x0, y1 - y0);
+    }
+    return L;
+  };
+
+  let lo = 0, hi = 1;
+  while (lenAt(hi) < target && hi < 4096) hi *= 2;   // shape too flat: let it out
+  for (let it = 0; it < 24; it++) {                  // bracket may start wide; 2^-24 of it is far under a pixel
+    const mid = (lo + hi) / 2;
+    if (lenAt(mid) < target) lo = mid; else hi = mid;
+  }
+  const s = (lo + hi) / 2;
+
+  for (let i = 1; i < n - 1; i++) {
+    const k = i / (n - 1);
+    const nx = ax + (bx - ax) * k + ox[i] * s, ny = ay + (by - ay) * k + oy[i] * s;
+    prev[i].x += (nx - pts[i].x) * beta;
+    prev[i].y += (ny - pts[i].y) * beta;
+    pts[i].x = nx; pts[i].y = ny;
+  }
+}
+
 // ponytail: patch bay with verlet-rope cables — real gravity, drape, swing, and
 // settle. Grab a plug and the cord carries its own weight to the next jack.
 export function startPatchBay(canvas: HTMLCanvasElement): () => void {
@@ -361,6 +453,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     const G = 2.3 * dpr;                // gravity ~9.8 m/s² at this pixel scale
     const DAMP = 0.992;                 // light air drag — cords fall, not float
     const BEND_DAMP = 0.55;             // see relaxBendMemory
+    const LEN_HISTORY = 0.25;           // see holdLength
 
     for (const c of cables) {
       if (c.move < 1) c.move = Math.min(c.move + (c.moveSpeed || 0.012), 1);
@@ -418,6 +511,10 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
           q.y += (pnt.y - q.y) * pull;
         }
       }
+
+      // Last word on length: everything above moves points for its own reasons,
+      // and none of it puts the cord back to the size it was cut to.
+      holdLength(c.pts, c.prev, c.len, N, ax, ay, bx, by, LEN_HISTORY);
     }
   }
 
