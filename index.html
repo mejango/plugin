@@ -80,12 +80,13 @@
     letter-spacing: 0.14em;
     color: var(--ink);
     text-decoration: none;
-    background: var(--paper);
+    background: rgba(255,255,255,0.75);
+    backdrop-filter: blur(2px);
     padding: 0.55em 1.1em;
     border: 2px solid var(--ink);
   }
   .start:hover { background: var(--ink); color: var(--paper); }
-  .powered { position: absolute; bottom: 1.6rem; left: 0; right: 0; text-align: center; font-size: 0.75rem; margin: 0; color: #aaa; }
+  .powered { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); text-align: center; font-size: 0.75rem; margin: 0; color: #999; background: rgba(255,255,255,0.75); backdrop-filter: blur(2px); padding: 0.45rem 1.2rem 0.55rem; }
   .powered a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
   .powered a:hover { color: var(--muted); }
   .btn {
@@ -419,7 +420,7 @@
       if (!a || !b) break;
       const c = {
         a, b, na: a, nb: b, move: 1,
-        slack: 1.04 + rand() * 0.18,        // how much extra cord it carries
+        slack: rand() < 0.25 ? 1.04 + rand() * 0.08 : 1.22 + rand() * 0.38,        // how much extra cord it carries
         color: COLORS[i % COLORS.length],
         wear: 0.72 + rand() * 0.5,          // no two cords aged alike
         hueJit: [0, 1, 2].map(() => (rand() - 0.5) * 34), // dye lot variance
@@ -427,10 +428,26 @@
         gloss: 0.3 + rand() * 0.35,         // some cords matte, some shiny
         width: 8.5 * dpr,
         pts: [], prev: [],
+        // bend memory: the shape this cord wants from how it lived — coiled in a
+        // drawer, wrapped tight, trampled. Stiffness is how hard it insists.
+        stiff: 0.015 + rand() * 0.075,
+        kinks: (() => {
+          const f1 = 1 + rand() * 2, f2 = 3 + rand() * 4;
+          const p1 = rand() * 6.28, p2 = rand() * 6.28;
+          const a1 = (1.5 + rand() * 4) * dpr, a2 = (0.5 + rand() * 1.5) * dpr;
+          return Array.from({ length: N }, (_, i) => {
+            const k = i / (N - 1);
+            const taper = Math.sin(k * Math.PI);            // ends stay seated
+            return (Math.sin(k * f1 * 6.28 + p1) * a1 + Math.sin(k * f2 * 6.28 + p2) * a2
+              + (rand() - 0.5) * 0.8 * dpr) * taper;        // plus a little scuff
+          });
+        })(),
       };
       ropeInit(c);
       c.len = Math.hypot(b.x - a.x, b.y - a.y) * c.slack;   // cut to length, forever
       c.rest = c.len / (N - 1);
+      // the memory, expressed locally: how far each point bulges past its neighbors
+      c.kinkLocal = c.kinks.map((v, i, a) => (i === 0 || i === a.length - 1) ? 0 : v - (a[i - 1] + a[i + 1]) / 2);
       cables.push(c);
     }
     // restore the tab's cable arrangement (user moves carry across pages)
@@ -501,10 +518,12 @@
       // fixed cord length: the rope is as long as it was made, no more
       const rest = c.rest;
 
+      // stiffness shaves a little droop, but gravity always wins
+      const gEff = G * (1 - Math.min(0.25, c.stiff * 0.9));
       for (let i = 1; i < N - 1; i++) {
         const p = c.pts[i], q = c.prev[i];
         const vx = (p.x - q.x) * DAMP;
-        const vy = (p.y - q.y) * DAMP + G;
+        const vy = (p.y - q.y) * DAMP + gEff;
         q.x = p.x; q.y = p.y;
         p.x += vx; p.y += vy;
       }
@@ -525,17 +544,42 @@
         c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
       }
 
-      // near full extension the cord pulls taut: blend points onto the straight line
+      // bend memory, local edition: each point remembers how it bulges relative
+      // to its neighbors, so the kinks ride ON TOP of whatever the cord is doing
+      // globally — a taut run, a deep drape, a cord mid-carry. Shape survives slack.
+      {
+        const stiffNow = Math.min(0.35, c.stiff * 3);
+        for (let i = 1; i < N - 1; i++) {
+          const pm = c.pts[i - 1], pp = c.pts[i + 1], pnt = c.pts[i];
+          const mx2 = (pm.x + pp.x) / 2, my2 = (pm.y + pp.y) / 2;
+          const tx2 = pp.x - pm.x, ty2 = pp.y - pm.y;
+          const tl = Math.hypot(tx2, ty2) || 1e-6;
+          const nx2 = -ty2 / tl, ny2 = tx2 / tl;
+          const off = (pnt.x - mx2) * nx2 + (pnt.y - my2) * ny2;
+          const corr = (c.kinkLocal[i] - off) * stiffNow;
+          pnt.x += nx2 * corr;
+          pnt.y += ny2 * corr;
+          c.prev[i].x += nx2 * corr;
+          c.prev[i].y += ny2 * corr;
+        }
+      }
+
+      // tension rises smoothly with extension — no threshold, no snap. The pull
+      // toward straight and the momentum bleed both fade in over the last third.
       const pinDist = Math.hypot(bx - ax, by - ay);
-      if (pinDist > c.len * 0.93) {
-        const tension = Math.min(1, (pinDist / c.len - 0.93) / 0.06);
+      const ext = pinDist / c.len;
+      if (ext > 0.92) {
+        let t2 = Math.min(1, (ext - 0.92) / 0.07);
+        t2 = t2 * t2 * (3 - 2 * t2);                  // smoothstep
+        const pull = t2 * t2 * 0.35;                  // only the last few percent firm up
         for (let i = 1; i < N - 1; i++) {
           const k2 = i / (N - 1);
           const tx = ax + (bx - ax) * k2, ty = ay + (by - ay) * k2;
-          const pnt = c.pts[i];
-          pnt.x += (tx - pnt.x) * tension * 0.85;
-          pnt.y += (ty - pnt.y) * tension * 0.85;
-          c.prev[i].x = pnt.x; c.prev[i].y = pnt.y;   // taut cords carry no momentum
+          const pnt = c.pts[i], q = c.prev[i];
+          pnt.x += (tx - pnt.x) * pull;
+          pnt.y += (ty - pnt.y) * pull;
+          q.x += (pnt.x - q.x) * pull;                // momentum bleeds, never zeroes
+          q.y += (pnt.y - q.y) * pull;
         }
       }
     }
@@ -593,6 +637,10 @@
     ctx.lineWidth = Math.max(1, c.width * 0.3);
     ctx.stroke();
     ctx.restore();
+  }
+
+  function drawPlugs(c) {
+    const pts = c.pts;
     // plug barrels + strain relief along the cord's true entry angle
     for (const [p0, p1] of [[pts[0], pts[1]], [pts[N - 1], pts[N - 2]]]) {
       const len = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
@@ -665,6 +713,9 @@
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     for (const c of cables) drawCable(c);
+    // plugs live above all cord bodies: a passing wire reads as going BEHIND
+    // any seated connection, never through it
+    for (const c of cables) drawPlugs(c);
 
     if (!REDUCED) requestAnimationFrame(draw);
   }

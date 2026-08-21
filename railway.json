@@ -3,7 +3,5 @@
   "build": {
     "builder": "DOCKERFILE"
   },
-  "deploy": {
-    "startCommand": "python3 -m http.server $PORT --bind ::"
-  }
+  "deploy": {}
 }
