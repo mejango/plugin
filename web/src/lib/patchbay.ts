@@ -509,6 +509,38 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     ctx.restore();
   }
 
+  /**
+   * Punch the barrel's own footprint out of the current path, so a cord is not
+   * drawn over the plug it is plugged into.
+   *
+   * Shaped to the barrel rather than a circle round the jack. A disc big enough
+   * to cover the barrel also covers the socket printed on the panel — ring at
+   * JR, hexagon at JR * 1.45 — and since no plug is drawn out there, the cord
+   * was simply missing across the whole socket and the panel showed through.
+   * A capsule only takes back what the barrel actually paints over.
+   */
+  function plugHole(c, p0, p1) {
+    const len = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
+    const ux = (p1.x - p0.x) / len, uy = (p1.y - p0.y) / len;
+    const nx = -uy, ny = ux;                      // the barrel's half-width axis
+    const hw = c.width * 1.3;                     // just past `c.width * 2.4` stroke
+    // Stop at the collar: past it the strain relief is only a shade wider than
+    // the cord, so the cord running over it reads as the boot gripping it.
+    const ex = p0.x + ux * 16 * dpr, ey = p0.y + uy * 16 * dpr;
+    const STEPS = 10;
+    ctx.moveTo(p0.x + nx * hw, p0.y + ny * hw);
+    ctx.lineTo(ex + nx * hw, ey + ny * hw);
+    for (let k = 1; k <= STEPS; k++) {            // round the far end, through +u
+      const a = -Math.PI * k / STEPS, ca = Math.cos(a), sa = Math.sin(a);
+      ctx.lineTo(ex + (nx * ca - ny * sa) * hw, ey + (nx * sa + ny * ca) * hw);
+    }
+    for (let k = 1; k <= STEPS; k++) {            // and the jack end, through -u
+      const a = -Math.PI * k / STEPS, ca = Math.cos(a), sa = Math.sin(a);
+      ctx.lineTo(p0.x + (-nx * ca + ny * sa) * hw, p0.y + (-nx * sa - ny * ca) * hw);
+    }
+    ctx.closePath();
+  }
+
   function drawPlugs(c) {
     const pts = c.pts;
     // plug barrels + strain relief along the cord's true entry angle
@@ -595,13 +627,8 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 0, w, h);
-      // Matches the boot's far end in drawPlugs (barrel * 1.8), so the cord
-      // emerges exactly where the rubber stops.
-      const hide = 27 * dpr;
-      for (const e of [c.pts[0], c.pts[N - 1]]) {
-        ctx.moveTo(e.x + hide, e.y);
-        ctx.arc(e.x, e.y, hide, 0, 7);
-      }
+      plugHole(c, c.pts[0], c.pts[1]);
+      plugHole(c, c.pts[N - 1], c.pts[N - 2]);
       ctx.clip("evenodd");
       drawCable(c);
       ctx.restore();
