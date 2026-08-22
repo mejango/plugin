@@ -601,13 +601,33 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         // other; with the pull gone it holds 1.000 from slack to 0.97 and drifts
         // only 0.35% at the very top, where six compliant passes stretch the
         // cord further than aiming low can take back.
-        c.restScale *= 1 + (c.len / arc - 1) * 0.05;
-        // Down to 0.3, because it now has the whole job. Six compliant passes
-        // stretch a cord under tension far past what its segments are aiming
-        // at, so holding a taut cord to its length means aiming very low — it
-        // wants 0.36 at full draw, and stopped at the old floor of 0.5, leaving
-        // the cord long and bellied exactly where it should look tightest.
-        c.restScale = Math.max(0.3, Math.min(1.2, c.restScale));
+        // Worked out from where the plugs are, not chased from the cord.
+        //
+        // Six compliant passes let a cord stretch under its own weight, so the
+        // segments have to aim low for it to come out the right length. How low
+        // was found by integrating the error, and you could watch it happen:
+        // hold a plug still after dragging and the cord went on swelling under
+        // your hand for about a second. A cord does not do that. A cord is the
+        // length it is.
+        //
+        // But how far a cord stretches is not a mystery to be searched for. It
+        // is set by how hard it is being pulled, which is set by how far apart
+        // its plugs are — and measuring across every length and stiffness in
+        // the deal, (1 - scale) x length comes out constant at a given
+        // extension, and the extension term is 1/sqrt of the slack left. Two
+        // numbers, no memory, no lag. Extension depends only on the plugs, so
+        // unlike anything read off the cord this cannot answer a swing: the
+        // cord may do what it likes underneath it.
+        //
+        // The fit is good to a percent or two, so a slow trim carries whatever
+        // is left — small enough that its own lag is invisible, and gentle
+        // enough not to argue with a swinging cord the way the old full-strength
+        // version would have.
+        const ext = Math.hypot(bx - ax, by - ay) / c.len;
+        const slackLeft = Math.max(1 - ext, 0.008);
+        const aim = 1 - (15.2 * dpr) / (c.len * Math.sqrt(slackLeft));
+        c.trim = Math.max(0.6, Math.min(1.6, (c.trim || 1) * (1 + (c.len / arc - 1) * 0.05)));
+        c.restScale = Math.max(0.3, Math.min(1.2, aim * c.trim));
         c.rest = (c.len / (N - 1)) * c.restScale;
       }
     }

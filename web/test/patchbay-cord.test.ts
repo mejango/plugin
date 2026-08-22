@@ -33,7 +33,7 @@ function run(
 ) {
   const len = 270;
   const baseRest = len / (N - 1);
-  let restScale = 1;
+  let restScale = 1, trim = 1;
   const ax = 0, ay = 0, by = 0;
   // Settle slack first, then carry the end out — a cord reaches a given
   // extension by being dragged there, and it brings its corrected length with
@@ -87,15 +87,16 @@ function run(
         prev[i].y += (pts[i].y - prev[i].y) * w;
       }
     }
-    // Measured before the pull squashes the cord — see patchbay.ts.
-    const arcBeforePull = arc(pts);
     if (control) {
-      const a = arcBeforePull;
+      const a = arc(pts);
       if (a > 1e-6) {
-        // Rate-capped — see the controller in patchbay.ts.
-        const step = (len / a - 1) * 0.05;
-        restScale *= 1 + Math.max(-0.0008, Math.min(0.0008, step));
-        restScale = Math.max(0.3, Math.min(1.2, restScale));
+        // Quick enough that nobody watches it happen — see patchbay.ts.
+        // Aimed from where the plugs are, with a slow trim behind it — see the
+        // controller in patchbay.ts.
+        const cur = Math.hypot(bx - ax, by - ay) / len;
+        const aim = 1 - 15.2 / (len * Math.sqrt(Math.max(1 - cur, 0.008)));
+        trim = Math.max(0.6, Math.min(1.6, trim * (1 + (len / a - 1) * 0.05)));
+        restScale = Math.max(0.3, Math.min(1.2, aim * trim));
       }
     }
     if (shoveAt > 0 && f > shoveAt && f <= shoveAt + 160) {
@@ -240,7 +241,7 @@ describe("cord behaviour", () => {
     // here, because the bend and tension terms both edit `prev`. It reads
     // several px/frame on a cord that is provably motionless.
     const len = 270, baseRest = len / (N - 1);
-    let restScale = 1;
+    let restScale = 1, trim = 1;
     const ax = 0, ay = 0, by = 0;
     let bx = len * 0.62;
     const pts: P[] = [], prev: P[] = [], kink: number[] = [];
@@ -295,10 +296,13 @@ describe("cord behaviour", () => {
       const a = arc(pts);
       if (a > 1e-6) {
         // No taut pull in this loop, so nothing to aim long for.
-        // Rate-capped — see the controller in patchbay.ts.
-        const step = (len / a - 1) * 0.05;
-        restScale *= 1 + Math.max(-0.0008, Math.min(0.0008, step));
-        restScale = Math.max(0.3, Math.min(1.2, restScale));
+        // Quick enough that nobody watches it happen — see patchbay.ts.
+        // Aimed from where the plugs are, with a slow trim behind it — see the
+        // controller in patchbay.ts.
+        const cur = Math.hypot(bx - ax, by - ay) / len;
+        const aim = 1 - 15.2 / (len * Math.sqrt(Math.max(1 - cur, 0.008)));
+        trim = Math.max(0.6, Math.min(1.6, trim * (1 + (len / a - 1) * 0.05)));
+        restScale = Math.max(0.3, Math.min(1.2, aim * trim));
       }
       if (f > D1) {
         let m = 0;
