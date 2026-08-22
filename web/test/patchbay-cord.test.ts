@@ -51,6 +51,7 @@ function run(
   };
   const gEff = G * (1 - Math.min(0.25, stiff * 0.9));
   const sags: number[] = [], midX: number[] = [];
+  const segMin = new Array(N - 1).fill(Infinity), segMax = new Array(N - 1).fill(-Infinity);
   let rSum = 0, sSum = 0, mSum = 0, tSum = 0, n = 0;
 
   for (let f = 0; f < frames; f++) {
@@ -64,14 +65,16 @@ function run(
     }
     pin();
     for (let it = 0; it < 6; it++) {
-      for (let i = 0; i < N - 1; i++) {
+      for (let s = 0; s < N - 1; s++) {
+        const i = it % 2 === 0 ? s : N - 2 - s;
         const p = pts[i], q = pts[i + 1];
         const dx = q.x - p.x, dy = q.y - p.y;
         const d = Math.hypot(dx, dy) || 1e-6;
-        const diff = (d - rest) / d / 2;
+        const pFree = i > 0, qFree = i < N - 2;
+        const diff = (d - rest) / d / (pFree && qFree ? 2 : 1);
         const ox = dx * diff, oy = dy * diff;
-        if (i > 0) { p.x += ox; p.y += oy; }
-        if (i < N - 2) { q.x -= ox; q.y -= oy; }
+        if (pFree) { p.x += ox; p.y += oy; }
+        if (qFree) { q.x -= ox; q.y -= oy; }
       }
       pin();
     }
@@ -109,6 +112,13 @@ function run(
         restScale = Math.max(0.5, Math.min(1.2, restScale));
       }
     }
+    if (shoveAt > 0 && f > shoveAt && f <= shoveAt + 160) {
+      for (let i = 0; i < N - 1; i++) {
+        const L = Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+        if (L < segMin[i]) segMin[i] = L;
+        if (L > segMax[i]) segMax[i] = L;
+      }
+    }
     sags.push(sagOf(pts, ax, ay, bx, by));
     // The middle of the arc, not the average of every point. The points beside
     // each plug are deliberately damped by the strain relief, and averaging
@@ -144,6 +154,7 @@ function run(
   return {
     ratio: rSum / n, sag: sSum / n, tilt: tSum / n, motion: mSum / n,
     fallFrames: fall < 0 ? frames : fall, swingAmp, halfCycles, halfPeriod,
+    segSwing: segMax.map((v, i) => v - segMin[i]),
   };
 }
 
@@ -239,14 +250,16 @@ describe("cord behaviour", () => {
       }
       pin();
       for (let it = 0; it < 6; it++) {
-        for (let i = 0; i < N - 1; i++) {
+        for (let s = 0; s < N - 1; s++) {
+          const i = it % 2 === 0 ? s : N - 2 - s;
           const p = pts[i], q = pts[i + 1];
           const dx = q.x - p.x, dy = q.y - p.y;
           const d = Math.hypot(dx, dy) || 1e-6;
-          const diff = (d - rest) / d / 2;
+          const pFree = i > 0, qFree = i < N - 2;
+          const diff = (d - rest) / d / (pFree && qFree ? 2 : 1);
           const ox = dx * diff, oy = dy * diff;
-          if (i > 0) { p.x += ox; p.y += oy; }
-          if (i < N - 2) { q.x -= ox; q.y -= oy; }
+          if (pFree) { p.x += ox; p.y += oy; }
+          if (qFree) { q.x -= ox; q.y -= oy; }
         }
         pin();
       }
@@ -276,6 +289,25 @@ describe("cord behaviour", () => {
     }
     expect(quiet).toBeGreaterThan(0);
     expect(quiet).toBeLessThan(45);
+  });
+
+  it("shares a length change along the cord instead of pumping the last link", () => {
+    // The cord is always slightly re-cutting itself: the rest-length controller
+    // trims `rest` every frame until the arc matches the length the cord was
+    // cut to. That correction has to show up as some scrunch somewhere, and it
+    // should be spread thinly down the whole cord.
+    //
+    // It was not. A distance constraint splits its correction between its two
+    // points, but at an end segment one of those points is the plug, which is
+    // pinned and throws its half away. So the end links only ever got half a
+    // fix, converged at half the rate, and carried everyone else's leftover:
+    // measured on the live canvas, the last link breathed 1.8px per settle
+    // against 0.4px in the middle, visible as a bounce right at the plug.
+    const { segSwing } = run(0.65, { shoveAt: 1400, frames: 1700 });
+    const mid = segSwing.slice(4, -4).reduce((a, b) => a + b, 0) / (segSwing.length - 8);
+    // Neither end link may breathe much harder than the body of the cord.
+    expect(segSwing[0]).toBeLessThan(mid * 2);
+    expect(segSwing[segSwing.length - 1]).toBeLessThan(mid * 2);
   });
 
   it("swings at the speed its own weight says it should", () => {

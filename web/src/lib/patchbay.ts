@@ -413,14 +413,21 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
 
       for (let iter = 0; iter < 6; iter++) {
-        for (let i = 0; i < N - 1; i++) {
+        // alternate the sweep direction: a one-way sweep carries its residual
+        // outward and dumps the whole length correction at the far plug
+        for (let s = 0; s < N - 1; s++) {
+          const i = iter % 2 === 0 ? s : N - 2 - s;
           const p = c.pts[i], q = c.pts[i + 1];
           const dx = q.x - p.x, dy = q.y - p.y;
           const d = Math.hypot(dx, dy) || 1e-6;
-          const diff = (d - rest) / d / 2;
+          // share the correction only between the ends that can actually move —
+          // halving it against a pinned plug leaves the end segments lagging,
+          // so the length correction pools in the last link by the plug
+          const pFree = i > 0, qFree = i < N - 2;
+          const diff = (d - rest) / d / (pFree && qFree ? 2 : 1);
           const ox = dx * diff, oy = dy * diff;
-          if (i > 0) { p.x += ox; p.y += oy; }
-          if (i < N - 2) { q.x -= ox; q.y -= oy; }
+          if (pFree) { p.x += ox; p.y += oy; }
+          if (qFree) { q.x -= ox; q.y -= oy; }
         }
         c.pts[0].x = ax; c.pts[0].y = ay;
         c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
