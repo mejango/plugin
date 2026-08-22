@@ -1010,7 +1010,36 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     const laid = cables.map((_, i) => i).filter((i) => i !== held);
     laid.forEach(plugsOf);
     laid.forEach(cordOf);
-    if (held >= 0) { plugsOf(held); cordOf(held); }
+    if (held >= 0) {
+      const c = cables[held];
+      // Within the cord being dragged, the end in your hand is the highest part
+      // of it. You are holding that end up; the rest of the cord runs away from
+      // your hand and back down to the panel, and the far plug is still lying in
+      // its socket. So the far end's connector goes down first, then the cord,
+      // then the stretch you are actually holding, then the connector in your
+      // hand last of all — otherwise the cord's own far half, or its own other
+      // plug, is drawn across the bit you are moving.
+      const grabbedA = drag.ends.includes("a");
+      const bothEnds = drag.ends.length > 1;
+      const endOf = (isA) => ends[held][isA ? 0 : 1];
+      if (!bothEnds) drawPlug(c, endOf(!grabbedA).p0, endOf(!grabbedA).p1, endOf(!grabbedA).expose);
+      cordOf(held);
+      if (!bothEnds) {
+        // the stretch in hand, over the rest of its own cord
+        let total = 0;
+        for (let i = 0; i < N - 1; i++) {
+          total += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
+        }
+        const lead = total * 0.35;
+        const piece = grabbedA
+          ? sliceByArc(c.pts, 0, 0, lead)
+          : sliceByArc(c.pts, 0, total - lead, total);
+        if (piece) drawCable(c, piece, false, grabbedA ? 0 : total - lead);
+        drawPlug(c, endOf(grabbedA).p0, endOf(grabbedA).p1, endOf(grabbedA).expose);
+      } else {
+        plugsOf(held);
+      }
+    }
 
     if (!REDUCED) rafId = requestAnimationFrame(draw);
   }
