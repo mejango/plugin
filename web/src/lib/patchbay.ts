@@ -1008,8 +1008,15 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // another cord's connector, cover the thing being moved.
     const held = drag ? cables.indexOf(drag.cable) : -1;
     const laid = cables.map((_, i) => i).filter((i) => i !== held);
-    laid.forEach(plugsOf);
-    laid.forEach(cordOf);
+    // A whole cable at a time — its connectors and then its cord — so a cable
+    // has ONE depth against another cable, all of it.
+    //
+    // These were two sweeps as well: every cable's plugs, then every cable's
+    // cords. That put every cord above every plug while the cords were ordered
+    // among themselves, so of any two cables the lower one ran UNDER the other's
+    // cord and OVER the other's connector. Half of a cord in front and half
+    // behind, which is the same fault as before one layer up.
+    laid.forEach((i) => { plugsOf(i); cordOf(i); });
     if (held >= 0) {
       const c = cables[held];
       // Within the cord being dragged, the end in your hand is the highest part
