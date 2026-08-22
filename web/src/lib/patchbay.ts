@@ -535,18 +535,56 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   }
 
   function ropePath(pts, oy) {
+    const m = pts.length;
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y + oy);
-    for (let i = 1; i < N - 1; i++) {
+    for (let i = 1; i < m - 1; i++) {
       const mx = (pts[i].x + pts[i + 1].x) / 2;
       const my = (pts[i].y + pts[i + 1].y) / 2 + oy;
       ctx.quadraticCurveTo(pts[i].x, pts[i].y + oy, mx, my);
     }
-    ctx.lineTo(pts[N - 1].x, pts[N - 1].y + oy);
+    ctx.lineTo(pts[m - 1].x, pts[m - 1].y + oy);
+  }
+
+  /**
+   * The drawn cord starts where its own plug assembly ends — past the barrel and
+   * the strain-relief boot — rather than at the jack centre.
+   *
+   * The barrel points the same way the cord leaves, so the two are collinear: a
+   * cord drawn from the jack lays itself straight down the length of the plug
+   * holding it and the plug simply disappears. Starting at the boot means the
+   * cord has nothing of its own to paint over, which is what lets a seated plug
+   * be drawn UNDER every cord — its own belly swinging back past it included —
+   * and still read as a plug.
+   */
+  function trimToBoot(pts) {
+    // Stop at the collar, not past the boot. The barrel is rigid and drawn dead
+    // straight, the cord arrives on a curve, so cutting past the boot leaves the
+    // two meeting off-axis with a seam. Ending at the collar lets the cord run
+    // over the boot, which is only a shade wider than the cord — it reads as the
+    // boot gripping it, and the barrel is still never painted over.
+    const cut = 15 * dpr;
+    const n = pts.length;
+    let total = 0;
+    for (let i = 0; i < n - 1; i++) total += Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+    if (total < cut * 2.5) return pts;     // too short to trim and still be a cord
+    const walk = (from, dir) => {
+      let left = cut, i = from;
+      for (let g = 0; g < n; g++) {
+        const j = i + dir;
+        const dx = pts[j].x - pts[i].x, dy = pts[j].y - pts[i].y;
+        const d = Math.hypot(dx, dy) || 1e-6;
+        if (d >= left) return { idx: j, pt: { x: pts[i].x + dx * (left / d), y: pts[i].y + dy * (left / d) } };
+        left -= d; i = j;
+      }
+      return { idx: from + dir, pt: pts[from + dir] };
+    };
+    const a = walk(0, 1), b = walk(n - 1, -1);
+    return a.idx <= b.idx ? [a.pt, ...pts.slice(a.idx, b.idx + 1), b.pt] : [a.pt, b.pt];
   }
 
   function drawCable(c) {
-    const pts = c.pts;
+    const pts = trimToBoot(c.pts);
     // soft shadow under the cord — the panel sits behind it
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.16)";
@@ -579,52 +617,28 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   }
 
   /**
-   * Punch the barrel's own footprint out of the current path, so a cord is not
-   * drawn over the plug it is plugged into.
-   *
-   * Shaped to the barrel rather than a circle round the jack. A disc big enough
-   * to cover the barrel also covers the socket printed on the panel — ring at
-   * JR, hexagon at JR * 1.45 — and since no plug is drawn out there, the cord
-   * was simply missing across the whole socket and the panel showed through.
-   * A capsule only takes back what the barrel actually paints over.
+   * The two ends of a cable, each with how far its 1/4" tip has slid out of the
+   * socket — exposure is pure distance-from-jack. 0 is seated, 1 is fully out.
+   * Layering reads off this: a seated plug is flush in the panel and cords pass
+   * in front of it, a pulled one is lying above the panel and over everything.
    */
-  function plugHole(c, p0, p1) {
-    const len = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
-    const ux = (p1.x - p0.x) / len, uy = (p1.y - p0.y) / len;
-    const nx = -uy, ny = ux;                      // the barrel's half-width axis
-    const hw = c.width * 1.3;                     // just past `c.width * 2.4` stroke
-    // Stop at the collar: past it the strain relief is only a shade wider than
-    // the cord, so the cord running over it reads as the boot gripping it.
-    const ex = p0.x + ux * 16 * dpr, ey = p0.y + uy * 16 * dpr;
-    const STEPS = 10;
-    ctx.moveTo(p0.x + nx * hw, p0.y + ny * hw);
-    ctx.lineTo(ex + nx * hw, ey + ny * hw);
-    for (let k = 1; k <= STEPS; k++) {            // round the far end, through +u
-      const a = -Math.PI * k / STEPS, ca = Math.cos(a), sa = Math.sin(a);
-      ctx.lineTo(ex + (nx * ca - ny * sa) * hw, ey + (nx * sa + ny * ca) * hw);
-    }
-    for (let k = 1; k <= STEPS; k++) {            // and the jack end, through -u
-      const a = -Math.PI * k / STEPS, ca = Math.cos(a), sa = Math.sin(a);
-      ctx.lineTo(p0.x + (-nx * ca + ny * sa) * hw, p0.y + (-nx * sa - ny * ca) * hw);
-    }
-    ctx.closePath();
-  }
-
-  function drawPlugs(c) {
+  function plugEnds(c) {
     const pts = c.pts;
-    // plug barrels + strain relief along the cord's true entry angle
-    for (const [p0, p1] of [[pts[0], pts[1]], [pts[N - 1], pts[N - 2]]]) {
-      const len = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
-      const ux = (p1.x - p0.x) / len, uy = (p1.y - p0.y) / len;
-      const barrel = 15 * dpr;
-      // the 1/4" tip slides out as the plug leaves a socket, and back in as it seats —
-      // exposure is pure distance-from-jack
+    return [[pts[0], pts[1]], [pts[N - 1], pts[N - 2]]].map(([p0, p1]) => {
       let nearest = Infinity;
       for (const j of jacks) {
         const dj = Math.hypot(j.x - p0.x, j.y - p0.y);
         if (dj < nearest) nearest = dj;
       }
-      const expose = Math.min(1, Math.max(0, (nearest - JR * 0.7) / (16 * dpr)));
+      return { p0, p1, expose: Math.min(1, Math.max(0, (nearest - JR * 0.7) / (16 * dpr))) };
+    });
+  }
+
+  function drawPlug(c, p0, p1, expose) {
+    {
+      const len = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
+      const ux = (p1.x - p0.x) / len, uy = (p1.y - p0.y) / len;
+      const barrel = 15 * dpr;
       if (expose > 0.02) {
         const shaft = 11 * dpr * expose;
         ctx.beginPath();
@@ -683,21 +697,19 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     ctx.drawImage(panel, 0, 0);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    // Plugs go UNDER the cords, so a wire crossing a seated connection passes in
-    // front of it rather than disappearing behind. A cord must still go behind
-    // its OWN plug, or the barrel it is plugged into is painted over by the cord
-    // leaving it — hence the clip.
-    for (const c of cables) drawPlugs(c);
-    for (const c of cables) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, w, h);
-      plugHole(c, c.pts[0], c.pts[1]);
-      plugHole(c, c.pts[N - 1], c.pts[N - 2]);
-      ctx.clip("evenodd");
-      drawCable(c);
-      ctx.restore();
-    }
+    // Three layers, and which one a plug lands in is decided by whether it is
+    // seated. A seated plug is flush in the panel, so every cord passes in front
+    // of it — its own included; a cord is never sandwiched between a plug and
+    // the socket it sits in. A plug pulled out of its socket is lying above the
+    // panel, so it goes over the cords, barrel and exposed tip together.
+    const ends = cables.map(plugEnds);
+    cables.forEach((c, i) => ends[i].forEach((e) => {
+      if (e.expose <= 0.02) drawPlug(c, e.p0, e.p1, e.expose);
+    }));
+    for (const c of cables) drawCable(c);
+    cables.forEach((c, i) => ends[i].forEach((e) => {
+      if (e.expose > 0.02) drawPlug(c, e.p0, e.p1, e.expose);
+    }));
 
 
     if (!REDUCED) rafId = requestAnimationFrame(draw);
