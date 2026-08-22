@@ -447,7 +447,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // High enough and a deep loop is forced into a wide round bight; low enough
     // and an ordinary drape never feels it.
     const FOLD_COS = Math.cos((62 * Math.PI) / 180);
-    const FOLD_RELAX = 0.5;
+    const FOLD_RELAX = 0.25;
     const STRAIN = 0.6;
     const STRAIN_REACH = 3;
 
@@ -473,13 +473,23 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       c.pts[0].x = ax; c.pts[0].y = ay;
       c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
 
-      // Before the length solver, not after. Swinging a neighbour open holds the
-      // two segments either side of the fold, but moves that neighbour relative
-      // to the point BEYOND it — so run last, the error it leaves is still there
-      // at the end of the frame and the fold pumps against the solver forever.
-      openTightFolds(c.pts, c.prev, c.kinkLocal, N, FOLD_COS, FOLD_RELAX);
+      // A cable pulled near straight is under tension, and tension wins: it has
+      // no fold left to argue about, and the taut pull is already dragging those
+      // points onto the chord. Left in, the two shove the same points opposite
+      // ways for hundreds of frames at full stretch. Fade it out as the cord
+      // comes tight, well before the taut pull itself starts at 0.92.
+      const foldK = FOLD_RELAX *
+        (1 - Math.min(1, Math.max(0, (Math.hypot(bx - ax, by - ay) / c.len - 0.84) / 0.08)));
 
       for (let iter = 0; iter < 6; iter++) {
+        // Inside the solver's own loop, not once before it. Swinging a fold open
+        // holds the two segments either side of it but moves that neighbour
+        // relative to the point BEYOND it, so the two constraints disagree.
+        // Alternating them a frame apart, that disagreement is re-argued every
+        // frame — and the solver settles length by moving points without their
+        // `prev`, which is a velocity — so a cord near the limit rang for
+        // hundreds of frames. Relaxed together, they just converge.
+        if (foldK > 0) openTightFolds(c.pts, c.prev, c.kinkLocal, N, FOLD_COS, foldK);
         // alternate the sweep direction: a one-way sweep carries its residual
         // outward and dumps the whole length correction at the far plug
         for (let s = 0; s < N - 1; s++) {
