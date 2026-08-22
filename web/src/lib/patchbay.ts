@@ -427,9 +427,9 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // just shrink the swing, it slows it: at 0.55 a shoved cord barely moved at
     // all, and at 0.30 it took 72 frames to swing back where a free pendulum of
     // that sag takes 21. At 0.15 the period comes out at 22 and the cord swings
-    // the way its own weight says it should. What 0.55 was really doing is
-    // covered by the tension bleed below, which is aimed at the thing that
-    // actually needed damping.
+    // the way its own weight says it should. What 0.55 was really doing was
+    // standing in for damping a stretched cord, which no longer needs any: the
+    // pull that used to shake one about is gone.
     const BEND_DAMP = 0.15;             // see relaxBendMemory
     // Strain relief. A plug's boot grips the cord, so a real cable cannot flap
     // where it enters one — it leaves the connector straight for a centimetre
@@ -473,11 +473,9 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       c.pts[0].x = ax; c.pts[0].y = ay;
       c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
 
-      // A cable pulled near straight is under tension, and tension wins: it has
-      // no fold left to argue about, and the taut pull is already dragging those
-      // points onto the chord. Left in, the two shove the same points opposite
-      // ways for hundreds of frames at full stretch. Fade it out as the cord
-      // comes tight, well before the taut pull itself starts at 0.92.
+      // A cable pulled near straight has no fold left to argue about, and its
+      // length is doing all the work. Fade the constraint out as the cord comes
+      // tight rather than leaving it to shove points around up there.
       const foldK = FOLD_RELAX *
         (1 - Math.min(1, Math.max(0, (Math.hypot(bx - ax, by - ay) / c.len - 0.84) / 0.08)));
 
@@ -521,50 +519,22 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         }
       }
 
-      // tension rises smoothly with extension — no threshold, no snap. The pull
-      // toward straight and the momentum bleed both fade in over the last third.
-      const pinDist = Math.hypot(bx - ax, by - ay);
-      const ext = pinDist / c.len;
-      let tension = 0;
-      if (ext > 0.92) {
-        let t2 = Math.min(1, (ext - 0.92) / 0.07);
-        t2 = t2 * t2 * (3 - 2 * t2);                  // smoothstep
-        tension = t2 * t2;                            // only the last few percent firm up
-      }
-      // Measured BEFORE the pull, and that is the whole of it. The pull squashes
-      // the cord onto the line between its jacks on purpose — that is what makes
-      // a stretched cord look taut — so a controller reading the arc afterwards
-      // sees a cord shorter than it is, feeds length in, and gets squashed
-      // again. Near straight the chase runs away, because arc barely moves
-      // however far the cord bows: each correction throws the cord about three
-      // times as far as the length it added. A cord left alone at 0.989
-      // extension churned at 1.9 px/frame for as long as anyone watched, and
-      // sat at a flat 0 with the controller switched off. Capping how fast the
-      // controller may move does not help — the amplification is in the
-      // geometry, not the step size. Reading before the squash does: 0.029.
-      let arc = 0;
-      for (let i = 0; i < N - 1; i++) {
-        arc += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
-      }
-
-      if (tension > 0) {
-        const pull = tension * 0.35;
-        for (let i = 1; i < N - 1; i++) {
-          const k2 = i / (N - 1);
-          const tx = ax + (bx - ax) * k2, ty = ay + (by - ay) * k2;
-          const pnt = c.pts[i], q = c.prev[i];
-          pnt.x += (tx - pnt.x) * pull;
-          pnt.y += (ty - pnt.y) * pull;
-          // Bled at the ramp's own strength rather than the pull's. Matched to
-          // the pull it is far too weak to take back out the motion the pull
-          // feeds in, and a stretched cord fidgets: measured 1.54 at 0.97 and
-          // 0.65 at full draw, against 0.59 and 0.00 once the bleed is aimed
-          // properly. This is the damping the cords actually needed, which is
-          // why the bend damping above no longer has to stand in for it.
-          q.x += (pnt.x - q.x) * tension;
-          q.y += (pnt.y - q.y) * tension;
-        }
-      }
+      // No pull toward the chord any more, and no tension ramp to drive one.
+      //
+      // A cord used to be dragged onto the straight line between its jacks once
+      // it passed 0.92 extension, to make it read as taut. That was a second
+      // mechanism for something the length already decides, and it cost both of
+      // the things a stretched cord was still doing wrong. Its onset collapsed
+      // the sag 3.4x over two percent of extension — 11.6% at 0.95 down to 3.4%
+      // at 0.97 — which is a cord easing its own slack as you pull it. And it
+      // fought the rest-length controller for the same points, which left the
+      // cord shifting on its own by 0.275 and 0.410 px/frame right in that
+      // band, and running away entirely near straight.
+      //
+      // Sag is now just the length that will not fit between the jacks, and it
+      // goes 13.6 -> 10.6 -> 6.6 -> 5.7% across 0.95 to 0.995 with nothing
+      // moving on its own: 0.019, 0.008, 0.000, 0.000. A cord holds a slight
+      // belly at full draw, as a real one does, instead of being ironed flat.
 
       // Keep the cord the length it was cut to, without stiffening it.
       //
@@ -581,26 +551,27 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       // misses onto the right answer. Length spread 17% -> 0%, with drape,
       // swing, fall and settling all unchanged.
       //
+      let arc = 0;
+      for (let i = 0; i < N - 1; i++) {
+        arc += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
+      }
       if (arc > 1e-6) {
         // Gentle on purpose: it corrects over a few frames rather than yanking,
         // so a cord being carried is never fighting it.
         //
-        // One-sided once the cord is under tension. Reeling a stretched cord
-        // back in is always right and stays at full strength, so a cord that
-        // arrives already stretched still recovers. Letting length back OUT is
-        // the move that fights the pull — the pull squashes the cord onto the
-        // line between the jacks on purpose, and reading that as "too short"
-        // and feeding cord back in put the plug at 26 degrees off straight
-        // instead of 8 — so that direction fades out as the pull fades in.
-        // Both directions, everywhere. This used to refuse to let length back
-        // out under tension, to stop it fighting the pull — but that left the
-        // pull free to squash the cord to 0.966 of its length, which is exactly
-        // the shrink it was meant to prevent. With the drag able to reach full
-        // stretch the pull has far less squashing to do, and the two agree:
-        // measured 1.000 at every extension, and tauter at full draw than the
-        // squashed version managed.
+        // Both directions, at every extension, and now the only thing with an
+        // opinion about how straight a cord looks. It used to share that with a
+        // pull toward the chord, and the two spent their time undoing each
+        // other; with the pull gone it holds 1.000 from slack to 0.97 and drifts
+        // only 0.35% at the very top, where six compliant passes stretch the
+        // cord further than aiming low can take back.
         c.restScale *= 1 + (c.len / arc - 1) * 0.05;
-        c.restScale = Math.max(0.5, Math.min(1.2, c.restScale));
+        // Down to 0.3, because it now has the whole job. Six compliant passes
+        // stretch a cord under tension far past what its segments are aiming
+        // at, so holding a taut cord to its length means aiming very low — it
+        // wants 0.36 at full draw, and stopped at the old floor of 0.5, leaving
+        // the cord long and bellied exactly where it should look tightest.
+        c.restScale = Math.max(0.3, Math.min(1.2, c.restScale));
         c.rest = (c.len / (N - 1)) * c.restScale;
       }
     }

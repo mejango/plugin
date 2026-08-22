@@ -89,31 +89,13 @@ function run(
     }
     // Measured before the pull squashes the cord — see patchbay.ts.
     const arcBeforePull = arc(pts);
-    // The current extension, as step() computes it — not the target.
-    const cur = Math.hypot(bx - ax, by - ay) / len;
-    let tension = 0;
-    if (cur > 0.92) {
-      let t2 = Math.min(1, (cur - 0.92) / 0.07);
-      t2 = t2 * t2 * (3 - 2 * t2);
-      tension = t2 * t2;
-    }
-    if (tension > 0) {
-      const pull = tension * 0.35;
-      for (let i = 1; i < N - 1; i++) {
-        const k2 = i / (N - 1);
-        const tx = ax + (bx - ax) * k2, ty = ay + (by - ay) * k2;
-        const pnt = pts[i], q = prev[i];
-        pnt.x += (tx - pnt.x) * pull; pnt.y += (ty - pnt.y) * pull;
-        q.x += (pnt.x - q.x) * tension; q.y += (pnt.y - q.y) * tension;
-      }
-    }
     if (control) {
       const a = arcBeforePull;
       if (a > 1e-6) {
         // Rate-capped — see the controller in patchbay.ts.
         const step = (len / a - 1) * 0.05;
         restScale *= 1 + Math.max(-0.0008, Math.min(0.0008, step));
-        restScale = Math.max(0.5, Math.min(1.2, restScale));
+        restScale = Math.max(0.3, Math.min(1.2, restScale));
       }
     }
     if (shoveAt > 0 && f > shoveAt && f <= shoveAt + 160) {
@@ -221,7 +203,17 @@ describe("cord behaviour", () => {
     const sags = exts.map((e) => run(e).sag);
     for (let i = 1; i < sags.length; i++) expect(sags[i]).toBeLessThan(sags[i - 1] + 0.004);
     expect(sags[0]).toBeGreaterThan(0.3);           // ends close: a deep drape
-    expect(sags[sags.length - 1]).toBeLessThan(0.05); // stretched out: nearly straight
+    // Six percent of belly at full draw, not one. The old number came from a
+    // pull that dragged a stretched cord onto the line between its jacks, which
+    // ironed it flatter than its own length allows — and paid for it twice
+    // over: the sag collapsed 3.4x between 0.95 and 0.97 extension, so a cord
+    // visibly eased its own slack as you pulled it, and the pull spent the rest
+    // of its time fighting the length controller for the same points, leaving
+    // the cord shifting on its own at 0.275 and 0.410 px/frame in that same
+    // band. What is left is only the length that will not fit between the
+    // jacks. It falls off smoothly — 13.6, 10.6, 6.6, 5.7% across 0.95 to
+    // 0.995 — and nothing moves that is not being dragged.
+    expect(sags[sags.length - 1]).toBeLessThan(0.06); // stretched out: nearly straight
   });
 
   it("pulls the plug straight when the cord is stretched out", () => {
@@ -306,7 +298,7 @@ describe("cord behaviour", () => {
         // Rate-capped — see the controller in patchbay.ts.
         const step = (len / a - 1) * 0.05;
         restScale *= 1 + Math.max(-0.0008, Math.min(0.0008, step));
-        restScale = Math.max(0.5, Math.min(1.2, restScale));
+        restScale = Math.max(0.3, Math.min(1.2, restScale));
       }
       if (f > D1) {
         let m = 0;
