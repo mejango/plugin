@@ -4,7 +4,7 @@
 // on a config the app does not run.
 import { describe, expect, it } from "vitest";
 
-import { relaxBendMemory } from "@/lib/patchbay";
+import { openTightFolds, relaxBendMemory } from "@/lib/patchbay";
 
 type P = { x: number; y: number };
 
@@ -82,5 +82,60 @@ describe("relaxBendMemory", () => {
     expect(fold(0.5)).toBe(0);
     // An open corner is ordinary geometry and must still be corrected.
     expect(fold(90)).toBeGreaterThan(0.5);
+  });
+
+  describe("openTightFolds", () => {
+    const MIN = Math.cos((62 * Math.PI) / 180);
+    const angleAt = (pts: P[], i: number) => {
+      const a = { x: pts[i - 1].x - pts[i].x, y: pts[i - 1].y - pts[i].y };
+      const b = { x: pts[i + 1].x - pts[i].x, y: pts[i + 1].y - pts[i].y };
+      const la = Math.hypot(a.x, a.y), lb = Math.hypot(b.x, b.y);
+      return (Math.acos((a.x * b.x + a.y * b.y) / (la * lb)) * 180) / Math.PI;
+    };
+    const seg = (pts: P[], i: number) => Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+
+    it("opens a hairpin rather than letting it close to a point", () => {
+      // Nothing else in the loop objects to a fold shutting: bend memory bows a
+      // cord about its neighbours but has no opinion on a hairpin, and stands
+      // down entirely once one closes. A deep loop drew a point at the bottom.
+      const pts: P[] = [{ x: 0, y: 0 }, { x: 0, y: 100 }, { x: 0, y: 200 }, { x: 10, y: 100 }, { x: 10, y: 0 }];
+      const prev = pts.map((q) => ({ ...q }));
+      const before = angleAt(pts, 2);
+      const s1 = seg(pts, 1), s2 = seg(pts, 2);
+      expect(before).toBeLessThan(10);
+      openTightFolds(pts, prev, [0, 0, 1, 0, 0], 5, MIN, 1);
+      expect(angleAt(pts, 2)).toBeGreaterThan(before + 20);
+      // It opens by rotating about the centre, so no segment is stretched and
+      // the length solver has nothing to undo.
+      expect(seg(pts, 1)).toBeCloseTo(s1, 6);
+      expect(seg(pts, 2)).toBeCloseTo(s2, 6);
+    });
+
+    it("leaves an ordinary drape alone", () => {
+      const pts: P[] = [{ x: 0, y: 0 }, { x: 50, y: 20 }, { x: 100, y: 26 }, { x: 150, y: 20 }, { x: 200, y: 0 }];
+      const prev = pts.map((q) => ({ ...q }));
+      const copy = pts.map((q) => ({ ...q }));
+      openTightFolds(pts, prev, [0, 0, 0, 0, 0], 5, MIN, 1);
+      pts.forEach((q, i) => {
+        expect(q.x).toBeCloseTo(copy[i].x, 9);
+        expect(q.y).toBeCloseTo(copy[i].y, 9);
+      });
+    });
+
+    it("never moves a plug, and curls the same way each time when shut flat", () => {
+      // A fold closed flat has no geometry left to say which way it should go —
+      // that is the same rounding error that made the vertical cords jitter — so
+      // the direction comes from the remembered kink and is stable per point.
+      const shut = (kinkSign: number) => {
+        const pts: P[] = [{ x: 0, y: 0 }, { x: 0, y: 100 }, { x: 0, y: 0 }, { x: 0, y: 100 }];
+        openTightFolds(pts, pts.map((q) => ({ ...q })), [0, kinkSign, -kinkSign, 0], 4, MIN, 1);
+        return pts;
+      };
+      const pos = shut(1), neg = shut(-1);
+      expect(pos[0]).toEqual({ x: 0, y: 0 });          // pinned end untouched
+      expect(pos[3]).toEqual({ x: 0, y: 100 });        // and the other one
+      expect(Math.sign(pos[1].x)).toBe(-Math.sign(neg[1].x));
+      expect(pos[1].x).not.toBe(0);
+    });
   });
 });

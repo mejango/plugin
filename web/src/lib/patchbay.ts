@@ -67,6 +67,52 @@ export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   }
 }
 
+/**
+ * Minimum bend radius: a cable cannot fold flat. Past a certain tightness a real
+ * one stops closing and curls instead, which is why a patch bay is full of loops
+ * and never of creases. Nothing else in the loop resists a fold closing — the
+ * bend memory bows a cord about its neighbours but has no opinion on a hairpin,
+ * and stands down entirely once one shuts — so a deep loop drew a point at the
+ * bottom.
+ *
+ * The angle is measured between the two vectors from the centre point OUT to its
+ * neighbours. Those are a segment long and never collapse, so this stays well
+ * defined exactly where the bend normal — taken along the line BETWEEN the
+ * neighbours — stops being: at a closed fold that line is nothing but rounding
+ * error. Opening the fold is a rotation about the centre point, so it moves no
+ * point closer to or further from its neighbour and the length solver has
+ * nothing to undo.
+ *
+ * Which way a nearly shut fold curls cannot come from the geometry either, for
+ * the same reason. It comes from the remembered kink, so a fold curls the same
+ * way every frame instead of whichever way the last rounding error pointed.
+ */
+export function openTightFolds(pts, prev, kink, n, minCos, relax) {
+  for (let i = 1; i < n - 1; i++) {
+    const pnt = pts[i], pm = pts[i - 1], pp = pts[i + 1];
+    const mFree = i - 1 > 0, pFree = i + 1 < n - 1;
+    if (!mFree && !pFree) continue;             // both neighbours are plugs
+    const ax = pm.x - pnt.x, ay = pm.y - pnt.y;
+    const bx = pp.x - pnt.x, by = pp.y - pnt.y;
+    const la = Math.hypot(ax, ay) || 1e-6, lb = Math.hypot(bx, by) || 1e-6;
+    const cos = (ax * bx + ay * by) / (la * lb);
+    if (cos < minCos) continue;                 // open enough to leave alone
+    const cross = (ax * by - ay * bx) / (la * lb);
+    const s = Math.abs(cross) > 1e-3 ? Math.sign(cross) : (kink[i] >= 0 ? 1 : -1);
+    const open = (Math.acos(minCos) - Math.acos(Math.max(-1, Math.min(1, cos)))) * relax;
+    const each = mFree && pFree ? open / 2 : open;
+    const swing = (p, q, a) => {               // rotate about pnt, velocity intact
+      const ca = Math.cos(a), sa = Math.sin(a);
+      const dx = p.x - pnt.x, dy = p.y - pnt.y;
+      const nxp = pnt.x + dx * ca - dy * sa, nyp = pnt.y + dx * sa + dy * ca;
+      q.x += nxp - p.x; q.y += nyp - p.y;
+      p.x = nxp; p.y = nyp;
+    };
+    if (mFree) swing(pm, prev[i - 1], -s * each);
+    if (pFree) swing(pp, prev[i + 1], s * each);
+  }
+}
+
 // ponytail: patch bay with verlet-rope cables — real gravity, drape, swing, and
 // settle. Grab a plug and the cord carries its own weight to the next jack.
 export function startPatchBay(canvas: HTMLCanvasElement): () => void {
@@ -397,6 +443,11 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // bounce from 5.8 to 3.8 px/frame, while the middle of the arc — the part
     // that should swing — keeps its travel and comes out closer to a free
     // pendulum than before (29 frames against 41, ideal 21).
+    // A cable stops closing a fold somewhere around here and starts curling.
+    // High enough and a deep loop is forced into a wide round bight; low enough
+    // and an ordinary drape never feels it.
+    const FOLD_COS = Math.cos((62 * Math.PI) / 180);
+    const FOLD_RELAX = 0.5;
     const STRAIN = 0.6;
     const STRAIN_REACH = 3;
 
@@ -421,6 +472,12 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       }
       c.pts[0].x = ax; c.pts[0].y = ay;
       c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
+
+      // Before the length solver, not after. Swinging a neighbour open holds the
+      // two segments either side of the fold, but moves that neighbour relative
+      // to the point BEYOND it — so run last, the error it leaves is still there
+      // at the end of the frame and the fold pumps against the solver forever.
+      openTightFolds(c.pts, c.prev, c.kinkLocal, N, FOLD_COS, FOLD_RELAX);
 
       for (let iter = 0; iter < 6; iter++) {
         // alternate the sweep direction: a one-way sweep carries its residual
