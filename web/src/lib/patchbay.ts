@@ -466,14 +466,14 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         // line between the jacks on purpose, and reading that as "too short"
         // and feeding cord back in put the plug at 26 degrees off straight
         // instead of 8 — so that direction fades out as the pull fades in.
-        const err = c.len / arc - 1;
-        // Reeling a stretched cord in is always right, so that direction never
-        // fades and a cord that arrives already stretched still recovers.
-        // Letting length back OUT stops the moment the pull engages: the pull
-        // squashes the cord onto the line between the jacks on purpose, and
-        // reading that as "too short" and feeding cord back in put the plug at
-        // 26 degrees off straight instead of 8.
-        if (err < 0 || tension === 0) c.restScale *= 1 + err * 0.05;
+        // Both directions, everywhere. This used to refuse to let length back
+        // out under tension, to stop it fighting the pull — but that left the
+        // pull free to squash the cord to 0.966 of its length, which is exactly
+        // the shrink it was meant to prevent. With the drag able to reach full
+        // stretch the pull has far less squashing to do, and the two agree:
+        // measured 1.000 at every extension, and tauter at full draw than the
+        // squashed version managed.
+        c.restScale *= 1 + (c.len / arc - 1) * 0.05;
         c.restScale = Math.max(0.5, Math.min(1.2, c.restScale));
         c.rest = (c.len / (N - 1)) * c.restScale;
       }
@@ -696,7 +696,13 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         const other = drag.ends[0] === "a" ? c.b : c.a;
         let dx = mouse.x - other.x, dy = mouse.y - other.y;
         const d = Math.hypot(dx, dy);
-        const maxReach = c.len * 0.97;
+        // Nearly the whole cord. At 0.97 the ends could never get closer than
+        // 3% of the cord's length to being fully apart, and a cord with 3%
+        // spare has to put it somewhere — geometry demands a 10% belly. The
+        // tension pull hid that by squashing the cord onto the line, which is
+        // what made a cord pulled tight measurably shrink. Let it actually
+        // reach full stretch and the taut look is real.
+        const maxReach = c.len * 0.995;
         if (d > maxReach) { dx *= maxReach / d; dy *= maxReach / d; }
         end.x = other.x + dx;
         end.y = other.y + dy;

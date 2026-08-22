@@ -97,8 +97,7 @@ function run(
     if (control) {
       const a = arc(pts);
       if (a > 1e-6) {
-        const err = len / a - 1;
-        if (err < 0 || tension === 0) restScale *= 1 + err * 0.05;
+        restScale *= 1 + (len / a - 1) * 0.05;
         restScale = Math.max(0.5, Math.min(1.2, restScale));
       }
     }
@@ -143,9 +142,10 @@ describe("cord behaviour", () => {
     // proportion to tension, and tension tracks how far apart the ends are, so
     // uncorrected the cord ran 17% longer at one separation than another — the
     // cord visibly growing and shrinking as an end is dragged.
-    // Below the tension ramp, where the controller acts. Above it the cord is
-    // pulled deliberately taut and its length is the pull's business, not this.
-    const ratios = EXTS.filter((e) => e <= 0.92).map((e) => run(e).ratio);
+    // Every extension, including full draw. The tension pull used to squash a
+    // stretched cord to 0.966 of its length — it looked taut by being shorter,
+    // which is visible as the cord shrinking while you pull it.
+    const ratios = [...EXTS, 0.97, 0.995].map((e) => run(e).ratio);
     for (const r of ratios) expect(r).toBeCloseTo(1, 2);
     expect(Math.max(...ratios) - Math.min(...ratios)).toBeLessThan(0.01);
   });
@@ -154,7 +154,7 @@ describe("cord behaviour", () => {
     // If this ever starts passing by making the solver stiff, the drape, the
     // swing and the weight of the fall go with it — that is what happened when
     // substepping was tried. Uncontrolled, the cord must still stretch.
-    const loose = EXTS.filter((e) => e <= 0.92).map((e) => run(e, { control: false }).ratio);
+    const loose = EXTS.map((e) => run(e, { control: false }).ratio);
     expect(Math.max(...loose)).toBeGreaterThan(1.05);
   });
 
@@ -165,7 +165,7 @@ describe("cord behaviour", () => {
   });
 
   it("goes slack when the ends are close and taut when they are far", () => {
-    const exts = [...EXTS, 0.97];
+    const exts = [...EXTS, 0.97, 0.995];
     const sags = exts.map((e) => run(e).sag);
     for (let i = 1; i < sags.length; i++) expect(sags[i]).toBeLessThan(sags[i - 1] + 0.004);
     expect(sags[0]).toBeGreaterThan(0.3);           // ends close: a deep drape
@@ -173,7 +173,9 @@ describe("cord behaviour", () => {
   });
 
   it("pulls the plug straight when the cord is stretched out", () => {
-    expect(run(0.97).tilt).toBeLessThan(20);
+    // At full draw, where a cord is actually pulled straight — not at 0.97,
+    // which is no longer the limit and where a cord legitimately keeps a belly.
+    expect(run(0.995).tilt).toBeLessThan(20);
   });
 
   it("comes to rest at every extension", () => {
