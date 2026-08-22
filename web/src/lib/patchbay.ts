@@ -657,27 +657,19 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   /**
    * The two ends of a cable, each with how far its 1/4" tip has slid out of the
    * socket — exposure is pure distance-from-jack. 0 is seated, 1 is fully out.
-   * Layering reads off `held` and exposure together: a plug that is seated and
-   * not in hand is flush in the panel and cords pass in front of it, any other
-   * is above the panel and goes over everything.
+   * It sets how far the tip sticks out, and nothing else: the tip sliding away
+   * into the socket is the whole of what "plugged in" looks like. Layering does
+   * not read it, so nothing jumps in front of anything when a plug is dropped.
    */
   function plugEnds(c) {
     const pts = c.pts;
-    // Held beats near. Exposure is distance from a jack, so a plug carried OVER
-    // a socket reads as seated and would drop under the cords while it is still
-    // in hand. Whether it is being carried is the question the layering is
-    // really asking, and the pointer knows the answer — as does `move`, which
-    // is short of 1 only while a dropped plug is still travelling to its jack.
-    const inHand = (end) =>
-      (!!drag && drag.cable === c && drag.ends.includes(end)) || c.move < 1;
-    return [["a", pts[0], pts[1]], ["b", pts[N - 1], pts[N - 2]]].map(([end, p0, p1]) => {
+    return [[pts[0], pts[1]], [pts[N - 1], pts[N - 2]]].map(([p0, p1]) => {
       let nearest = Infinity;
       for (const j of jacks) {
         const dj = Math.hypot(j.x - p0.x, j.y - p0.y);
         if (dj < nearest) nearest = dj;
       }
-      return { p0, p1, held: inHand(end),
-        expose: Math.min(1, Math.max(0, (nearest - JR * 0.7) / (16 * dpr))) };
+      return { p0, p1, expose: Math.min(1, Math.max(0, (nearest - JR * 0.7) / (16 * dpr))) };
     });
   }
 
@@ -744,18 +736,15 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     ctx.drawImage(panel, 0, 0);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    // Four layers. A seated plug is flush in the panel, so it goes down first and
-    // every other cord passes in front of it. Then each cord, punched out of its
-    // OWN plug so the barrel and tip cap the end rather than the cord being drawn
-    // across them. Then the free body of every cord — the part no plug can reach —
-    // over the lot, which puts a cord in front of any plug it merely crosses and
-    // in front of the stretch where another cord dives into the panel. A plug
-    // pulled out of its socket is lying above the panel, so it goes last of all,
-    // barrel and exposed tip together.
+    // One rule, and picking a plug up or putting it down does not change it: a
+    // plug is drawn over its OWN cord and under every other one. Capping its own
+    // cord is what makes it read as a connector rather than a bulge in the cord;
+    // every other cord passing in front is what keeps a jack reachable even where
+    // a cord runs across it, and what stops a cord being sandwiched between a
+    // plug and the socket it sits in. Since it never changes, letting go of a
+    // plug never flips it behind anything.
     const ends = cables.map(plugEnds);
-    cables.forEach((c, i) => ends[i].forEach((e) => {
-      if (!e.held && e.expose <= 0.02) drawPlug(c, e.p0, e.p1, e.expose);
-    }));
+    cables.forEach((c, i) => ends[i].forEach((e) => drawPlug(c, e.p0, e.p1, e.expose)));
     cables.forEach((c, i) => {
       ctx.save();
       ctx.beginPath();
@@ -766,14 +755,12 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       drawCable(c, c.pts, true);
       ctx.restore();
     });
+    // The hole above is geometric, so a slack cord whose belly swings back past
+    // its own plug loses the belly to it. Lay the free body back over the top.
     for (const c of cables) {
       const body = cordBody(c.pts, 22 * dpr + c.width * 1.3);
       if (body) drawCable(c, body, false);
     }
-    cables.forEach((c, i) => ends[i].forEach((e) => {
-      if (e.held || e.expose > 0.02) drawPlug(c, e.p0, e.p1, e.expose);
-    }));
-
 
     if (!REDUCED) rafId = requestAnimationFrame(draw);
   }
