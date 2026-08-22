@@ -531,6 +531,22 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         t2 = t2 * t2 * (3 - 2 * t2);                  // smoothstep
         tension = t2 * t2;                            // only the last few percent firm up
       }
+      // Measured BEFORE the pull, and that is the whole of it. The pull squashes
+      // the cord onto the line between its jacks on purpose — that is what makes
+      // a stretched cord look taut — so a controller reading the arc afterwards
+      // sees a cord shorter than it is, feeds length in, and gets squashed
+      // again. Near straight the chase runs away, because arc barely moves
+      // however far the cord bows: each correction throws the cord about three
+      // times as far as the length it added. A cord left alone at 0.989
+      // extension churned at 1.9 px/frame for as long as anyone watched, and
+      // sat at a flat 0 with the controller switched off. Capping how fast the
+      // controller may move does not help — the amplification is in the
+      // geometry, not the step size. Reading before the squash does: 0.029.
+      let arc = 0;
+      for (let i = 0; i < N - 1; i++) {
+        arc += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
+      }
+
       if (tension > 0) {
         const pull = tension * 0.35;
         for (let i = 1; i < N - 1; i++) {
@@ -565,17 +581,6 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       // misses onto the right answer. Length spread 17% -> 0%, with drape,
       // swing, fall and settling all unchanged.
       //
-      // Held off once the tension pull engages. That pull deliberately squashes
-      // the cord onto the line between the jacks — that is what makes a
-      // stretched cord look taut — and the controller reads the squash as the
-      // cord being too short and feeds length back in. The two cancelled: the
-      // plug sat at 41 degrees off straight instead of 18, with twice the sag.
-      // Nothing needs correcting up there anyway; a cord pulled nearly straight
-      // measures nearly its chord whatever the segments are aiming at.
-      let arc = 0;
-      for (let i = 0; i < N - 1; i++) {
-        arc += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
-      }
       if (arc > 1e-6) {
         // Gentle on purpose: it corrects over a few frames rather than yanking,
         // so a cord being carried is never fighting it.

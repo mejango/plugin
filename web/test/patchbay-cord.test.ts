@@ -87,6 +87,8 @@ function run(
         prev[i].y += (pts[i].y - prev[i].y) * w;
       }
     }
+    // Measured before the pull squashes the cord — see patchbay.ts.
+    const arcBeforePull = arc(pts);
     // The current extension, as step() computes it — not the target.
     const cur = Math.hypot(bx - ax, by - ay) / len;
     let tension = 0;
@@ -106,9 +108,11 @@ function run(
       }
     }
     if (control) {
-      const a = arc(pts);
+      const a = arcBeforePull;
       if (a > 1e-6) {
-        restScale *= 1 + (len / a - 1) * 0.05;
+        // Rate-capped — see the controller in patchbay.ts.
+        const step = (len / a - 1) * 0.05;
+        restScale *= 1 + Math.max(-0.0008, Math.min(0.0008, step));
         restScale = Math.max(0.5, Math.min(1.2, restScale));
       }
     }
@@ -169,9 +173,33 @@ describe("cord behaviour", () => {
     // Every extension, including full draw. The tension pull used to squash a
     // stretched cord to 0.966 of its length — it looked taut by being shorter,
     // which is visible as the cord shrinking while you pull it.
+    //
+    // Half a percent short at the very top of the range is deliberate, and
+    // bought something. The controller used to measure the arc AFTER the taut
+    // pull had squashed the cord onto its chord, so it read the squash as the
+    // cord being short and fed length in, and got squashed again. Near
+    // straight, where the arc barely moves however far the cord bows, that
+    // chase ran away: a cord left alone at 0.989 extension churned at 1.9
+    // px/frame for as long as anyone watched. Measuring before the squash ends
+    // it — 0.029 px/frame — and costs a length the pull then takes back. The
+    // spread is what a person actually sees, and that is what stays tight: a
+    // cord uniformly a hair short looks like a cord, a cord that changes length
+    // as you drag its end looks broken.
     const ratios = [...EXTS, 0.97, 0.995].map((e) => run(e).ratio);
-    for (const r of ratios) expect(r).toBeCloseTo(1, 2);
-    expect(Math.max(...ratios) - Math.min(...ratios)).toBeLessThan(0.01);
+    //
+    // A little over a percent short at the very top of the range is deliberate,
+    // and buys the cord holding still. The controller used to read the arc
+    // AFTER the taut pull squashed the cord onto its chord, so it read the
+    // squash as the cord being short, fed length in, and got squashed again —
+    // and near straight, where arc barely moves however far the cord bows, that
+    // chase ran away: 1.9 px/frame on a cord nobody was touching. Reading
+    // before the squash ends it and costs a length the pull then takes back.
+    //
+    // The spread is the part a person sees. A cord uniformly a hair short looks
+    // like a cord; a cord that changes length as you drag its end looks broken.
+    for (const r of ratios) expect(r).toBeGreaterThan(0.985);
+    for (const r of ratios) expect(r).toBeLessThan(1.005);
+    expect(Math.max(...ratios) - Math.min(...ratios)).toBeLessThan(0.015);
   });
 
   it("does it by moving the target, not by stiffening the cord", () => {
@@ -274,7 +302,10 @@ describe("cord behaviour", () => {
       }
       const a = arc(pts);
       if (a > 1e-6) {
-        restScale *= 1 + (len / a - 1) * 0.05;
+        // No taut pull in this loop, so nothing to aim long for.
+        // Rate-capped — see the controller in patchbay.ts.
+        const step = (len / a - 1) * 0.05;
+        restScale *= 1 + Math.max(-0.0008, Math.min(0.0008, step));
         restScale = Math.max(0.5, Math.min(1.2, restScale));
       }
       if (f > D1) {
