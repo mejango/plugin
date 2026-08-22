@@ -676,7 +676,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     return a.idx <= b.idx ? [a.pt, ...pts.slice(a.idx, b.idx + 1), b.pt] : [a.pt, b.pt];
   }
 
-  function drawCable(c, pts, shadow) {
+  function drawCable(c, pts, shadow, dashFrom) {
     // The body pass redraws over the full cord, so only the first pass casts a
     // shadow — twice and every cord sits on a shadow half again as dark.
     if (shadow) {
@@ -695,31 +695,38 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     ctx.strokeStyle = tint(c, 1);
     ctx.lineWidth = c.width * 1.45;
     ctx.stroke();
-    // Dash phase is counted from the start of the path, so the braid is pinned
-    // to whichever plug the path happens to begin at and every change in the
-    // cord's length walks it along from there — one plug holds still while the
-    // weave crawls in and out under the other's cap. The cord is not moving at
-    // all; the pattern printed on it is. Stroke each dashed layer as two halves,
-    // each starting at its own plug, and both ends hold. What is left is a phase
-    // mismatch where they meet, mid-cord, away from anything to line up against.
-    const halved = (off) => {
-      const m = Math.floor(pts.length / 2);
-      ropePath(pts.slice(0, m + 1), off);
-      ctx.stroke();
-      ropePath(pts.slice(m).reverse(), off);
-      ctx.stroke();
-    };
-    // braid wrap: a fine dashed bias line worked along the cord
+    // Dash phase is counted along the path, so a cord that lengthens by a hair
+    // walks its whole weave towards one end. Anchored at neither end it crawls
+    // in and out under a plug cap; anchored at both, by stroking two halves, the
+    // entire change collects at the one point where they meet and the pattern
+    // visibly jumps there instead. There is nowhere on the cord to put it.
+    //
+    // So do not put it anywhere: scale the pattern with the cord's own length,
+    // and the same number of weaves spans it however long it is. The phase at
+    // both plugs is then fixed for free, no join, and what was a jump at one
+    // point becomes every dash in the cord stretching by a fraction of itself.
+    // The cord is drawn twice — once clipped, once from the body's start — so
+    // the second run is offset by how far along it begins, to stay in step.
+    let arc = 0;
+    for (let i = 0; i < N - 1; i++) {
+      arc += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
+    }
+    const weave = c.len > 1 ? arc / c.len : 1;
     ctx.save();
-    ctx.setLineDash([2.2 * dpr * c.braid, 3.4 * dpr * c.braid]);
+    ctx.lineDashOffset = dashFrom;
+    // braid wrap: a fine dashed bias line worked along the cord
+    ctx.setLineDash([2.2 * dpr * c.braid * weave, 3.4 * dpr * c.braid * weave]);
+    ropePath(pts, c.width * 0.18);
     ctx.strokeStyle = tint(c, 0.5, 0.4);
     ctx.lineWidth = Math.max(1, c.width * 0.5);
-    halved(c.width * 0.18);
+    ctx.stroke();
     // broken sheen: the highlight glints, it doesn't run laser-straight
-    ctx.setLineDash([9 * dpr * c.braid, 5 * dpr, 4 * dpr * c.braid, 7 * dpr]);
+    ctx.setLineDash([9 * dpr * c.braid * weave, 5 * dpr * weave,
+                     4 * dpr * c.braid * weave, 7 * dpr * weave]);
+    ropePath(pts, -c.width * 0.38);
     ctx.strokeStyle = "rgba(255,255,255," + c.gloss.toFixed(2) + ")";
     ctx.lineWidth = Math.max(1, c.width * 0.3);
-    halved(-c.width * 0.38);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -821,14 +828,15 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       plugHole(c, c.pts[0], c.pts[1], 11 * dpr * ends[i][0].expose);
       plugHole(c, c.pts[N - 1], c.pts[N - 2], 11 * dpr * ends[i][1].expose);
       ctx.clip("evenodd");
-      drawCable(c, c.pts, true);
+      drawCable(c, c.pts, true, 0);
       ctx.restore();
     });
     // The hole above is geometric, so a slack cord whose belly swings back past
     // its own plug loses the belly to it. Lay the free body back over the top.
     for (const c of cables) {
-      const body = cordBody(c.pts, 22 * dpr + c.width * 1.3);
-      if (body) drawCable(c, body, false);
+      const cut = 22 * dpr + c.width * 1.3;
+      const body = cordBody(c.pts, cut);
+      if (body) drawCable(c, body, false, cut);
     }
 
     if (!REDUCED) rafId = requestAnimationFrame(draw);
