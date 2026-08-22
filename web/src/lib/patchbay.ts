@@ -907,7 +907,8 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // plug and the socket it sits in. Since it never changes, letting go of a
     // plug never flips it behind anything.
     const ends = cables.map(plugEnds);
-    cables.forEach((c, i) => ends[i].forEach((e) => drawPlug(c, e.p0, e.p1, e.expose)));
+    const plugsOf = (i) =>
+      ends[i].forEach((e) => drawPlug(cables[i], e.p0, e.p1, e.expose));
     // Each cord start to finish before the next one begins, so which of two
     // cords is in front is the same the whole way along where they overlap.
     //
@@ -918,7 +919,8 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // stretch into the plug and behind for the rest of it. Nothing about a cord
     // lying across another changes along its length, so nothing in how they are
     // drawn should either.
-    cables.forEach((c, i) => {
+    const cordOf = (i) => {
+      const c = cables[i];
       // Punched out of its own plugs, so the barrel and tip cap the cord rather
       // than the cord being drawn across them.
       ctx.save();
@@ -935,7 +937,17 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       const cut = 22 * dpr + c.width * 1.3;
       const body = cordBody(c.pts, cut);
       if (body) drawCable(c, body, false, cut);
-    });
+    };
+
+    // The cord in your hand goes last, over the lot of it — cords, plugs and
+    // all. Everything else on the panel is lying on the panel; that one has been
+    // picked up off it, and drawing it in the fixed order let another cord, or
+    // another cord's connector, cover the thing being moved.
+    const held = drag ? cables.indexOf(drag.cable) : -1;
+    const laid = cables.map((_, i) => i).filter((i) => i !== held);
+    laid.forEach(plugsOf);
+    laid.forEach(cordOf);
+    if (held >= 0) { plugsOf(held); cordOf(held); }
 
     if (!REDUCED) rafId = requestAnimationFrame(draw);
   }
