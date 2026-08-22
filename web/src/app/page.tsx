@@ -20,10 +20,27 @@ export default function HomePage() {
         opts back in.
       */}
       <div className="pointer-events-none relative z-[2] flex flex-col items-center">
-        <h1 className="display whitespace-nowrap text-[min(31vw,44vh)]">Plug in</h1>
+        {/*
+          The gap under the title is a fixed 1.4rem, sitting next to a button
+          that is itself sized in rem — so it stays the same next to the button
+          at any viewport.
+
+          Getting there takes the subtraction. At `leading-[0.75]` Anton leaves
+          5.13% of the font size below the baseline — measured, not guessed — and
+          that scales with the title, so the term cancels exactly that much and
+          the `rem` is what is left. `min(31vw,44vh)` is the title size, so 5.13%
+          of it is `min(1.6vw,2.26vh)`. The
+          old code used `-1vh`, which tracked the viewport's HEIGHT while the
+          title tracked its WIDTH: on a tall narrow phone the title shrank while
+          the space grew, and the button ended up against the letters.
+
+          It sits on the button rather than the title because `.display` resets
+          `margin: 0` and wins on source order.
+        */}
+        <h1 className="display whitespace-nowrap text-[min(31vw,44vh)] leading-[0.75]">Plug in</h1>
         <Link
           href="/create"
-          className={`${CHIP_LG} pointer-events-auto -mt-[1vh] inline-block`}
+          className={`${CHIP_LG} pointer-events-auto mt-[calc(1.4rem_-_min(1.6vw,2.26vh))] inline-block`}
         >
           Now
         </Link>
