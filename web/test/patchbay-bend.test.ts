@@ -57,4 +57,30 @@ describe("relaxBendMemory", () => {
     expect(pts[n - 1]).toEqual(ends[1]);
   });
 
+
+  it("leaves a triple alone once the fold closes on itself", () => {
+    // A slack cord hanging vertically folds back until a point's two neighbours
+    // nearly touch. The bend normal is taken from the line between those
+    // neighbours, so as the fold closes its direction rests on less and less
+    // real geometry until it is rounding error — and the correction jitters the
+    // fold forever. Two cords in a seeded panel did exactly that: 5.8 and 2.0
+    // px/frame, still going 500 frames after release, while every cord that was
+    // not vertical sat at a flat 0.
+    //
+    // A fold this tight has no normal worth having, so nothing should happen.
+    const fold = (gap: number) => {
+      const pts: P[] = [
+        { x: 0, y: 0 },
+        { x: 50, y: 0 },     // the point being corrected
+        { x: gap, y: 0 },    // its far neighbour, folded back onto the near one
+      ];
+      const before = { ...pts[1] };
+      relaxBendMemory(pts, pts.map((q) => ({ ...q })), [0, 8, 0], 0.3, 0.15, 3);
+      return Math.hypot(pts[1].x - before.x, pts[1].y - before.y);
+    };
+    // Neighbours a hair apart against a 50px segment: no correction at all.
+    expect(fold(0.5)).toBe(0);
+    // An open corner is ordinary geometry and must still be corrected.
+    expect(fold(90)).toBeGreaterThan(0.5);
+  });
 });
