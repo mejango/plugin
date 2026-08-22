@@ -757,6 +757,40 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     return out.length >= 2 ? out : null;
   }
 
+  /**
+   * Where a cord runs back over itself, as arc positions along the given path.
+   *
+   * A stroke paints its own overlaps flat — one shape, no order — so a cord
+   * crossing itself came out as a merged X with the edging running straight
+   * through it and neither strand in front. Cutting the path at the crossing
+   * puts the two strands in separate strokes, and the later one lands on top
+   * the way the far side of a loop should.
+   *
+   * Only the earlier of the two arc positions is returned: that is the cut that
+   * separates them. Segments next to each other share a point and are skipped.
+   */
+  function selfCrossings(pts) {
+    const n = pts.length;
+    const arcTo = [0];
+    for (let i = 0; i < n - 1; i++) {
+      arcTo.push(arcTo[i] + Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y));
+    }
+    const cuts = [];
+    for (let i = 0; i < n - 1; i++) {
+      const p1 = pts[i], p2 = pts[i + 1];
+      for (let j = i + 2; j < n - 1; j++) {
+        const p3 = pts[j], p4 = pts[j + 1];
+        const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+        if (Math.abs(d) < 1e-9) continue;
+        const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d;
+        const u = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d;
+        if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+        cuts.push(arcTo[i] + (arcTo[i + 1] - arcTo[i]) * t);
+      }
+    }
+    return cuts.sort((a, b) => a - b);
+  }
+
   function drawCable(c, pts, shadow, dashFrom) {
     // The body pass redraws over the full cord, so only the first pass casts a
     // shadow — twice and every cord sits on a shadow half again as dark.
@@ -917,6 +951,20 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // a cord runs across it, and what stops a cord being sandwiched between a
     // plug and the socket it sits in. Since it never changes, letting go of a
     // plug never flips it behind anything.
+    // Redraw a path in pieces, cut where it runs back over itself, so the far
+    // side of a loop lands on the near side rather than merging into it. Costs
+    // nothing on a cord that does not cross itself, which is nearly all of them.
+    const inPieces = (c, pts, baseArc) => {
+      const cuts = selfCrossings(pts);
+      if (!cuts.length) return;
+      let from = 0;
+      for (const at of [...cuts, Infinity]) {
+        const piece = sliceByArc(pts, 0, from, at === Infinity ? 1e9 : at);
+        if (piece) drawCable(c, piece, false, baseArc + from);
+        from = at;
+      }
+    };
+
     const ends = cables.map(plugEnds);
     const plugsOf = (i) =>
       ends[i].forEach((e) => drawPlug(cables[i], e.p0, e.p1, e.expose));
@@ -941,13 +989,17 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       plugHole(c, c.pts[N - 1], c.pts[N - 2], 11 * dpr * ends[i][1].expose);
       ctx.clip("evenodd");
       drawCable(c, c.pts, true, 0);
+      inPieces(c, c.pts, 0);
       ctx.restore();
       // That hole is geometric, so a slack cord whose belly swings back past its
       // own plug loses the belly to it. Lay the free body over the top — same
       // cord, same turn, so no other cord can get between the two.
       const cut = 22 * dpr + c.width * 1.3;
       const body = cordBody(c.pts, cut);
-      if (body) drawCable(c, body, false, cut);
+      if (body) {
+        drawCable(c, body, false, cut);
+        inPieces(c, body, cut);
+      }
     };
 
     // The cord in your hand goes last, over the lot of it — cords, plugs and
