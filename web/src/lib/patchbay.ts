@@ -982,10 +982,20 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       const c = cables[i];
       // Punched out of its own plugs, so the barrel and tip cap the cord rather
       // than the cord being drawn across them.
+      // One connector per clip, not both in one path. Even-odd counts crossings,
+      // so two holes in the same path CANCEL where they overlap and that patch
+      // comes back — which is exactly what happens when a cord's own two ends
+      // are brought together, and the cord was then drawn straight across both
+      // connectors in a lens the shape of their overlap. Clips intersect, and
+      // the intersection of two complements is the complement of the union, so
+      // taking one hole at a time removes both however they lie.
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 0, w, h);
       plugHole(c, c.pts[0], c.pts[1], 11 * dpr * ends[i][0].expose);
+      ctx.clip("evenodd");
+      ctx.beginPath();
+      ctx.rect(0, 0, w, h);
       plugHole(c, c.pts[N - 1], c.pts[N - 2], 11 * dpr * ends[i][1].expose);
       ctx.clip("evenodd");
       drawCable(c, c.pts, true, 0);
