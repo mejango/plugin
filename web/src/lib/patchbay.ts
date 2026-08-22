@@ -73,7 +73,17 @@ export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
 export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   const ctx = canvas.getContext("2d");
   const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const N = 16;                       // rope points per cable
+  // Rope points per cable. Raised from 16 because a cord dragged in close has to
+  // turn 180 degrees at the bottom of its loop, and with 16 points most of the
+  // cord is in the two straight legs, leaving only about four joints to do the
+  // turning — 40 to 58 degrees each, which is a kink no cable makes. Nothing
+  // fixes that from the stiffness side: the cord has slack it must put
+  // somewhere, so straightening one joint only moves the fold next door. Three
+  // attempts at that (a radius clamp, a progressive anti-kink term, curvature
+  // diffusion) each bought a few degrees and then went unstable. More joints to
+  // share the turn is the whole fix — and it settles calmer too, 0.05 against
+  // 0.13, since each joint carries less.
+  const N = 32;
   // one seed per tab: every page renders the SAME panel and cable deal
   const seedKey = "plugin-field-seed";
   // a hard refresh deals a fresh panel; navigating between pages keeps it
