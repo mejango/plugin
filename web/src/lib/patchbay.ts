@@ -451,7 +451,43 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     const STRAIN = 0.6;
     const STRAIN_REACH = 3;
 
+    // A cord that has stopped, stops.
+    //
+    // Every constraint here settles a cord by moving its points, and the length
+    // solver moves points without their `prev`, which is a velocity. So any
+    // constraint that never quite agrees with another leaves a trickle of motion
+    // behind, and a cord can sit there working at itself with nobody touching
+    // it — a knotted one on a fresh panel wandered for as long as it was left.
+    // Chasing each of those to zero is chasing every pair of constraints in the
+    // loop, and the next one added starts it over.
+    //
+    // Below a tenth of a pixel a frame nothing is happening that anyone can
+    // see, so once a cord has been that quiet for half a second it is left
+    // alone entirely until something touches it. Cords do not interact, so
+    // there is nothing to wake one but its own plugs moving — which is exactly
+    // what `move` and a drag say.
+    //
+    // Half a second is also what keeps a swinging cord out of this. A cord
+    // hangs still for an instant at each end of its swing, but a swing of that
+    // sag turns around every 22 frames, so it can never be quiet for 30 unless
+    // it has actually finished.
+    const SLEEP_BELOW = 0.1 * dpr;      // px per frame, per point
+    const SLEEP_AFTER = 30;             // frames of quiet before it is left be
+
     for (const c of cables) {
+      const busy = c.move < 1 || (drag && drag.cable === c);
+      if (busy) c.still = 0;
+      else if (c.was) {
+        let moved = 0;
+        for (let i = 1; i < N - 1; i++) {
+          moved = Math.max(moved, Math.hypot(c.pts[i].x - c.was[i].x, c.pts[i].y - c.was[i].y));
+        }
+        c.still = moved < SLEEP_BELOW ? (c.still || 0) + 1 : 0;
+      }
+      if (!c.was) c.was = c.pts.map((q) => ({ x: q.x, y: q.y }));
+      else for (let i = 0; i < N; i++) { c.was[i].x = c.pts[i].x; c.was[i].y = c.pts[i].y; }
+      if (!busy && c.still >= SLEEP_AFTER) continue;
+
       if (c.move < 1) c.move = Math.min(c.move + (c.moveSpeed || 0.012), 1);
       const k = ease(c.move);
       const ax = c.a.x + (c.na.x - c.a.x) * k, ay = c.a.y + (c.na.y - c.a.y) * k;
@@ -865,6 +901,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       if (body) drawCable(c, body, false, cut);
     }
 
+    if (typeof window !== "undefined" && window.__probe) window.__probe(cables, N);
     if (!REDUCED) rafId = requestAnimationFrame(draw);
   }
 
