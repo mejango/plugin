@@ -366,7 +366,15 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   function step() {
     const G = 2.3 * dpr;                // gravity ~9.8 m/s² at this pixel scale
     const DAMP = 0.992;                 // light air drag — cords fall, not float
-    const BEND_DAMP = 0.55;             // see relaxBendMemory
+    // Bend damping bleeds velocity along the bend normal — and a hanging cord's
+    // normal points SIDEWAYS, so this lands squarely on the swing. It does not
+    // just shrink the swing, it slows it: at 0.55 a shoved cord barely moved at
+    // all, and at 0.30 it took 72 frames to swing back where a free pendulum of
+    // that sag takes 21. At 0.15 the period comes out at 22 and the cord swings
+    // the way its own weight says it should. What 0.55 was really doing is
+    // covered by the tension bleed below, which is aimed at the thing that
+    // actually needed damping.
+    const BEND_DAMP = 0.15;             // see relaxBendMemory
 
     for (const c of cables) {
       if (c.move < 1) c.move = Math.min(c.move + (c.moveSpeed || 0.012), 1);
@@ -424,8 +432,14 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
           const pnt = c.pts[i], q = c.prev[i];
           pnt.x += (tx - pnt.x) * pull;
           pnt.y += (ty - pnt.y) * pull;
-          q.x += (pnt.x - q.x) * pull;                // momentum bleeds, never zeroes
-          q.y += (pnt.y - q.y) * pull;
+          // Bled at the ramp's own strength rather than the pull's. Matched to
+          // the pull it is far too weak to take back out the motion the pull
+          // feeds in, and a stretched cord fidgets: measured 1.54 at 0.97 and
+          // 0.65 at full draw, against 0.59 and 0.00 once the bleed is aimed
+          // properly. This is the damping the cords actually needed, which is
+          // why the bend damping above no longer has to stand in for it.
+          q.x += (pnt.x - q.x) * tension;
+          q.y += (pnt.y - q.y) * tension;
         }
       }
 

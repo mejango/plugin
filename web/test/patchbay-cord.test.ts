@@ -4,7 +4,7 @@ import { relaxBendMemory } from "@/lib/patchbay";
 
 type P = { x: number; y: number };
 const N = 16;
-const G = 2.3, DAMP = 0.992, BEND_DAMP = 0.55;
+const G = 2.3, DAMP = 0.992, BEND_DAMP = 0.15;
 
 const arc = (p: P[]) => {
   let s = 0;
@@ -91,7 +91,7 @@ function run(
         const tx = ax + (bx - ax) * k2, ty = ay + (by - ay) * k2;
         const pnt = pts[i], q = prev[i];
         pnt.x += (tx - pnt.x) * pull; pnt.y += (ty - pnt.y) * pull;
-        q.x += (pnt.x - q.x) * pull; q.y += (pnt.y - q.y) * pull;
+        q.x += (pnt.x - q.x) * tension; q.y += (pnt.y - q.y) * tension;
       }
     }
     if (control) {
@@ -117,20 +117,24 @@ function run(
   }
   const finalSag = (sSum / n) * len;
   const fall = sags.findIndex((s) => s >= finalSag * 0.9);
-  let swingAmp = 0, halfCycles = 0;
+  let swingAmp = 0, halfCycles = 0, halfPeriod = 0;
   if (shoveAt > 0) {
     const base = midX[shoveAt - 1];
     const after = midX.slice(shoveAt);
-    swingAmp = Math.max(...after.slice(0, 60).map((v) => Math.abs(v - base)));
+    swingAmp = Math.max(...after.slice(0, 80).map((v) => Math.abs(v - base)));
+    const cross: number[] = [];
     let sign = Math.sign(after[0] - base);
-    for (let i = 1; i < Math.min(after.length, 400); i++) {
+    for (let i = 1; i < after.length; i++) {
       const sg = Math.sign(after[i] - base);
-      if (sg !== 0 && sg !== sign) { halfCycles++; sign = sg; }
+      if (sg !== 0 && sg !== sign) { cross.push(i); sign = sg; }
     }
+    halfCycles = cross.length;
+    // Frames between successive passes through rest — the swing's half-period.
+    if (cross.length > 2) halfPeriod = (cross[cross.length - 1] - cross[0]) / (cross.length - 1);
   }
   return {
     ratio: rSum / n, sag: sSum / n, tilt: tSum / n, motion: mSum / n,
-    fallFrames: fall < 0 ? frames : fall, swingAmp, halfCycles,
+    fallFrames: fall < 0 ? frames : fall, swingAmp, halfCycles, halfPeriod,
   };
 }
 
@@ -186,14 +190,20 @@ describe("cord behaviour", () => {
     }
   });
 
-  it("still responds when shoved sideways", () => {
-    // Deliberately a low bar. Bend damping bleeds absolute velocity here, which
-    // also damps bulk motion, so a shoved cord moves ~5px and barely oscillates.
-    // Damping velocity RELATIVE to the neighbours instead lifts that to ~10px
-    // and twenty-odd swings — tried, and reverted with the rest of the physics
-    // when this version turned out to be the one that felt right. Kept as a
-    // floor so the cord can never go completely rigid.
-    const s = run(0.45, { shoveAt: 1200 });
-    expect(s.swingAmp).toBeGreaterThan(3);
+  it("swings at the speed its own weight says it should", () => {
+    // Not just that it moves — how FAST. Bend damping bleeds velocity along the
+    // bend normal, and a hanging cord's normal points sideways, so it lands on
+    // the swing. It does not merely shrink it, it slows it: at 0.55 the cord
+    // barely moved, and at 0.30 a half-swing took 72 frames.
+    //
+    // A pendulum of this sag has a half-period of pi*sqrt(L/g) — about 21
+    // frames at a ~100px sag and g of 2.3 px/frame^2. Anything much longer and
+    // the cord is swinging through treacle.
+    const s = run(0.5, { shoveAt: 1400, frames: 2600 });
+    const ideal = Math.PI * Math.sqrt(100 / 2.3);
+    // Amplitude is the lesser half of it; ~5px at the old damping, ~8 here.
+    expect(s.swingAmp).toBeGreaterThan(7);
+    expect(s.halfPeriod).toBeGreaterThan(ideal * 0.6);
+    expect(s.halfPeriod).toBeLessThan(ideal * 1.6);
   });
 });
