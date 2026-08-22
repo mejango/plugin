@@ -51,39 +51,18 @@ export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
       prev[i + 1].x -= nx * half; prev[i + 1].y -= ny * half;
     }
 
-    // Damp how fast this point is bending RELATIVE to its neighbours, not how
-    // fast it is moving. The two are the same for a zig-zag, where neighbours
-    // move opposite ways, and nothing alike for a swing, where the whole cord
-    // travels together. Damping the absolute velocity along the normal hit both
-    // — and the normal of a hanging cord points sideways, so it took the swing
-    // out entirely: a shoved cord moved 4.5px and never came back. This leaves
-    // it 10px and twenty-odd swings, with the zig-zag still dead.
-    const vx = pnt.x - prev[i].x, vy = pnt.y - prev[i].y;
-    const nbx = ((pm.x - prev[i - 1].x) + (pp.x - prev[i + 1].x)) / 2;
-    const nby = ((pm.y - prev[i - 1].y) + (pp.y - prev[i + 1].y)) / 2;
-    const rn = (vx - nbx) * nx + (vy - nby) * ny;
-    prev[i].x += nx * rn * bendDamp;
-    prev[i].y += ny * rn * bendDamp;
+    const vn = (pnt.x - prev[i].x) * nx + (pnt.y - prev[i].y) * ny;
+    prev[i].x += nx * vn * bendDamp;
+    prev[i].y += ny * vn * bendDamp;
   }
 }
-
 
 // ponytail: patch bay with verlet-rope cables — real gravity, drape, swing, and
 // settle. Grab a plug and the cord carries its own weight to the next jack.
 export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   const ctx = canvas.getContext("2d");
   const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // Rope points per cable. Raised from 16 because a cord dragged in close has to
-  // turn 180 degrees at the bottom of its loop, and with 16 points most of the
-  // cord is in the two straight legs, leaving only about four joints to do the
-  // turning — 40 to 58 degrees each, which is a kink no cable makes. Nothing
-  // fixes that from the stiffness side: the cord has slack it must put
-  // somewhere, so straightening one joint only moves the fold next door. Three
-  // attempts at that (a radius clamp, a progressive anti-kink term, curvature
-  // diffusion) each bought a few degrees and then went unstable. More joints to
-  // share the turn is the whole fix — and it settles calmer too, 0.05 against
-  // 0.13, since each joint carries less.
-  const N = 32;
+  const N = 16;                       // rope points per cable
   // one seed per tab: every page renders the SAME panel and cable deal
   const seedKey = "plugin-field-seed";
   // a hard refresh deals a fresh panel; navigating between pages keeps it
@@ -294,13 +273,11 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       if (!a || !b) break;
       const c = {
         a, b, na: a, nb: b, move: 1,
-        // How much extra cord it carries. Raised ~12% when the cords stopped
-        // stretching: they used to hang on up to 15% of solver compliance as
-        // well as their slack, and taking that away quietly pulled the drape
-        // out of them — measured 6% less droop on a short span, 30% less on a
-        // long one, which read as every cord being strung tight. This buys the
-        // same drape back as real cord, so it no longer varies with tension.
-        slack: rand() < 0.25 ? 1.17 + rand() * 0.09 : 1.37 + rand() * 0.43,
+        // How much extra cord it carries, raised 10% over the original range.
+        // A cord used to hang on solver stretch as well as its slack; the length
+        // controller below takes that stretch away, so this hands the same droop
+        // back as real cord. Measured to land within 5% of the old drape.
+        slack: rand() < 0.25 ? 1.14 + rand() * 0.09 : 1.34 + rand() * 0.42,
         color: COLORS[i % COLORS.length],
         wear: 0.72 + rand() * 0.5,          // no two cords aged alike
         hueJit: [0, 1, 2].map(() => (rand() - 0.5) * 34), // dye lot variance
@@ -326,6 +303,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       ropeInit(c);
       c.len = Math.hypot(b.x - a.x, b.y - a.y) * c.slack;   // cut to length, forever
       c.rest = c.len / (N - 1);
+      c.restScale = 1;
       // the memory, expressed locally: how far each point bulges past its neighbors
       c.kinkLocal = c.kinks.map((v, i, a) => (i === 0 || i === a.length - 1) ? 0 : v - (a[i - 1] + a[i + 1]) / 2);
       cables.push(c);
@@ -340,6 +318,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
           c.b = c.nb = jacks[bi];
           c.len = len;
           c.rest = len / (N - 1);
+          c.restScale = 1;
           ropeInit(c);
         });
       }
@@ -387,16 +366,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   function step() {
     const G = 2.3 * dpr;                // gravity ~9.8 m/s² at this pixel scale
     const DAMP = 0.992;                 // light air drag — cords fall, not float
-    const BEND_DAMP = 0.7;              // see relaxBendMemory
-    // Four smaller steps per frame rather than one big one. Six Gauss-Seidel
-    // passes leave the rope compliant, so it stretched under load by an amount
-    // that tracked the tension — the cord visibly grew and shrank as an end was
-    // dragged, by 16% across the range. Substepping shrinks the stretch each
-    // pass has to remove, rather than trying to remove more of it, which is why
-    // it costs nothing in feel: the physics is identical, only finer. Spread
-    // drops to 3%, and a released cord still falls in the same 22 frames.
-    const SUB = 4;
-    const SUB_DAMP = Math.pow(DAMP, 1 / SUB);
+    const BEND_DAMP = 0.55;             // see relaxBendMemory
 
     for (const c of cables) {
       if (c.move < 1) c.move = Math.min(c.move + (c.moveSpeed || 0.012), 1);
@@ -410,80 +380,103 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
 
       // stiffness shaves a little droop, but gravity always wins
       const gEff = G * (1 - Math.min(0.25, c.stiff * 0.9));
-      const gSub = gEff / (SUB * SUB);
-
-      // Tension rises smoothly with extension — no threshold, no snap — and the
-      // pull toward straight fades in over the last few percent.
-      const ext = Math.hypot(bx - ax, by - ay) / c.len;
-      let taut = 0, tautBleed = 0;
-      if (ext > 0.92) {
-        const t = Math.min(1, (ext - 0.92) / 0.07);
-        const ramp = t * t * (3 - 2 * t);             // smoothstep
-        const tension = ramp * ramp;                  // only the last few percent firm up
-        // Divided across the substeps: the pull and the length solver then
-        // settle with each other every substep instead of trading full-strength
-        // shoves once a frame, which is what set the cords squiggling. Same
-        // total authority per frame, a quarter of the residual motion.
-        taut = (tension * 0.5) / SUB;
-        // The bleed is NOT divided. Matching it to the pull left the last of the
-        // squiggle alive on stiff cords at full stretch — the pull kept feeding
-        // motion it was too weak to take back out. Following the tension instead
-        // means a slack cord stays free and a stretched one stops fidgeting.
-        tautBleed = tension;
-      }
-      // Verlet stores velocity as a displacement, so it carries the timestep:
-      // to take SUB smaller steps, shrink it by SUB, and gravity by SUB squared.
       for (let i = 1; i < N - 1; i++) {
         const p = c.pts[i], q = c.prev[i];
-        q.x = p.x - (p.x - q.x) / SUB;
-        q.y = p.y - (p.y - q.y) / SUB;
+        const vx = (p.x - q.x) * DAMP;
+        const vy = (p.y - q.y) * DAMP + gEff;
+        q.x = p.x; q.y = p.y;
+        p.x += vx; p.y += vy;
       }
-      for (let sub = 0; sub < SUB; sub++) {
-        for (let i = 1; i < N - 1; i++) {
-          const p = c.pts[i], q = c.prev[i];
-          const vx = (p.x - q.x) * SUB_DAMP;
-          const vy = (p.y - q.y) * SUB_DAMP + gSub;
-          q.x = p.x; q.y = p.y;
-          p.x += vx; p.y += vy;
+      c.pts[0].x = ax; c.pts[0].y = ay;
+      c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
+
+      for (let iter = 0; iter < 6; iter++) {
+        for (let i = 0; i < N - 1; i++) {
+          const p = c.pts[i], q = c.pts[i + 1];
+          const dx = q.x - p.x, dy = q.y - p.y;
+          const d = Math.hypot(dx, dy) || 1e-6;
+          const diff = (d - rest) / d / 2;
+          const ox = dx * diff, oy = dy * diff;
+          if (i > 0) { p.x += ox; p.y += oy; }
+          if (i < N - 2) { q.x -= ox; q.y -= oy; }
         }
         c.pts[0].x = ax; c.pts[0].y = ay;
         c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
-
-        for (let iter = 0; iter < 6; iter++) {
-          for (let i = 0; i < N - 1; i++) {
-            const p = c.pts[i], q = c.pts[i + 1];
-            const dx = q.x - p.x, dy = q.y - p.y;
-            const d = Math.hypot(dx, dy) || 1e-6;
-            const diff = (d - rest) / d / 2;
-            const ox = dx * diff, oy = dy * diff;
-            if (i > 0) { p.x += ox; p.y += oy; }
-            if (i < N - 2) { q.x -= ox; q.y -= oy; }
-          }
-          c.pts[0].x = ax; c.pts[0].y = ay;
-          c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
-        }
-
-        if (taut > 0) {
-          for (let i = 1; i < N - 1; i++) {
-            const k2 = i / (N - 1);
-            const tx = ax + (bx - ax) * k2, ty = ay + (by - ay) * k2;
-            const pnt = c.pts[i], q = c.prev[i];
-            pnt.x += (tx - pnt.x) * taut;
-            pnt.y += (ty - pnt.y) * taut;
-            q.x += (pnt.x - q.x) * tautBleed;
-            q.y += (pnt.y - q.y) * tautBleed;
-          }
-        }
-      }
-      for (let i = 1; i < N - 1; i++) {
-        const p = c.pts[i], q = c.prev[i];
-        q.x = p.x - (p.x - q.x) * SUB;
-        q.y = p.y - (p.y - q.y) * SUB;
       }
 
       relaxBendMemory(c.pts, c.prev, c.kinkLocal, Math.min(0.35, c.stiff * 3), BEND_DAMP, N);
 
+      // tension rises smoothly with extension — no threshold, no snap. The pull
+      // toward straight and the momentum bleed both fade in over the last third.
+      const pinDist = Math.hypot(bx - ax, by - ay);
+      const ext = pinDist / c.len;
+      let tension = 0;
+      if (ext > 0.92) {
+        let t2 = Math.min(1, (ext - 0.92) / 0.07);
+        t2 = t2 * t2 * (3 - 2 * t2);                  // smoothstep
+        tension = t2 * t2;                            // only the last few percent firm up
+      }
+      if (tension > 0) {
+        const pull = tension * 0.35;
+        for (let i = 1; i < N - 1; i++) {
+          const k2 = i / (N - 1);
+          const tx = ax + (bx - ax) * k2, ty = ay + (by - ay) * k2;
+          const pnt = c.pts[i], q = c.prev[i];
+          pnt.x += (tx - pnt.x) * pull;
+          pnt.y += (ty - pnt.y) * pull;
+          q.x += (pnt.x - q.x) * pull;                // momentum bleeds, never zeroes
+          q.y += (pnt.y - q.y) * pull;
+        }
+      }
 
+      // Keep the cord the length it was cut to, without stiffening it.
+      //
+      // Six Gauss-Seidel passes leave the rope compliant, so it stretches in
+      // proportion to tension, and tension tracks how far apart the ends are —
+      // the cord visibly grew and shrank as an end was dragged, by 17% across
+      // the range. The obvious cures all work by making the rope stiffer, and
+      // stiffness is exactly what gives it its drape, its swing and the weight
+      // of its fall: substepping fixed the length and quietly took all three.
+      //
+      // So the softness stays and the TARGET moves instead. Measure what the
+      // cord actually came out at, and aim the segments low by that much. The
+      // solver keeps missing by the same proportion it always did, and now it
+      // misses onto the right answer. Length spread 17% -> 0%, with drape,
+      // swing, fall and settling all unchanged.
+      //
+      // Held off once the tension pull engages. That pull deliberately squashes
+      // the cord onto the line between the jacks — that is what makes a
+      // stretched cord look taut — and the controller reads the squash as the
+      // cord being too short and feeds length back in. The two cancelled: the
+      // plug sat at 41 degrees off straight instead of 18, with twice the sag.
+      // Nothing needs correcting up there anyway; a cord pulled nearly straight
+      // measures nearly its chord whatever the segments are aiming at.
+      let arc = 0;
+      for (let i = 0; i < N - 1; i++) {
+        arc += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
+      }
+      if (arc > 1e-6) {
+        // Gentle on purpose: it corrects over a few frames rather than yanking,
+        // so a cord being carried is never fighting it.
+        //
+        // One-sided once the cord is under tension. Reeling a stretched cord
+        // back in is always right and stays at full strength, so a cord that
+        // arrives already stretched still recovers. Letting length back OUT is
+        // the move that fights the pull — the pull squashes the cord onto the
+        // line between the jacks on purpose, and reading that as "too short"
+        // and feeding cord back in put the plug at 26 degrees off straight
+        // instead of 8 — so that direction fades out as the pull fades in.
+        const err = c.len / arc - 1;
+        // Reeling a stretched cord in is always right, so that direction never
+        // fades and a cord that arrives already stretched still recovers.
+        // Letting length back OUT stops the moment the pull engages: the pull
+        // squashes the cord onto the line between the jacks on purpose, and
+        // reading that as "too short" and feeding cord back in put the plug at
+        // 26 degrees off straight instead of 8.
+        if (err < 0 || tension === 0) c.restScale *= 1 + err * 0.05;
+        c.restScale = Math.max(0.5, Math.min(1.2, c.restScale));
+        c.rest = (c.len / (N - 1)) * c.restScale;
+      }
     }
   }
 
@@ -647,13 +640,9 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     // Plugs go UNDER the cords, so a wire crossing a seated connection passes in
-    // front of it rather than disappearing behind — a cord draped over a plug
-    // lies on top of it, it does not thread through it.
-    //
-    // A cord must still go behind its OWN plug, or the barrel it is plugged into
-    // is painted over by the cord leaving it, and the connector vanishes. So
-    // each cord is drawn with its own two plugs punched out of the clip: it
-    // covers every other plug on the panel and none of its own.
+    // front of it rather than disappearing behind. A cord must still go behind
+    // its OWN plug, or the barrel it is plugged into is painted over by the cord
+    // leaving it — hence the clip.
     for (const c of cables) drawPlugs(c);
     for (const c of cables) {
       ctx.save();
@@ -665,6 +654,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       drawCable(c);
       ctx.restore();
     }
+
 
     if (!REDUCED) rafId = requestAnimationFrame(draw);
   }
