@@ -638,19 +638,31 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     ctx.strokeStyle = tint(c, 1);
     ctx.lineWidth = c.width * 1.45;
     ctx.stroke();
+    // Dash phase is counted from the start of the path, so the braid is pinned
+    // to whichever plug the path happens to begin at and every change in the
+    // cord's length walks it along from there — one plug holds still while the
+    // weave crawls in and out under the other's cap. The cord is not moving at
+    // all; the pattern printed on it is. Stroke each dashed layer as two halves,
+    // each starting at its own plug, and both ends hold. What is left is a phase
+    // mismatch where they meet, mid-cord, away from anything to line up against.
+    const halved = (off) => {
+      const m = Math.floor(pts.length / 2);
+      ropePath(pts.slice(0, m + 1), off);
+      ctx.stroke();
+      ropePath(pts.slice(m).reverse(), off);
+      ctx.stroke();
+    };
     // braid wrap: a fine dashed bias line worked along the cord
     ctx.save();
     ctx.setLineDash([2.2 * dpr * c.braid, 3.4 * dpr * c.braid]);
-    ropePath(pts, c.width * 0.18);
     ctx.strokeStyle = tint(c, 0.5, 0.4);
     ctx.lineWidth = Math.max(1, c.width * 0.5);
-    ctx.stroke();
+    halved(c.width * 0.18);
     // broken sheen: the highlight glints, it doesn't run laser-straight
     ctx.setLineDash([9 * dpr * c.braid, 5 * dpr, 4 * dpr * c.braid, 7 * dpr]);
-    ropePath(pts, -c.width * 0.38);
     ctx.strokeStyle = "rgba(255,255,255," + c.gloss.toFixed(2) + ")";
     ctx.lineWidth = Math.max(1, c.width * 0.3);
-    ctx.stroke();
+    halved(-c.width * 0.38);
     ctx.restore();
   }
 
