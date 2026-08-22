@@ -676,6 +676,29 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     return a.idx <= b.idx ? [a.pt, ...pts.slice(a.idx, b.idx + 1), b.pt] : [a.pt, b.pt];
   }
 
+  /**
+   * The part of a drawn path lying between two arc positions, measured in the
+   * whole cord's coordinates — `base` says how far along the cord this array
+   * itself starts, since the body pass begins partway out. Ends are cut exactly
+   * at the boundary so neighbouring runs share a point and meet cleanly.
+   */
+  function sliceByArc(pts, base, from, to) {
+    const out = [];
+    let acc = base;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p = pts[i], q = pts[i + 1];
+      const d = Math.hypot(q.x - p.x, q.y - p.y) || 1e-6;
+      const s = Math.max(from, acc), e = Math.min(to, acc + d);
+      if (e > s) {
+        const at = (u) => ({ x: p.x + (q.x - p.x) * u, y: p.y + (q.y - p.y) * u });
+        if (!out.length) out.push(at((s - acc) / d));
+        out.push(at((e - acc) / d));
+      }
+      acc += d;
+    }
+    return out.length >= 2 ? out : null;
+  }
+
   function drawCable(c, pts, shadow, dashFrom) {
     // The body pass redraws over the full cord, so only the first pass casts a
     // shadow — twice and every cord sits on a shadow half again as dark.
@@ -711,22 +734,39 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     for (let i = 0; i < N - 1; i++) {
       arc += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
     }
-    const weave = c.len > 1 ? arc / c.len : 1;
+    // A cuff at each plug keeps the nominal spacing and never budges; the run
+    // between them takes the whole of the cord's stretch. Both joins are made to
+    // land on the same phase from either side at any length — the piece in the
+    // middle is scaled to hold exactly the number of weaves the gap between the
+    // cuffs is supposed to hold — so there is no seam to catch at either one,
+    // and what moves does so where there is least to line it up against.
+    const CUFF = 0.18 * c.len;
+    const roomy = arc > CUFF * 2.4;
+    const mid = roomy ? (arc - 2 * CUFF) / (c.len - 2 * CUFF) : arc / c.len;
+    const runs = roomy
+      ? [{ a: 0, b: CUFF, k: 1, ph: (s) => s },
+         { a: CUFF, b: arc - CUFF, k: mid, ph: (s) => CUFF * mid - CUFF + s },
+         { a: arc - CUFF, b: arc, k: 1, ph: (s) => c.len - arc + s }]
+      : [{ a: 0, b: arc, k: mid, ph: (s) => s }];
+    const layer = (pattern, oy, stroke, wide) => {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = Math.max(1, wide);
+      for (const r of runs) {
+        const sub = sliceByArc(pts, dashFrom, r.a, r.b);
+        if (!sub) continue;
+        ctx.setLineDash(pattern.map((v) => v * r.k));
+        ctx.lineDashOffset = r.ph(Math.max(r.a, dashFrom));
+        ropePath(sub, oy);
+        ctx.stroke();
+      }
+    };
     ctx.save();
-    ctx.lineDashOffset = dashFrom;
     // braid wrap: a fine dashed bias line worked along the cord
-    ctx.setLineDash([2.2 * dpr * c.braid * weave, 3.4 * dpr * c.braid * weave]);
-    ropePath(pts, c.width * 0.18);
-    ctx.strokeStyle = tint(c, 0.5, 0.4);
-    ctx.lineWidth = Math.max(1, c.width * 0.5);
-    ctx.stroke();
+    layer([2.2 * dpr * c.braid, 3.4 * dpr * c.braid], c.width * 0.18,
+          tint(c, 0.5, 0.4), c.width * 0.5);
     // broken sheen: the highlight glints, it doesn't run laser-straight
-    ctx.setLineDash([9 * dpr * c.braid * weave, 5 * dpr * weave,
-                     4 * dpr * c.braid * weave, 7 * dpr * weave]);
-    ropePath(pts, -c.width * 0.38);
-    ctx.strokeStyle = "rgba(255,255,255," + c.gloss.toFixed(2) + ")";
-    ctx.lineWidth = Math.max(1, c.width * 0.3);
-    ctx.stroke();
+    layer([9 * dpr * c.braid, 5 * dpr, 4 * dpr * c.braid, 7 * dpr], -c.width * 0.38,
+          "rgba(255,255,255," + c.gloss.toFixed(2) + ")", c.width * 0.3);
     ctx.restore();
   }
 
