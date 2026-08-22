@@ -903,7 +903,19 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // plug never flips it behind anything.
     const ends = cables.map(plugEnds);
     cables.forEach((c, i) => ends[i].forEach((e) => drawPlug(c, e.p0, e.p1, e.expose)));
+    // Each cord start to finish before the next one begins, so which of two
+    // cords is in front is the same the whole way along where they overlap.
+    //
+    // These were two sweeps: every cord's ends, then every cord's middle. That
+    // put a cord's ends in a lower layer than its own middle, so where one cord
+    // crossed another near a plug the two swapped over partway along and the
+    // change of order was plainly visible — one cord in front for the last
+    // stretch into the plug and behind for the rest of it. Nothing about a cord
+    // lying across another changes along its length, so nothing in how they are
+    // drawn should either.
     cables.forEach((c, i) => {
+      // Punched out of its own plugs, so the barrel and tip cap the cord rather
+      // than the cord being drawn across them.
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 0, w, h);
@@ -912,14 +924,13 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       ctx.clip("evenodd");
       drawCable(c, c.pts, true, 0);
       ctx.restore();
-    });
-    // The hole above is geometric, so a slack cord whose belly swings back past
-    // its own plug loses the belly to it. Lay the free body back over the top.
-    for (const c of cables) {
+      // That hole is geometric, so a slack cord whose belly swings back past its
+      // own plug loses the belly to it. Lay the free body over the top — same
+      // cord, same turn, so no other cord can get between the two.
       const cut = 22 * dpr + c.width * 1.3;
       const body = cordBody(c.pts, cut);
       if (body) drawCable(c, body, false, cut);
-    }
+    });
 
     if (!REDUCED) rafId = requestAnimationFrame(draw);
   }
