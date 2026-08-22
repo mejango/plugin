@@ -76,6 +76,14 @@ function run(
       pin();
     }
     relaxBendMemory(pts, prev, kink, Math.min(0.35, stiff * 3), BEND_DAMP, N);
+    for (let d = 1; d <= 3; d++) {
+      const w = 0.6 * (1 - (d - 1) / 3);
+      for (const i of [d, N - 1 - d]) {
+        if (i < 1 || i > N - 2) continue;
+        prev[i].x += (pts[i].x - prev[i].x) * w;
+        prev[i].y += (pts[i].y - prev[i].y) * w;
+      }
+    }
     // The current extension, as step() computes it — not the target.
     const cur = Math.hypot(bx - ax, by - ay) / len;
     let tension = 0;
@@ -102,9 +110,10 @@ function run(
       }
     }
     sags.push(sagOf(pts, ax, ay, bx, by));
-    let sx = 0;
-    for (let i = 1; i < N - 1; i++) sx += pts[i].x;
-    midX.push(sx / (N - 2));
+    // The middle of the arc, not the average of every point. The points beside
+    // each plug are deliberately damped by the strain relief, and averaging
+    // them in reports a swing slower than the one you actually watch.
+    midX.push(pts[Math.floor(N / 2)].x);
     if (f >= frames - 300) {
       rSum += arc(pts) / len;
       sSum += sagOf(pts, ax, ay, bx, by) / len;
@@ -190,6 +199,85 @@ describe("cord behaviour", () => {
     }
   });
 
+  it("stops ringing at the plugs soon after one is moved", () => {
+    // Sweep an end back and forth, let go, and watch the points nearest the
+    // plugs. Without strain relief they whipped at 5.8px/frame and were still
+    // going 70 frames later — one end of a cord bouncing while the other sat
+    // still, since only one end gets carried.
+    //
+    // Measured against TRUE displacement: `pts[i] - prev[i]` is not movement
+    // here, because the bend and tension terms both edit `prev`. It reads
+    // several px/frame on a cord that is provably motionless.
+    const len = 270, baseRest = len / (N - 1);
+    let restScale = 1;
+    const ax = 0, ay = 0, by = 0;
+    let bx = len * 0.62;
+    const pts: P[] = [], prev: P[] = [], kink: number[] = [];
+    for (let i = 0; i < N; i++) {
+      const k = i / (N - 1);
+      pts.push({ x: ax + (bx - ax) * k, y: ay + Math.sin(k * Math.PI) * 20 });
+      prev.push({ ...pts[i] });
+      kink.push(i === 0 || i === N - 1 ? 0 : Math.sin(k * Math.PI * 3) * 1.5);
+    }
+    const pin = () => {
+      pts[0].x = ax; pts[0].y = ay; pts[N - 1].x = bx; pts[N - 1].y = by;
+    };
+    const gEff = G * (1 - Math.min(0.25, 0.05 * 0.9));
+    let last = pts.map((p) => ({ ...p }));
+    const D0 = 800, D1 = 920;
+    let quiet = -1;
+    for (let f = 0; f < 2400; f++) {
+      if (f >= D0 && f < D1) {
+        const u = (f - D0) / (D1 - D0);
+        bx = len * 0.62 + Math.sin(u * Math.PI * 4) * len * 0.25;
+      }
+      const rest = baseRest * restScale;
+      for (let i = 1; i < N - 1; i++) {
+        const p = pts[i], q = prev[i];
+        const vx = (p.x - q.x) * DAMP, vy = (p.y - q.y) * DAMP + gEff;
+        q.x = p.x; q.y = p.y; p.x += vx; p.y += vy;
+      }
+      pin();
+      for (let it = 0; it < 6; it++) {
+        for (let i = 0; i < N - 1; i++) {
+          const p = pts[i], q = pts[i + 1];
+          const dx = q.x - p.x, dy = q.y - p.y;
+          const d = Math.hypot(dx, dy) || 1e-6;
+          const diff = (d - rest) / d / 2;
+          const ox = dx * diff, oy = dy * diff;
+          if (i > 0) { p.x += ox; p.y += oy; }
+          if (i < N - 2) { q.x -= ox; q.y -= oy; }
+        }
+        pin();
+      }
+      relaxBendMemory(pts, prev, kink, Math.min(0.35, 0.05 * 3), BEND_DAMP, N);
+      for (let d = 1; d <= 3; d++) {
+        const w = 0.6 * (1 - (d - 1) / 3);
+        for (const i of [d, N - 1 - d]) {
+          if (i < 1 || i > N - 2) continue;
+          prev[i].x += (pts[i].x - prev[i].x) * w;
+          prev[i].y += (pts[i].y - prev[i].y) * w;
+        }
+      }
+      const a = arc(pts);
+      if (a > 1e-6) {
+        restScale *= 1 + (len / a - 1) * 0.05;
+        restScale = Math.max(0.5, Math.min(1.2, restScale));
+      }
+      if (f > D1) {
+        let m = 0;
+        for (const i of [1, 2, 3, N - 4, N - 3, N - 2]) {
+          m = Math.max(m, Math.hypot(pts[i].x - last[i].x, pts[i].y - last[i].y));
+        }
+        if (m < 0.05 && quiet < 0) quiet = f - D1;
+        else if (m >= 0.05) quiet = -1;
+      }
+      last = pts.map((p) => ({ ...p }));
+    }
+    expect(quiet).toBeGreaterThan(0);
+    expect(quiet).toBeLessThan(45);
+  });
+
   it("swings at the speed its own weight says it should", () => {
     // Not just that it moves — how FAST. Bend damping bleeds velocity along the
     // bend normal, and a hanging cord's normal points sideways, so it lands on
@@ -199,7 +287,10 @@ describe("cord behaviour", () => {
     // A pendulum of this sag has a half-period of pi*sqrt(L/g) — about 21
     // frames at a ~100px sag and g of 2.3 px/frame^2. Anything much longer and
     // the cord is swinging through treacle.
-    const s = run(0.5, { shoveAt: 1400, frames: 2600 });
+    // At the extension a cord actually rests at (1/slack, around 0.6-0.8), not
+    // in a deep U where the midpoint is the bottom of a loop and sways in a
+    // different mode entirely.
+    const s = run(0.65, { shoveAt: 1400, frames: 2600 });
     const ideal = Math.PI * Math.sqrt(100 / 2.3);
     // Amplitude is the lesser half of it; ~5px at the old damping, ~8 here.
     expect(s.swingAmp).toBeGreaterThan(7);
