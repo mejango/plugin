@@ -901,7 +901,6 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       if (body) drawCable(c, body, false, cut);
     }
 
-    if (typeof window !== "undefined" && window.__probe) window.__probe(cables, N);
     if (!REDUCED) rafId = requestAnimationFrame(draw);
   }
 
