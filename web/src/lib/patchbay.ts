@@ -424,13 +424,18 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     const DAMP = 0.992;                 // light air drag — cords fall, not float
     // Bend damping bleeds velocity along the bend normal — and a hanging cord's
     // normal points SIDEWAYS, so this lands squarely on the swing. It does not
-    // just shrink the swing, it slows it: at 0.55 a shoved cord barely moved at
-    // all, and at 0.30 it took 72 frames to swing back where a free pendulum of
-    // that sag takes 21. At 0.15 the period comes out at 22 and the cord swings
-    // the way its own weight says it should. What 0.55 was really doing was
-    // standing in for damping a stretched cord, which no longer needs any: the
-    // pull that used to shake one about is gone.
-    const BEND_DAMP = 0.15;             // see relaxBendMemory
+    // just shrink the swing, it decides whether there is one. Swing a plug and
+    // hold it: at 0.15 the middle of the cord crossed its resting place 4 times
+    // and only ever moved 6px past it, which on screen is a cord easing into
+    // place rather than swinging into it. At 0.06 it crosses 10 times and swings
+    // 25px, which is a cord.
+    //
+    // It went to 0.15 to slow a swing that was too fast, back when it was also
+    // standing in for damping a stretched cord. That job belongs to nothing now
+    // — the pull that used to shake one about is gone — and the residue it was
+    // left holding down is caught by cords sleeping instead. Every extension
+    // still comes to rest, and ten random drops leave nothing moving.
+    const BEND_DAMP = 0.06;             // see relaxBendMemory
     // Strain relief. A plug's boot grips the cord, so a real cable cannot flap
     // where it enters one — it leaves the connector straight for a centimetre
     // and only then starts to hang. Nothing here modelled that, so the last few
