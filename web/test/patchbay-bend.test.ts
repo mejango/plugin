@@ -103,7 +103,7 @@ describe("relaxBendMemory", () => {
       const before = angleAt(pts, 2);
       const s1 = seg(pts, 1), s2 = seg(pts, 2);
       expect(before).toBeLessThan(10);
-      openTightFolds(pts, prev, [0, 0, 1, 0, 0], 5, MIN, 1);
+      openTightFolds(pts, prev, [0, 0, 1, 0, 0], new Array(5).fill(0), 5, MIN, 1);
       expect(angleAt(pts, 2)).toBeGreaterThan(before + 20);
       // It opens by rotating about the centre, so no segment is stretched and
       // the length solver has nothing to undo.
@@ -115,7 +115,7 @@ describe("relaxBendMemory", () => {
       const pts: P[] = [{ x: 0, y: 0 }, { x: 50, y: 20 }, { x: 100, y: 26 }, { x: 150, y: 20 }, { x: 200, y: 0 }];
       const prev = pts.map((q) => ({ ...q }));
       const copy = pts.map((q) => ({ ...q }));
-      openTightFolds(pts, prev, [0, 0, 0, 0, 0], 5, MIN, 1);
+      openTightFolds(pts, prev, [0, 0, 0, 0, 0], new Array(5).fill(0), 5, MIN, 1);
       pts.forEach((q, i) => {
         expect(q.x).toBeCloseTo(copy[i].x, 9);
         expect(q.y).toBeCloseTo(copy[i].y, 9);
@@ -128,7 +128,7 @@ describe("relaxBendMemory", () => {
       // the direction comes from the remembered kink and is stable per point.
       const shut = (kinkSign: number) => {
         const pts: P[] = [{ x: 0, y: 0 }, { x: 0, y: 100 }, { x: 0, y: 0 }, { x: 0, y: 100 }];
-        openTightFolds(pts, pts.map((q) => ({ ...q })), [0, kinkSign, -kinkSign, 0], 4, MIN, 1);
+        openTightFolds(pts, pts.map((q) => ({ ...q })), [0, kinkSign, -kinkSign, 0], new Array(4).fill(0), 4, MIN, 1);
         return pts;
       };
       const pos = shut(1), neg = shut(-1);

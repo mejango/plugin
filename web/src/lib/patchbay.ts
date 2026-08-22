@@ -87,7 +87,7 @@ export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
  * the same reason. It comes from the remembered kink, so a fold curls the same
  * way every frame instead of whichever way the last rounding error pointed.
  */
-export function openTightFolds(pts, prev, kink, n, minCos, relax) {
+export function openTightFolds(pts, prev, kink, side, n, minCos, relax) {
   for (let i = 1; i < n - 1; i++) {
     const pnt = pts[i], pm = pts[i - 1], pp = pts[i + 1];
     const mFree = i - 1 > 0, pFree = i + 1 < n - 1;
@@ -97,8 +97,17 @@ export function openTightFolds(pts, prev, kink, n, minCos, relax) {
     const la = Math.hypot(ax, ay) || 1e-6, lb = Math.hypot(bx, by) || 1e-6;
     const cos = (ax * bx + ay * by) / (la * lb);
     if (cos < minCos) continue;                 // open enough to leave alone
+    // Which way to curl has to STAY decided. A fold closing all the way passes
+    // through dead straight, where this cross product is zero and its sign is
+    // whatever the last rounding error said — so the fold was shoved one way,
+    // then the other, at five frames a cycle, with the two arms of the hairpin
+    // visibly swapping sides and no sign of ever stopping. Only take a new
+    // answer from the geometry while the fold is open enough for the geometry
+    // to have one; through the ambiguous part, keep the answer already in hand.
     const cross = (ax * by - ay * bx) / (la * lb);
-    const s = Math.abs(cross) > 1e-3 ? Math.sign(cross) : (kink[i] >= 0 ? 1 : -1);
+    if (Math.abs(cross) > 0.2) side[i] = Math.sign(cross);
+    else if (!side[i]) side[i] = kink[i] >= 0 ? 1 : -1;
+    const s = side[i];
     const open = (Math.acos(minCos) - Math.acos(Math.max(-1, Math.min(1, cos)))) * relax;
     const each = mFree && pFree ? open / 2 : open;
     const swing = (p, q, a) => {               // rotate about pnt, velocity intact
@@ -362,6 +371,8 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       c.restScale = 1;
       // the memory, expressed locally: how far each point bulges past its neighbors
       c.kinkLocal = c.kinks.map((v, i, a) => (i === 0 || i === a.length - 1) ? 0 : v - (a[i - 1] + a[i + 1]) / 2);
+      // which way each fold has decided to curl; see openTightFolds
+      c.foldSide = new Array(N).fill(0);
       cables.push(c);
     }
     // restore the tab's cable arrangement (user moves carry across pages)
@@ -528,7 +539,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         // frame — and the solver settles length by moving points without their
         // `prev`, which is a velocity — so a cord near the limit rang for
         // hundreds of frames. Relaxed together, they just converge.
-        if (foldK > 0) openTightFolds(c.pts, c.prev, c.kinkLocal, N, FOLD_COS, foldK);
+        if (foldK > 0) openTightFolds(c.pts, c.prev, c.kinkLocal, c.foldSide, N, FOLD_COS, foldK);
         // alternate the sweep direction: a one-way sweep carries its residual
         // outward and dumps the whole length correction at the far plug
         for (let s = 0; s < N - 1; s++) {
