@@ -457,49 +457,96 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   // and by then nothing is moving, so it cannot flip mid-swing.
   let allQuiet = false;
   let stirred = false;
+  let touching = new Set();   // which cables are resting on which, last time we looked
+  let lastMoved = -1;         // whoever was carried, so a fresh contact knows who arrived
   let restack = () => {};
 
   restack = () => {
-    // Distance to the cord itself, not to the points it is made of. Those sit
-    // about ninety device pixels apart, so asking only about them missed any
-    // cord that crossed a jack between two of them — which is most of them, and
-    // a missed crossing is one drawn the wrong way round. Both the cord and the
-    // barrel have width, so the reach is the two half-widths together.
     const segDist = (px, py, ax, ay, bx, by) => {
       const dx = bx - ax, dy = by - ay;
       const l2 = dx * dx + dy * dy || 1e-9;
       const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
       return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
     };
-    // who has to be under whom: a cord crossing a connector must be above it
+    // Does this cable's cord run across that one's connector? Measured to the
+    // cord itself rather than the sixteen points it is drawn through, since
+    // those sit ninety device pixels apart and a crossing between two of them
+    // would go unnoticed. Both parts have thickness, so the reach is the two
+    // half-widths together.
+    const crossesPlugOf = (c, o) => {
+      const reach = 20 * dpr + cables[c].width;
+      for (const plug of [cables[o].pts[0], cables[o].pts[N - 1]]) {
+        for (let i = 0; i < N - 1; i++) {
+          const a = cables[c].pts[i], b = cables[c].pts[i + 1];
+          if (segDist(plug.x, plug.y, a.x, a.y, b.x, b.y) < reach) return true;
+        }
+      }
+      return false;
+    };
+    // Do they lie on each other at all — cord on cord, anywhere?
+    const touch = (c, o) => {
+      const reach = (cables[c].width + cables[o].width) * 0.95;
+      for (let i = 0; i < N - 1; i++) {
+        const a = cables[c].pts[i], b = cables[c].pts[i + 1];
+        for (let j = 0; j <= N - 1; j++) {
+          const q = cables[o].pts[j];
+          if (segDist(q.x, q.y, a.x, a.y, b.x, b.y) < reach) return true;
+        }
+      }
+      return false;
+    };
+
+    const rank = {};
+    stack.forEach((id, z) => { rank[id] = z; });
     const above = cables.map(() => new Set());
     const owes = cables.map(() => 0);
+    const nowTouching = new Set();
+    const want = (lower, upper) => {
+      if (lower === upper || above[lower].has(upper)) return;
+      above[lower].add(upper); owes[upper]++;
+    };
+
     for (let c = 0; c < cables.length; c++) {
-      const reach = 20 * dpr + cables[c].width;
-      for (let o = 0; o < cables.length; o++) {
-        if (o === c) continue;
-        let crosses = false;
-        for (const plug of [cables[o].pts[0], cables[o].pts[N - 1]]) {
-          for (let i = 0; i < N - 1 && !crosses; i++) {
-            const a = cables[c].pts[i], b = cables[c].pts[i + 1];
-            if (segDist(plug.x, plug.y, a.x, a.y, b.x, b.y) < reach) crosses = true;
-          }
-          if (crosses) break;
+      for (let o = c + 1; o < cables.length; o++) {
+        if (!touch(c, o)) continue;
+        const key = c + ":" + o;
+        nowTouching.add(key);
+        // ALREADY RESTING ON EACH OTHER: leave them as they are. A cord that
+        // lies under another does not change its mind while it is still under
+        // it — pulling a plug out of its hole and putting it back should not
+        // flip the cord above the one draped across it and then back again.
+        // The order only gets to change when they come apart and meet afresh.
+        if (touching.has(key)) {
+          if ((rank[c] ?? c) < (rank[o] ?? o)) want(c, o); else want(o, c);
+          continue;
         }
-        if (crosses && !above[o].has(c)) { above[o].add(c); owes[c]++; }
+        // MEETING AFRESH: a cord across a connector is above it, because the
+        // connector had to go into the hole underneath it.
+        const cOverO = crossesPlugOf(c, o);
+        const oOverC = crossesPlugOf(o, c);
+        if (cOverO && !oOverC) want(o, c);
+        else if (oOverC && !cOverO) want(c, o);
+        // Neither is lying across the other's hole, so it is simply one cord
+        // laid on another: whichever was carried here came to rest on top.
+        else if (c === lastMoved) want(o, c);
+        else if (o === lastMoved) want(c, o);
+        else if ((rank[c] ?? c) < (rank[o] ?? o)) want(c, o);
+        else want(o, c);
       }
     }
-    // lay down whatever owes nothing yet, then whatever that frees, and so on
+    touching = nowTouching;
+
+    // lay down whatever owes nothing yet, then whatever that frees, and so on,
+    // keeping the order they are in now wherever nothing decides otherwise
     const placed = [], done = cables.map(() => false);
+    const byRank = cables.map((_, i) => i).sort((a, b) => (rank[a] ?? a) - (rank[b] ?? b));
     while (placed.length < cables.length) {
       let next = -1;
-      for (let i = 0; i < cables.length; i++) {
-        if (!done[i] && owes[i] === 0) { next = i; break; }
-      }
+      for (const i of byRank) if (!done[i] && owes[i] === 0) { next = i; break; }
       // nothing free means a knot — two cords each crossing the other's jack,
       // which cannot be satisfied either way round. Take the first one left and
       // carry on; every constraint that is not part of the knot still holds.
-      if (next < 0) for (let i = 0; i < cables.length; i++) if (!done[i]) { next = i; break; }
+      if (next < 0) for (const i of byRank) if (!done[i]) { next = i; break; }
       done[next] = true;
       placed.push(next);
       for (const up of above[next]) owes[up]--;
@@ -588,7 +635,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       const ax = c.a.x + (c.na.x - c.a.x) * k, ay = c.a.y + (c.na.y - c.a.y) * k;
       const bx = c.b.x + (c.nb.x - c.b.x) * k, by = c.b.y + (c.nb.y - c.b.y) * k;
       if (c.move === 1 && !(drag && drag.cable === c)) {
-        if (c.a !== c.na || c.b !== c.nb) restacking = 40;
+        if (c.a !== c.na || c.b !== c.nb) { restacking = 40; lastMoved = cables.indexOf(c); }
         c.a = c.na; c.b = c.nb;
       }
 
@@ -1052,14 +1099,27 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // Redraw a path in pieces, cut where it runs back over itself, so the far
     // side of a loop lands on the near side rather than merging into it. Costs
     // nothing on a cord that does not cross itself, which is nearly all of them.
-    const inPieces = (c, pts, baseArc) => {
+    // Which end wins is a choice: normally the far end of the cord, but the end
+    // in your hand has been lifted off the panel and everything of that cord
+    // passes under it, its own far side included. Reversing the pieces is the
+    // whole of it — the cuts are already in the right places, and because a
+    // piece only ever lands on identical pixels of the same cord there is no
+    // seam to see. Restroking an arbitrary length near the hand instead, which
+    // is what this did before, cuts the cord where nothing crosses and the join
+    // shows as a step in the weave.
+    const inPieces = (c, pts, baseArc, flip) => {
       const cuts = selfCrossings(pts);
       if (!cuts.length) return;
+      const pieces = [];
       let from = 0;
       for (const at of [...cuts, Infinity]) {
-        const piece = sliceByArc(pts, 0, from, at === Infinity ? 1e9 : at);
-        if (piece) drawCable(c, piece, false, baseArc + from);
+        pieces.push([from, at === Infinity ? 1e9 : at]);
         from = at;
+      }
+      if (flip) pieces.reverse();
+      for (const [a, b] of pieces) {
+        const piece = sliceByArc(pts, 0, a, b);
+        if (piece) drawCable(c, piece, false, baseArc + a);
       }
     };
 
@@ -1076,7 +1136,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // stretch into the plug and behind for the rest of it. Nothing about a cord
     // lying across another changes along its length, so nothing in how they are
     // drawn should either.
-    const cordOf = (i) => {
+    const cordOf = (i, flip) => {
       const c = cables[i];
       // Punched out of its own plugs, so the barrel and tip cap the cord rather
       // than the cord being drawn across them.
@@ -1097,7 +1157,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       plugHole(c, c.pts[N - 1], c.pts[N - 2], 11 * dpr * ends[i][1].expose);
       ctx.clip("evenodd");
       drawCable(c, c.pts, true, 0);
-      inPieces(c, c.pts, 0);
+      inPieces(c, c.pts, 0, flip);
       ctx.restore();
       // That hole is geometric, so a slack cord whose belly swings back past its
       // own plug loses the belly to it. Lay the free body over the top — same
@@ -1106,7 +1166,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       const body = cordBody(c.pts, cut);
       if (body) {
         drawCable(c, body, false, cut);
-        inPieces(c, body, cut);
+        inPieces(c, body, cut, flip);
       }
     };
 
@@ -1131,40 +1191,26 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // cord and OVER the other's connector. Half of a cord in front and half
     // behind, which is the same fault as before one layer up.
     //
-    // The cable being dragged is the exception, and only in part. Picking up one
-    // end does not pick up the other: the far one is still plugged into the
-    // panel, under whatever lies across it. So it goes down here with everything
-    // else, in its own place in the order, and only what is actually in the air
-    // is lifted out.
+    // The cable in your hand is drawn HERE too, in its own place in the order,
+    // not lifted over the rest. Lifting it meant a cord resting under another
+    // flipped above it the instant you took hold of the plug, and dropped back
+    // under the moment you let go — twice for a move that changed nothing about
+    // which cord was lying on which. Whether one cable is over another is
+    // settled by them meeting, in `restack`, not by which one you happen to be
+    // touching.
     stack.forEach((i) => {
       if (i !== held) { plugsOf(i); cordOf(i); return; }
-      if (!bothEnds) {
-        const e = endOf(!grabbedA);
-        drawPlug(cables[i], e.p0, e.p1, e.expose);
-      }
+      const c = cables[i];
+      if (bothEnds) { plugsOf(i); cordOf(i); return; }
+      // Its own parts still stack by what is in the air: the connector still in
+      // its hole, then the cord — running under itself from the hand end back,
+      // since that end is the one lifted — and the connector in your hand last.
+      const far = endOf(!grabbedA);
+      drawPlug(c, far.p0, far.p1, far.expose);
+      cordOf(i, grabbedA);
+      const hand = endOf(grabbedA);
+      drawPlug(c, hand.p0, hand.p1, hand.expose);
     });
-    if (held >= 0) {
-      const c = cables[held];
-      // Then the cord itself, lifted off the panel, and within it the end in
-      // your hand highest of all: you are holding that end up, the cord runs
-      // away from your hand and back down, and the connector in your hand is the
-      // last thing between you and the panel.
-      cordOf(held);
-      if (!bothEnds) {
-        let total = 0;
-        for (let i = 0; i < N - 1; i++) {
-          total += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
-        }
-        const lead = total * 0.35;
-        const piece = grabbedA
-          ? sliceByArc(c.pts, 0, 0, lead)
-          : sliceByArc(c.pts, 0, total - lead, total);
-        if (piece) drawCable(c, piece, false, grabbedA ? 0 : total - lead);
-        drawPlug(c, endOf(grabbedA).p0, endOf(grabbedA).p1, endOf(grabbedA).expose);
-      } else {
-        plugsOf(held);
-      }
-    }
 
     if (!REDUCED) rafId = requestAnimationFrame(draw);
   }
