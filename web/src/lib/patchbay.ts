@@ -614,6 +614,66 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     const SLEEP_BELOW = 0.1 * dpr;      // px per frame, per point
     const SLEEP_AFTER = 30;             // frames of quiet before it is left be
 
+    // A connector is a solid thing standing off the panel, so a cord dragged
+    // across one catches on it and bends around rather than sliding through.
+    // The barrel is a capsule, not a point: from the face of the jack out to the
+    // collar where the boot meets the cord, which is what the cord actually
+    // meets side-on.
+    const BARREL = 15 * dpr;
+    const studs = [];
+    for (const o of cables) {
+      for (const [q0, q1] of [[o.pts[0], o.pts[1]], [o.pts[N - 1], o.pts[N - 2]]]) {
+        const dx = q1.x - q0.x, dy = q1.y - q0.y;
+        const l = Math.hypot(dx, dy) || 1;
+        studs.push({
+          of: o, x: q0.x, y: q0.y,
+          ex: q0.x + (dx / l) * BARREL, ey: q0.y + (dy / l) * BARREL,
+          r: o.width * 1.2,
+          live: o.move < 1 || (drag && drag.cable === o),
+        });
+      }
+    }
+    // Three things to ask of it. ASK moves nothing and answers whether anything
+    // is inside a plug — that is the check for waking a cord something has been
+    // pushed into. LIFT clears the point out to the surface. SETTLE also takes
+    // the speed INTO the plug off it, so it stops dead against the barrel rather
+    // than bouncing away, and shaves what is left running along the barrel so
+    // the cord grips instead of sliding off the end.
+    const ASK = 0, LIFT = 1, SETTLE = 2;
+    const offStuds = (c, mode) => {
+      let hit = false;
+      for (const s of studs) {
+        if (s.of === c) continue;
+        const R = s.r + c.width * 0.95;
+        const sx = s.ex - s.x, sy = s.ey - s.y;
+        const len2 = sx * sx + sy * sy || 1;
+        for (let i = 1; i < N - 1; i++) {
+          const p = c.pts[i];
+          let t = ((p.x - s.x) * sx + (p.y - s.y) * sy) / len2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const cx = s.x + sx * t, cy = s.y + sy * t;
+          let nx = p.x - cx, ny = p.y - cy;
+          let d = Math.hypot(nx, ny);
+          if (d >= R) continue;
+          if (mode === ASK) return true;
+          hit = true;
+          if (d < 1e-6) { nx = 0; ny = -1; } else { nx /= d; ny /= d; }
+          p.x = cx + nx * R; p.y = cy + ny * R;
+          if (mode !== SETTLE) continue;
+          const q = c.prev[i];
+          let vx = p.x - q.x, vy = p.y - q.y;
+          const vn = vx * nx + vy * ny;
+          if (vn < 0) { vx -= nx * vn; vy -= ny * vn; }
+          q.x = p.x - vx * 0.82; q.y = p.y - vy * 0.82;
+        }
+      }
+      return hit;
+    };
+    // Only a plug that is on the move can reach into a cord that has been left
+    // alone, and usually none of them is, so this costs nothing while the panel
+    // is at rest.
+    const anyLive = studs.some((s) => s.live);
+
     stirred = false;
     for (const c of cables) {
       const busy = c.move < 1 || (drag && drag.cable === c);
@@ -627,7 +687,10 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       }
       if (!c.was) c.was = c.pts.map((q) => ({ x: q.x, y: q.y }));
       else for (let i = 0; i < N; i++) { c.was[i].x = c.pts[i].x; c.was[i].y = c.pts[i].y; }
-      if (!busy && c.still >= SLEEP_AFTER) continue;
+      if (!busy && c.still >= SLEEP_AFTER) {
+        if (!anyLive || !offStuds(c, ASK)) continue;
+        c.still = 0;
+      }
       stirred = true;
 
       if (c.move < 1) c.move = Math.min(c.move + (c.moveSpeed || 0.012), 1);
@@ -687,6 +750,10 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         }
         c.pts[0].x = ax; c.pts[0].y = ay;
         c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
+        // Lifted clear on every pass, so the length solver has to route the cord
+        // around the plug rather than through it; the pass after this one puts
+        // the length back.
+        offStuds(c, LIFT);
       }
 
       relaxBendMemory(c.pts, c.prev, c.kinkLocal, Math.min(0.35, c.stiff * 3), BEND_DAMP, N);
@@ -699,6 +766,14 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
           c.prev[i].y += (c.pts[i].y - c.prev[i].y) * w;
         }
       }
+
+      // Last word on where the cord may be, after bend memory and strain relief
+      // have had theirs. Inside the solver alone it was not enough: those two
+      // run afterwards and push points back into a plug they had just been
+      // lifted out of, and the cord sank 11.6px into the barrel — through it, to
+      // look at. Speed comes off here too, once per frame rather than once per
+      // solver pass, or a cord would stop dead against anything it grazed.
+      offStuds(c, SETTLE);
 
       // No pull toward the chord any more, and no tension ramp to drive one.
       //
