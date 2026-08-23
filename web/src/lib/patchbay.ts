@@ -619,52 +619,157 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // The barrel is a capsule, not a point: from the face of the jack out to the
     // collar where the boot meets the cord, which is what the cord actually
     // meets side-on.
+    // Points, not copied numbers. A barrel is aimed by the cord's own second
+    // point, so a swinging cable turns its plugs as it goes — and the cables are
+    // solved one after another, so a snapshot taken before the loop is already
+    // stale for everything solved after the cable that moved. That showed up as
+    // a cord passing through a plug for a single frame while a DIFFERENT cable
+    // swung nearby. Read live and every cable meets the panel as it is now.
     const BARREL = 15 * dpr;
     const studs = [];
     for (const o of cables) {
       for (const [q0, q1] of [[o.pts[0], o.pts[1]], [o.pts[N - 1], o.pts[N - 2]]]) {
-        const dx = q1.x - q0.x, dy = q1.y - q0.y;
-        const l = Math.hypot(dx, dy) || 1;
-        studs.push({
-          of: o, x: q0.x, y: q0.y,
-          ex: q0.x + (dx / l) * BARREL, ey: q0.y + (dy / l) * BARREL,
-          r: o.width * 1.2,
-          live: o.move < 1 || (drag && drag.cable === o),
-        });
+        studs.push({ of: o, at: q0, aim: q1, r: o.width * 1.2 });
       }
     }
-    // Three things to ask of it. ASK moves nothing and answers whether anything
-    // is inside a plug — that is the check for waking a cord something has been
-    // pushed into. LIFT clears the point out to the surface. SETTLE also takes
-    // the speed INTO the plug off it, so it stops dead against the barrel rather
-    // than bouncing away, and shaves what is left running along the barrel so
-    // the cord grips instead of sliding off the end.
+    // Stop a point dead against the barrel: the speed INTO the plug comes off
+    // it so it does not bounce away, and what is left running along the barrel
+    // is shaved so the cord grips instead of sliding off the end.
+    const settleAt = (c, i, nx, ny) => {
+      const p = c.pts[i], q = c.prev[i];
+      let vx = p.x - q.x, vy = p.y - q.y;
+      const vn = vx * nx + vy * ny;
+      if (vn < 0) { vx -= nx * vn; vy -= ny * vn; }
+      q.x = p.x - vx * 0.82; q.y = p.y - vy * 0.82;
+    };
+    // Three things to ask of it. ASK moves nothing and answers whether the cord
+    // is inside a plug — that is the check for waking one something has been
+    // pushed into. LIFT clears it out to the surface. SETTLE also kills the
+    // speed going in.
+    //
+    // A cord is its SEGMENTS, not its points. Testing the points alone leaves
+    // the span between two of them free to sit anywhere, and a barrel is far
+    // narrower than the gap between two points of a cord — so pulling hard
+    // enough slid the cord between them and straight through the plug with
+    // nothing ever measuring as inside it.
     const ASK = 0, LIFT = 1, SETTLE = 2;
     const offStuds = (c, mode) => {
       let hit = false;
+      let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+      for (let i = 0; i < N; i++) {
+        const p = c.pts[i];
+        if (p.x < bx0) bx0 = p.x;
+        if (p.x > bx1) bx1 = p.x;
+        if (p.y < by0) by0 = p.y;
+        if (p.y > by1) by1 = p.y;
+      }
       for (const s of studs) {
         if (s.of === c) continue;
         const R = s.r + c.width * 0.95;
-        const sx = s.ex - s.x, sy = s.ey - s.y;
-        const len2 = sx * sx + sy * sy || 1;
-        for (let i = 1; i < N - 1; i++) {
-          const p = c.pts[i];
-          let t = ((p.x - s.x) * sx + (p.y - s.y) * sy) / len2;
+        // where this plug is standing RIGHT NOW, aimed along its own cord
+        const hx = s.at.x, hy = s.at.y;
+        const adx = s.aim.x - hx, ady = s.aim.y - hy;
+        const al = Math.hypot(adx, ady) || 1;
+        const vx = (adx / al) * BARREL, vy = (ady / al) * BARREL;
+        const vv = vx * vx + vy * vy || 1;
+        if (Math.min(hx, hx + vx) - R > bx1 || Math.max(hx, hx + vx) + R < bx0) continue;
+        if (Math.min(hy, hy + vy) - R > by1 || Math.max(hy, hy + vy) + R < by0) continue;
+        for (let i = 0; i < N - 1; i++) {
+          const p0 = c.pts[i], p1 = c.pts[i + 1];
+          // a plug pinned in a jack cannot be moved out of the way
+          const f0 = i > 0, f1 = i < N - 2;
+          if (!f0 && !f1) continue;
+          const ux = p1.x - p0.x, uy = p1.y - p0.y;
+          const uu = ux * ux + uy * uy;
+
+          // Has this stretch of cord been dragged clean across the barrel?
+          // Distance cannot answer that — once the cord is out the far side it
+          // measures as far from the plug as it does when it is nowhere near.
+          const twist = ux * vy - uy * vx;
+          if (Math.abs(twist) > 1e-12) {
+            const ex = hx - p0.x, ey = hy - p0.y;
+            const tc = (ex * vy - ey * vx) / twist;
+            const uc = (ex * uy - ey * ux) / twist;
+            if (tc > 0 && tc < 1 && uc > 0 && uc < 1) {
+              if (mode === ASK) return true;
+              const qx = -vy / BARREL, qy = vx / BARREL;
+              const sideOf = (pt) => (pt.x - hx) * qx + (pt.y - hy) * qy;
+              // Which side to put it back on. Normally the side it was on when
+              // the frame began — but a stretch ending at a plug has one end
+              // that cannot be moved at all, and then the only side both ends
+              // can share is the one that end is already on. That is the last
+              // place a cord could still be pulled through: the first stretch
+              // out of a plug, against the barrel of a cable in the next jack
+              // along, where the two sit close enough to foul each other and
+              // aiming for the far side could never clear it.
+              let sgn;
+              if (!f0 && Math.abs(sideOf(p0)) > 1e-9) sgn = sideOf(p0) > 0 ? 1 : -1;
+              else if (!f1 && Math.abs(sideOf(p1)) > 1e-9) sgn = sideOf(p1) > 0 ? 1 : -1;
+              else {
+                const r0 = c.prev[i], r1 = c.prev[i + 1];
+                const rx = r0.x + (r1.x - r0.x) * tc, ry = r0.y + (r1.y - r0.y) * tc;
+                sgn = vx * (ry - hy) - vy * (rx - hx) >= 0 ? 1 : -1;
+              }
+              const nx = qx * sgn, ny = qy * sgn;
+              // Put the WHOLE stretch back on that side, both ends of it. Lifting
+              // just the point that touches by one radius is what let a hard pull
+              // win: the cord was 200px long across a 20px barrel, so its far end
+              // stayed the wrong side and the stretch went on cutting the plug in
+              // half, frame after frame, however many times it was corrected.
+              // Two straight pieces cross at most once, so with both ends the
+              // same side of the barrel there is no crossing left to have.
+              hit = true;
+              if (f0) {
+                const sd = (p0.x - hx) * nx + (p0.y - hy) * ny;
+                if (sd < R) {
+                  p0.x += nx * (R - sd); p0.y += ny * (R - sd);
+                  if (mode === SETTLE) settleAt(c, i, nx, ny);
+                }
+              }
+              if (f1) {
+                const sd = (p1.x - hx) * nx + (p1.y - hy) * ny;
+                if (sd < R) {
+                  p1.x += nx * (R - sd); p1.y += ny * (R - sd);
+                  if (mode === SETTLE) settleAt(c, i + 1, nx, ny);
+                }
+              }
+              continue;
+            }
+          }
+
+          // Resting against it: closest approach between this stretch of cord
+          // and the barrel, and out to the surface the near way.
+          const wx = p0.x - hx, wy = p0.y - hy;
+          const b = ux * vx + uy * vy;
+          const dw = ux * wx + uy * wy, ew = vx * wx + vy * wy;
+          const den = uu * vv - b * b;
+          let t = den > 1e-9 ? (b * ew - vv * dw) / den : 0;
           t = t < 0 ? 0 : t > 1 ? 1 : t;
-          const cx = s.x + sx * t, cy = s.y + sy * t;
-          let nx = p.x - cx, ny = p.y - cy;
-          let d = Math.hypot(nx, ny);
+          let u = (ew + b * t) / vv;
+          u = u < 0 ? 0 : u > 1 ? 1 : u;
+          t = uu > 1e-9 ? (u * b - dw) / uu : 0;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const px = p0.x + ux * t, py = p0.y + uy * t;
+          const qx = hx + vx * u, qy = hy + vy * u;
+          let nx = px - qx, ny = py - qy;
+          const d = Math.hypot(nx, ny);
           if (d >= R) continue;
           if (mode === ASK) return true;
+          // share it along the stretch, so the point nearest where it touches
+          // takes most of it and the cord bends around the plug
+          const g0 = f0 ? 1 - t : 0, g1 = f1 ? t : 0;
+          const spread = g0 * g0 + g1 * g1;
+          if (spread < 1e-9) continue;
           hit = true;
-          if (d < 1e-6) { nx = 0; ny = -1; } else { nx /= d; ny /= d; }
-          p.x = cx + nx * R; p.y = cy + ny * R;
-          if (mode !== SETTLE) continue;
-          const q = c.prev[i];
-          let vx = p.x - q.x, vy = p.y - q.y;
-          const vn = vx * nx + vy * ny;
-          if (vn < 0) { vx -= nx * vn; vy -= ny * vn; }
-          q.x = p.x - vx * 0.82; q.y = p.y - vy * 0.82;
+          if (d < 1e-6) { nx = -vy / BARREL; ny = vx / BARREL; }
+          else { nx /= d; ny /= d; }
+          const corr = (R - d) / spread;
+          if (g0) { p0.x += nx * corr * g0; p0.y += ny * corr * g0; }
+          if (g1) { p1.x += nx * corr * g1; p1.y += ny * corr * g1; }
+          if (mode === SETTLE) {
+            if (g0) settleAt(c, i, nx, ny);
+            if (g1) settleAt(c, i + 1, nx, ny);
+          }
         }
       }
       return hit;
@@ -672,9 +777,10 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // Only a plug that is on the move can reach into a cord that has been left
     // alone, and usually none of them is, so this costs nothing while the panel
     // is at rest.
-    const anyLive = studs.some((s) => s.live);
+    const anyLive = cables.some((o) => o.move < 1 || (drag && drag.cable === o));
 
     stirred = false;
+    const awake = [];
     for (const c of cables) {
       const busy = c.move < 1 || (drag && drag.cable === c);
       if (busy) c.still = 0;
@@ -692,6 +798,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         c.still = 0;
       }
       stirred = true;
+      awake.push(c);
 
       if (c.move < 1) c.move = Math.min(c.move + (c.moveSpeed || 0.012), 1);
       const k = ease(c.move);
@@ -714,6 +821,12 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         q.x = p.x; q.y = p.y;
         p.x += vx; p.y += vy;
       }
+      // Where the plugs were when the frame began. Nothing else keeps a `prev`
+      // for a pinned end — they are not integrated — but the end in your hand
+      // is the fastest moving thing on the panel, and the cord beside it needs
+      // to know where it swept from.
+      c.prev[0].x = c.pts[0].x; c.prev[0].y = c.pts[0].y;
+      c.prev[N - 1].x = c.pts[N - 1].x; c.prev[N - 1].y = c.pts[N - 1].y;
       c.pts[0].x = ax; c.pts[0].y = ay;
       c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
 
@@ -771,9 +884,14 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       // have had theirs. Inside the solver alone it was not enough: those two
       // run afterwards and push points back into a plug they had just been
       // lifted out of, and the cord sank 11.6px into the barrel — through it, to
-      // look at. Speed comes off here too, once per frame rather than once per
-      // solver pass, or a cord would stop dead against anything it grazed.
-      offStuds(c, SETTLE);
+      // look at.
+      //
+      // More than once, because each plug is answered on its own and lifting a
+      // cord off one can lay it across the next; a single pass leaves whatever
+      // the last plug did. Speed comes off only at the end, once per frame
+      // rather than once per pass, or a cord would stop dead against anything
+      // it grazed.
+      offStuds(c, LIFT);
 
       // No pull toward the chord any more, and no tension ramp to drive one.
       //
@@ -851,6 +969,24 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         c.rest = (c.len / (N - 1)) * c.restScale;
       }
     }
+
+    // One more time, now that every cable has finished moving. The cables are
+    // solved one after another, so the first one out of the loop was answered
+    // against ten cables that had not moved yet — and every crossing left after
+    // the fix above was the FIRST cable, whether or not it was the one being
+    // dragged, with another cable's plug swinging into it after it was done.
+    // Nothing here is stale. Speed comes off on the last pass only.
+    //
+    // Contact between cables has to be iterated, not swept once. A plug is
+    // AIMED by its own cord's second point, so settling one cable turns its
+    // connectors, and a cord cleared off one a moment ago can have the barrel
+    // rotate straight back into it. Sweeping once left the first cable in the
+    // list crossing a plug — always the first, because every other cable moves
+    // after it. Each round the rotations get smaller, and three rounds is
+    // enough that nothing measurable is left.
+    for (let pass = 0; pass < 3; pass++)
+      for (const c of awake) offStuds(c, LIFT);
+    for (const c of awake) offStuds(c, SETTLE);
   }
 
   function tint(c, aMul, shade) {
