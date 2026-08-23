@@ -741,16 +741,32 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     }).join(",") + ")";
   }
 
-  function ropePath(pts, oy) {
+  /**
+   * The cord's path, optionally shifted sideways by `off` — the sheath, the
+   * braid and the sheen are all the same line moved across the cord's width.
+   *
+   * Sideways means ACROSS THE CORD, not down the screen. This used to add the
+   * offset to y, which is the same thing only while a cord runs horizontally:
+   * on a vertical one it slid the marking along the cord instead of across it,
+   * and around a curl it cut the corner rather than following it. The weave sat
+   * rigid inside a cord that was bending, because it was not bending with it.
+   */
+  function ropePath(pts, off) {
     const m = pts.length;
+    const P = off
+      ? pts.map((p, i) => {
+          const a = pts[Math.max(0, i - 1)], b = pts[Math.min(m - 1, i + 1)];
+          const tx = b.x - a.x, ty = b.y - a.y;
+          const l = Math.hypot(tx, ty) || 1e-6;
+          return { x: p.x - (ty / l) * off, y: p.y + (tx / l) * off };
+        })
+      : pts;
     ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y + oy);
+    ctx.moveTo(P[0].x, P[0].y);
     for (let i = 1; i < m - 1; i++) {
-      const mx = (pts[i].x + pts[i + 1].x) / 2;
-      const my = (pts[i].y + pts[i + 1].y) / 2 + oy;
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y + oy, mx, my);
+      ctx.quadraticCurveTo(P[i].x, P[i].y, (P[i].x + P[i + 1].x) / 2, (P[i].y + P[i + 1].y) / 2);
     }
-    ctx.lineTo(pts[m - 1].x, pts[m - 1].y + oy);
+    ctx.lineTo(P[m - 1].x, P[m - 1].y);
   }
 
   /**
