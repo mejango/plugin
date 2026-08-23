@@ -667,6 +667,10 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     const offStuds = (c, mode) => {
       let hit = false;
       const ci = cables.indexOf(c);
+      // Where the cord is caught, kept for the drag: a cord hooked on a barrel
+      // has to run OUT to the hook and back, which is further than straight
+      // across, and the hand has to stop that much sooner.
+      if (mode === SETTLE) c.hooks = [];
       let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
       for (let i = 0; i < N; i++) {
         const p = c.pts[i];
@@ -732,6 +736,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
               // Two straight pieces cross at most once, so with both ends the
               // same side of the barrel there is no crossing left to have.
               hit = true;
+              if (mode === SETTLE) c.hooks.push({ x: hx, y: hy, i });
               if (f0) {
                 const sd = (p0.x - hx) * nx + (p0.y - hy) * ny;
                 if (sd < R) {
@@ -780,6 +785,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
           if (g0) { p0.x += nx * corr * g0; p0.y += ny * corr * g0; }
           if (g1) { p1.x += nx * corr * g1; p1.y += ny * corr * g1; }
           if (mode === SETTLE) {
+            c.hooks.push({ x: px, y: py, i });
             if (g0) settleAt(c, i, nx, ny);
             if (g1) settleAt(c, i + 1, nx, ny);
           }
@@ -1482,10 +1488,46 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         // tension pull hid that by squashing the cord onto the line, which is
         // what made a cord pulled tight measurably shrink. Let it actually
         // reach full stretch and the taut look is real.
-        const maxReach = c.len * 0.995;
-        if (d > maxReach) { dx *= maxReach / d; dy *= maxReach / d; }
-        end.x = other.x + dx;
-        end.y = other.y + dy;
+        //
+        // Caught on a connector, the cord no longer runs straight from one plug
+        // to the other: it runs out to whatever it is hooked on and back. That
+        // path is longer than the gap it spans, so the hand has to stop sooner
+        // — measured from the hook, with only what is left of the cord after
+        // reaching it. Without this the hand kept going, the cord ran out of
+        // length, and the catch tore loose and snapped clear rather than
+        // holding taut where it was caught.
+        let anchor = other, spare = c.len * 0.995;
+        const hooks = c.hooks || [];
+        if (hooks.length) {
+          // the one nearest the end in your hand, counted along the cord
+          let near = null;
+          for (const k of hooks) {
+            const along = drag.ends[0] === "a" ? k.i : N - 2 - k.i;
+            if (!near || along < near.along) near = { along, k };
+          }
+          const h = near.k;
+          // How much cord is already spent getting from the far plug to the
+          // hook — along the cord itself, not straight across. A cord curves,
+          // so measuring the short way says there is more left than there is,
+          // and the hand is let out too far by exactly the difference.
+          let run = 0;
+          if (drag.ends[0] === "a") {
+            for (let k = h.i + 1; k < N - 1; k++)
+              run += Math.hypot(c.pts[k+1].x - c.pts[k].x, c.pts[k+1].y - c.pts[k].y);
+            run += Math.hypot(h.x - c.pts[h.i + 1].x, h.y - c.pts[h.i + 1].y);
+          } else {
+            for (let k = 0; k < h.i; k++)
+              run += Math.hypot(c.pts[k+1].x - c.pts[k].x, c.pts[k+1].y - c.pts[k].y);
+            run += Math.hypot(h.x - c.pts[h.i].x, h.y - c.pts[h.i].y);
+          }
+          anchor = h;
+          spare = Math.max(12 * dpr, c.len * 0.995 - run);
+          dx = mouse.x - anchor.x; dy = mouse.y - anchor.y;
+        }
+        const d2 = Math.hypot(dx, dy) || 1e-6;
+        if (d2 > spare) { dx *= spare / d2; dy *= spare / d2; }
+        end.x = anchor.x + dx;
+        end.y = anchor.y + dy;
       }
     } else {
       canvas.style.cursor = plugAt(mouse.x, mouse.y) ? "grab" : "default";
