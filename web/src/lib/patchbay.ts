@@ -1119,7 +1119,9 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     if (!stirred && !drag && !allQuiet) { allQuiet = true; restack(); }
     else if (stirred) allQuiet = false;
     if (stack.length !== cables.length) restack();
-    const laid = stack.filter((i) => i !== held);
+    const grabbedA = held >= 0 && drag.ends.includes("a");
+    const bothEnds = held >= 0 && drag.ends.length > 1;
+    const endOf = (isA) => ends[held][isA ? 0 : 1];
     // A whole cable at a time — its connectors and then its cord — so a cable
     // has ONE depth against another cable, all of it.
     //
@@ -1128,23 +1130,27 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // among themselves, so of any two cables the lower one ran UNDER the other's
     // cord and OVER the other's connector. Half of a cord in front and half
     // behind, which is the same fault as before one layer up.
-    laid.forEach((i) => { plugsOf(i); cordOf(i); });
+    //
+    // The cable being dragged is the exception, and only in part. Picking up one
+    // end does not pick up the other: the far one is still plugged into the
+    // panel, under whatever lies across it. So it goes down here with everything
+    // else, in its own place in the order, and only what is actually in the air
+    // is lifted out.
+    stack.forEach((i) => {
+      if (i !== held) { plugsOf(i); cordOf(i); return; }
+      if (!bothEnds) {
+        const e = endOf(!grabbedA);
+        drawPlug(cables[i], e.p0, e.p1, e.expose);
+      }
+    });
     if (held >= 0) {
       const c = cables[held];
-      // Within the cord being dragged, the end in your hand is the highest part
-      // of it. You are holding that end up; the rest of the cord runs away from
-      // your hand and back down to the panel, and the far plug is still lying in
-      // its socket. So the far end's connector goes down first, then the cord,
-      // then the stretch you are actually holding, then the connector in your
-      // hand last of all — otherwise the cord's own far half, or its own other
-      // plug, is drawn across the bit you are moving.
-      const grabbedA = drag.ends.includes("a");
-      const bothEnds = drag.ends.length > 1;
-      const endOf = (isA) => ends[held][isA ? 0 : 1];
-      if (!bothEnds) drawPlug(c, endOf(!grabbedA).p0, endOf(!grabbedA).p1, endOf(!grabbedA).expose);
+      // Then the cord itself, lifted off the panel, and within it the end in
+      // your hand highest of all: you are holding that end up, the cord runs
+      // away from your hand and back down, and the connector in your hand is the
+      // last thing between you and the panel.
       cordOf(held);
       if (!bothEnds) {
-        // the stretch in hand, over the rest of its own cord
         let total = 0;
         for (let i = 0; i < N - 1; i++) {
           total += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
