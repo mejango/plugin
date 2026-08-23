@@ -460,17 +460,29 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   let restack = () => {};
 
   restack = () => {
-    const REACH = 26 * dpr;                 // a connector's own footprint
+    // Distance to the cord itself, not to the points it is made of. Those sit
+    // about ninety device pixels apart, so asking only about them missed any
+    // cord that crossed a jack between two of them — which is most of them, and
+    // a missed crossing is one drawn the wrong way round. Both the cord and the
+    // barrel have width, so the reach is the two half-widths together.
+    const segDist = (px, py, ax, ay, bx, by) => {
+      const dx = bx - ax, dy = by - ay;
+      const l2 = dx * dx + dy * dy || 1e-9;
+      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+      return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+    };
     // who has to be under whom: a cord crossing a connector must be above it
     const above = cables.map(() => new Set());
     const owes = cables.map(() => 0);
     for (let c = 0; c < cables.length; c++) {
+      const reach = 20 * dpr + cables[c].width;
       for (let o = 0; o < cables.length; o++) {
         if (o === c) continue;
         let crosses = false;
         for (const plug of [cables[o].pts[0], cables[o].pts[N - 1]]) {
-          for (let i = 1; i < N - 2 && !crosses; i++) {
-            if (Math.hypot(cables[c].pts[i].x - plug.x, cables[c].pts[i].y - plug.y) < REACH) crosses = true;
+          for (let i = 0; i < N - 1 && !crosses; i++) {
+            const a = cables[c].pts[i], b = cables[c].pts[i + 1];
+            if (segDist(plug.x, plug.y, a.x, a.y, b.x, b.y) < reach) crosses = true;
           }
           if (crosses) break;
         }
