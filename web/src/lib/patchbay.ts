@@ -430,6 +430,71 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
 
   function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
 
+  /**
+   * Which cable lies over which. A connector goes INTO its jack, so a cord
+   * already lying across that jack is on top of it — you could not plug one in
+   * otherwise. A cable that merely passes through therefore sits above a cable
+   * that ends there.
+   *
+   * Scored rather than decided pairwise, because pairwise it has no answer:
+   * two cables can each run across the other's jack, and then each would have
+   * to be above the other. Counting how many other connectors a cord passes
+   * over gives one number per cable, so sorting them can never contradict
+   * itself. Cables tangled that way fall back to the order they were dealt in,
+   * which is what every pair used to get.
+   *
+   * Worked out when a cable is dealt or dropped, never mid-flight: recomputing
+   * while cords are swinging would have them trade places in front of you.
+   */
+  let stack = [];
+  // frames to wait after a plug lands before working the order out again: the
+  // cord is still swinging into place then, and where it ends up is what
+  // decides the order. Long enough to have settled, short enough that the
+  // change happens while the cord is still moving and takes the eye with it.
+  let restacking = 0;
+  // and once more when the whole panel has gone quiet, in case a cord drifted
+  // across a connector after the last go. Only fires when it changes something,
+  // and by then nothing is moving, so it cannot flip mid-swing.
+  let allQuiet = false;
+  let stirred = false;
+  let restack = () => {};
+
+  restack = () => {
+    const REACH = 26 * dpr;                 // a connector's own footprint
+    // who has to be under whom: a cord crossing a connector must be above it
+    const above = cables.map(() => new Set());
+    const owes = cables.map(() => 0);
+    for (let c = 0; c < cables.length; c++) {
+      for (let o = 0; o < cables.length; o++) {
+        if (o === c) continue;
+        let crosses = false;
+        for (const plug of [cables[o].pts[0], cables[o].pts[N - 1]]) {
+          for (let i = 1; i < N - 2 && !crosses; i++) {
+            if (Math.hypot(cables[c].pts[i].x - plug.x, cables[c].pts[i].y - plug.y) < REACH) crosses = true;
+          }
+          if (crosses) break;
+        }
+        if (crosses && !above[o].has(c)) { above[o].add(c); owes[c]++; }
+      }
+    }
+    // lay down whatever owes nothing yet, then whatever that frees, and so on
+    const placed = [], done = cables.map(() => false);
+    while (placed.length < cables.length) {
+      let next = -1;
+      for (let i = 0; i < cables.length; i++) {
+        if (!done[i] && owes[i] === 0) { next = i; break; }
+      }
+      // nothing free means a knot — two cords each crossing the other's jack,
+      // which cannot be satisfied either way round. Take the first one left and
+      // carry on; every constraint that is not part of the knot still holds.
+      if (next < 0) for (let i = 0; i < cables.length; i++) if (!done[i]) { next = i; break; }
+      done[next] = true;
+      placed.push(next);
+      for (const up of above[next]) owes[up]--;
+    }
+    stack = placed;
+  };
+
   function step() {
     const G = 2.3 * dpr;                // gravity ~9.8 m/s² at this pixel scale
     const DAMP = 0.992;                 // light air drag — cords fall, not float
@@ -490,6 +555,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     const SLEEP_BELOW = 0.1 * dpr;      // px per frame, per point
     const SLEEP_AFTER = 30;             // frames of quiet before it is left be
 
+    stirred = false;
     for (const c of cables) {
       const busy = c.move < 1 || (drag && drag.cable === c);
       if (busy) c.still = 0;
@@ -503,12 +569,16 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       if (!c.was) c.was = c.pts.map((q) => ({ x: q.x, y: q.y }));
       else for (let i = 0; i < N; i++) { c.was[i].x = c.pts[i].x; c.was[i].y = c.pts[i].y; }
       if (!busy && c.still >= SLEEP_AFTER) continue;
+      stirred = true;
 
       if (c.move < 1) c.move = Math.min(c.move + (c.moveSpeed || 0.012), 1);
       const k = ease(c.move);
       const ax = c.a.x + (c.na.x - c.a.x) * k, ay = c.a.y + (c.na.y - c.a.y) * k;
       const bx = c.b.x + (c.nb.x - c.b.x) * k, by = c.b.y + (c.nb.y - c.b.y) * k;
-      if (c.move === 1 && !(drag && drag.cable === c)) { c.a = c.na; c.b = c.nb; }
+      if (c.move === 1 && !(drag && drag.cable === c)) {
+        if (c.a !== c.na || c.b !== c.nb) restacking = 40;
+        c.a = c.na; c.b = c.nb;
+      }
 
       // fixed cord length: the rope is as long as it was made, no more
       const rest = c.rest;
@@ -1017,7 +1087,11 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // picked up off it, and drawing it in the fixed order let another cord, or
     // another cord's connector, cover the thing being moved.
     const held = drag ? cables.indexOf(drag.cable) : -1;
-    const laid = cables.map((_, i) => i).filter((i) => i !== held);
+    if (restacking > 0 && !drag && --restacking === 0) restack();
+    if (!stirred && !drag && !allQuiet) { allQuiet = true; restack(); }
+    else if (stirred) allQuiet = false;
+    if (stack.length !== cables.length) restack();
+    const laid = stack.filter((i) => i !== held);
     // A whole cable at a time — its connectors and then its cord — so a cable
     // has ONE depth against another cable, all of it.
     //
