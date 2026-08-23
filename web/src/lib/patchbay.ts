@@ -627,11 +627,22 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // swung nearby. Read live and every cable meets the panel as it is now.
     const BARREL = 15 * dpr;
     const studs = [];
-    for (const o of cables) {
+    cables.forEach((o, oi) => {
       for (const [q0, q1] of [[o.pts[0], o.pts[1]], [o.pts[N - 1], o.pts[N - 2]]]) {
-        studs.push({ of: o, at: q0, aim: q1, r: o.width * 1.2 });
+        studs.push({ of: o, oi, at: q0, aim: q1, r: o.width * 1.2 });
       }
-    }
+    });
+    // Only what is UNDERNEATH a connector is stopped by it. A cord lying over
+    // one is draped across the top of it, the way it would lie over anything
+    // else on the panel, and it has nowhere to be caught — it is already past.
+    // A cord underneath has to get between the plug and the socket it is seated
+    // in, and there is no room there: that is the one case where a connector is
+    // in the way, and the only one worth making a cord fight.
+    //
+    // Which is which is already settled, by the same stack the drawing uses, so
+    // a cord catches on exactly the plugs it visibly runs behind.
+    const zOf = new Array(cables.length).fill(0);
+    stack.forEach((id, z) => { zOf[id] = z; });
     // Stop a point dead against the barrel: the speed INTO the plug comes off
     // it so it does not bounce away, and what is left running along the barrel
     // is shaved so the cord grips instead of sliding off the end.
@@ -655,6 +666,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     const ASK = 0, LIFT = 1, SETTLE = 2;
     const offStuds = (c, mode) => {
       let hit = false;
+      const ci = cables.indexOf(c);
       let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
       for (let i = 0; i < N; i++) {
         const p = c.pts[i];
@@ -665,6 +677,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       }
       for (const s of studs) {
         if (s.of === c) continue;
+        if (!(zOf[ci] < zOf[s.oi])) continue;
         const R = s.r + c.width * 0.95;
         // where this plug is standing RIGHT NOW, aimed along its own cord
         const hx = s.at.x, hy = s.at.y;
