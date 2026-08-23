@@ -484,8 +484,15 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       return false;
     };
     // Do they lie on each other at all — cord on cord, anywhere?
+    //
+    // It takes more to break a contact than to make one. Contact is now looked
+    // at every frame while a cord is in hand, and a cord grazing another right
+    // on the threshold would otherwise flicker in and out of touching — and
+    // every re-entry counts as meeting afresh, which is a decision. A margin
+    // means only actually coming apart counts as coming apart.
     const touch = (c, o) => {
-      const reach = (cables[c].width + cables[o].width) * 0.95;
+      const held = touching.has(c + ":" + o);
+      const reach = (cables[c].width + cables[o].width) * (held ? 1.7 : 0.95);
       for (let i = 0; i < N - 1; i++) {
         const a = cables[c].pts[i], b = cables[c].pts[i + 1];
         for (let j = 0; j <= N - 1; j++) {
@@ -1405,6 +1412,17 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // picked up off it, and drawing it in the fixed order let another cord, or
     // another cord's connector, cover the thing being moved.
     const held = drag ? cables.indexOf(drag.cable) : -1;
+    // While a cord is IN HAND, work the contacts out every frame. Both the
+    // triggers below wait for the hand to be empty, so for the whole of a drag
+    // the record of what was resting on what stood still — and a cord lifted
+    // clear of another and laid back across it still counted as never having
+    // left. It came back down underneath, because as far as this was concerned
+    // it had been under the whole time. Separating them is the whole point of
+    // the gesture, so it has to be noticed as it happens.
+    if (drag) {
+      lastMoved = cables.indexOf(drag.cable);
+      restack();
+    }
     if (restacking > 0 && !drag && --restacking === 0) restack();
     if (!stirred && !drag && !allQuiet) { allQuiet = true; restack(); }
     else if (stirred) allQuiet = false;
