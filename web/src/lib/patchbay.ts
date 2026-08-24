@@ -1616,19 +1616,22 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
             run += Math.hypot(h.x - c.pts[h.i].x, h.y - c.pts[h.i].y);
           }
           anchor = h;
-          spare = Math.max(12 * dpr, c.len * 0.995 - run);
+          spare = c.len * 0.995 - run;
           dx = mouse.x - anchor.x; dy = mouse.y - anchor.y;
+          // Taut on a hook means STOP. It used to slide along the limit
+          // instead: the plug kept orbiting the hook, and going round is
+          // exactly what winds more cord onto it — so the free run between
+          // hook and plug shortened turn by turn until it was a stub sticking
+          // out at a hard angle, and then something had to give.
+          //
+          // Reaching the end of the cord stops the hand where it is. Nothing
+          // is wound on that was not already on, and the hand is free again
+          // the moment it comes back inside what the cord can reach.
+          if (Math.hypot(dx, dy) > spare) return;
         }
         const d2 = Math.hypot(dx, dy) || 1e-6;
         if (d2 > spare) { dx *= spare / d2; dy *= spare / d2; }
         let ex = anchor.x + dx, ey = anchor.y + dy;
-        // Caught, the plug moves at a walk. Where the cord is hooked is worked
-        // out afresh every frame, and on the turn of a wind it flickers between
-        // one hook and none — which moves the anchor, and with it the plug, in
-        // a jump. Measured at 31.7px in a single frame while winding a cord
-        // onto a connector. Nothing is holding a real plug still, but nothing
-        // teleports it either: cap what one frame can move it, and a cord being
-        // wound tighter simply budges less and less.
         {
           const cur = drag.ends[0] === "a" ? c.pts[0] : c.pts[N - 1];
           const mx = ex - cur.x, my = ey - cur.y;
