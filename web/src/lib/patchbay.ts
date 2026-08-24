@@ -614,6 +614,42 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         const al = Math.hypot(adx, ady) || 1;
         const vx = (adx / al) * BARREL, vy = (ady / al) * BARREL;
         const vv = vx * vx + vy * vy || 1;
+        // Where a point has BEEN this frame, not only where it is. A taut cord
+        // pulled hard moves its points further in one pass than a barrel is
+        // wide, and a point that lands clean on the far side of a plug never
+        // measures as inside it: a cord wound round a connector was pulled
+        // straight through it. Sweep each point's path since the frame began
+        // against the barrel; one that crossed it goes back to the side it
+        // came from.
+        if (live && mode !== ASK) {
+          const qx = -vy / BARREL, qy = vx / BARREL;
+          for (let i = 1; i < N - 1; i++) {
+            const p = c.pts[i], q = c.prev[i];
+            const mx = p.x - q.x, my = p.y - q.y;
+            if (mx * mx + my * my < R * R) continue;      // a short move the test below sees
+            // closest approach of the sweep q->p to the barrel axis
+            const wx = q.x - hx, wy = q.y - hy;
+            const mm = mx * mx + my * my, mv = mx * vx + my * vy;
+            const mw = mx * wx + my * wy, vw = vx * wx + vy * wy;
+            const den = mm * vv - mv * mv;
+            let t = den > 1e-9 ? (mv * vw - vv * mw) / den : 0;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            let u = (mv * t + vw) / vv;
+            u = u < 0 ? 0 : u > 1 ? 1 : u;
+            t = mm > 1e-9 ? (mv * u - mw) / mm : 0;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            const cx = q.x + mx * t - (hx + vx * u), cy = q.y + my * t - (hy + vy * u);
+            if (cx * cx + cy * cy >= R * R) continue;
+            const side = (wx * qx + wy * qy) >= 0 ? 1 : -1;   // the side it started on
+            const nx = qx * side, ny = qy * side;
+            const sd = (p.x - hx) * nx + (p.y - hy) * ny;
+            if (sd < R) {
+              p.x += nx * (R - sd); p.y += ny * (R - sd);
+              hit = true;
+              if (mode === SETTLE) { c.hooks.push({ x: hx + vx * u, y: hy + vy * u, i: Math.max(0, i - 1) }); settleAt(c, i, nx, ny); }
+            }
+          }
+        }
         if (Math.min(hx, hx + vx) - R > bx1 || Math.max(hx, hx + vx) + R < bx0) continue;
         if (Math.min(hy, hy + vy) - R > by1 || Math.max(hy, hy + vy) + R < by0) continue;
         let inside = false;
