@@ -669,8 +669,12 @@ export function startPatchBay(
               const t = ((px - p0.x) * ux + (py - p0.y) * uy) / uu;
               const rx = r1.x - r0.x, ry = r1.y - r0.y, rr = rx * rx + ry * ry || 1e-9;
               const tw = ((px - r0.x) * rx + (py - r0.y) * ry) / rr;
-              if (t < 0 || t > 1 || tw < 0 || tw > 1) continue;
-              const ul = Math.sqrt(uu);
+              // out to the round cap at either end of the barrel, not only
+              // the axis itself: a stretch sweeping past the cap with the
+              // axis end just beyond it slipped through
+              const ul = Math.sqrt(uu), rl = Math.sqrt(rr);
+              const m = R / ul, mw = R / rl;
+              if (t < -m || t > 1 + m || tw < -mw || tw > 1 + mw) continue;
               // normal of the stretch pointing toward where the post was
               let nx = -uy / ul, ny = ux / ul;
               if (nx * (px - p0.x) + ny * (py - p0.y) > 0) { nx = -nx; ny = -ny; }
@@ -1773,7 +1777,7 @@ export function startPatchBay(
           // the plug with it, in a single jump. The caps are well above any
           // speed a hand drags at, so they never lag; they are only there so
           // a change of anchor cannot fling the plug across the panel.
-          const STEP = (hooks.length ? 40 : 90) * dpr;
+          const STEP = (hooks.length ? 24 : 90) * dpr;
           if (md > STEP) { ex = cur.x + (mx / md) * STEP; ey = cur.y + (my / md) * STEP; }
         }
         end.x = ex;
