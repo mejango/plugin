@@ -458,10 +458,6 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   let allQuiet = false;
   let stirred = false;
   let touching = new Set();   // which cables are resting on which, last time we looked
-  // Every place one cord crosses another, kept from frame to frame. A crossing
-  // is a THING, not a measurement: it slides along both cords as they move, and
-  // it goes out of existence only by reaching the end of one of them.
-  let knots = new Map();
   let lastMoved = -1;         // whoever was carried, so a fresh contact knows who arrived
   let restack = () => {};
 
@@ -1108,124 +1104,6 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         openTightFolds(c.pts, c.prev, c.kinkLocal, c.foldSide, N, FOLD_COS, c.foldK * 0.6);
     for (const c of awake) offStuds(c, LIFT);
     for (const c of awake) offStuds(c, SETTLE);
-    holdCrossings(awake);
-  }
-
-  /**
-   * A cord underneath another is between the board and that cord. It can slide
-   * along under it as far as it likes, but it cannot get out through it —
-   * board below, cord above, nowhere else to go. So where two cords cross, they
-   * go on crossing. The crossing slides; it does not vanish.
-   *
-   * The one way out is off the end. Both ends of a plugged cord are attached to
-   * the board, so only an end that has been picked up can carry a crossing off
-   * — which is why a wrap comes free by being unwound and by nothing else.
-   *
-   * Nothing here refuses a frame. An earlier attempt did: if the cord ended a
-   * frame having lost a crossing, it was put back. That gives you stuck, and
-   * then it gives you stuck for good — unwinding travels through arrangements
-   * that momentarily drop a crossing while the solver rearranges the cord, so
-   * those were refused too, and a wrapped cord could not move in ANY direction.
-   * 130 frames of pulling it back the way it came and it did not shift a pixel.
-   *
-   * A crossing that is trying to disappear is instead pulled back together. The
-   * cord always moves; it just stays crossed, and the wrap tightens rather than
-   * letting go.
-   */
-  function holdCrossings(awake) {
-    // Only while something is in hand. A wrap comes undone because a hand
-    // pulls it undone — nothing else on a settled panel is trying to get
-    // through anything. Left running at rest it was pulling cords together by
-    // a hair forever, which is motion, and a panel that is always moving is a
-    // panel that never sleeps: 1.7px of drift and four cables awake where
-    // there had been none.
-    if (!drag) { if (knots.size) knots = new Map(); return; }
-    const me = cables.indexOf(drag.cable);
-    if (!awake.length) return;
-    const live = new Set(awake.map((c) => cables.indexOf(c)));
-    const LEAD = 2.5;         // how near an end counts as leaving by it
-    const seen = new Map();
-    // where a point sits now, given which stretch it is on and how far along
-    const at = (c, i, t) => ({
-      x: c.pts[i].x + (c.pts[i + 1].x - c.pts[i].x) * t,
-      y: c.pts[i].y + (c.pts[i + 1].y - c.pts[i].y) * t,
-    });
-    // shove a stretch of cord sideways, sharing it between the two ends by how
-    // near the crossing sits to each, and skipping any end pinned in a jack
-    const nudge = (c, i, t, dx, dy) => {
-      const g0 = i > 0 ? 1 - t : 0, g1 = i < N - 2 ? t : 0;
-      const spread = g0 * g0 + g1 * g1;
-      if (spread < 1e-9) return;
-      if (g0) { c.pts[i].x += (dx * g0) / spread; c.pts[i].y += (dy * g0) / spread; }
-      if (g1) { c.pts[i + 1].x += (dx * g1) / spread; c.pts[i + 1].y += (dy * g1) / spread; }
-    };
-    // is this end of this cable off the board — in a hand, or in flight?
-    const lifted = (ci, endA) => {
-      const c = cables[ci];
-      if (c.move < 1) return true;
-      return !!(drag && drag.cable === c && drag.ends.includes(endA ? "a" : "b"));
-    };
-
-    for (let a = 0; a < cables.length; a++) {
-      for (let b = a + 1; b < cables.length; b++) {
-        if (a !== me && b !== me) continue;      // only the cord being pulled
-        if (!live.has(a) && !live.has(b)) continue;
-        const A = cables[a], B = cables[b];
-        const key = a + ":" + b;
-        const found = [];
-        for (let i = 0; i < N - 1; i++) {
-          const ax = A.pts[i].x, ay = A.pts[i].y;
-          const ux = A.pts[i + 1].x - ax, uy = A.pts[i + 1].y - ay;
-          for (let j = 0; j < N - 1; j++) {
-            const bx = B.pts[j].x, by = B.pts[j].y;
-            const vx = B.pts[j + 1].x - bx, vy = B.pts[j + 1].y - by;
-            const den = ux * vy - uy * vx;
-            if (Math.abs(den) < 1e-12) continue;
-            const t = ((bx - ax) * vy - (by - ay) * vx) / den;
-            const u = ((bx - ax) * uy - (by - ay) * ux) / den;
-            // half open, so a crossing sliding over a corner of the cord
-            // belongs to exactly one stretch and never blinks out
-            if (t >= 0 && t < 1 && u >= 0 && u < 1)
-              found.push({ ia: i, ta: t, ib: j, tb: u });
-          }
-        }
-        const had = knots.get(key) || [];
-        const taken = new Array(found.length).fill(false);
-        const keep = [];
-        for (const old of had) {
-          // the same crossing, a moment later and a little further along
-          let best = -1, near = 3;
-          for (let k = 0; k < found.length; k++) {
-            if (taken[k]) continue;
-            const d = Math.abs(found[k].ia + found[k].ta - old.ia - old.ta)
-                    + Math.abs(found[k].ib + found[k].tb - old.ib - old.tb);
-            if (d < near) { near = d; best = k; }
-          }
-          if (best >= 0) { taken[best] = true; keep.push(found[best]); continue; }
-          // gone. off an end that was picked up, or through the cord?
-          const offA = old.ia + old.ta < LEAD ? lifted(a, true)
-                     : old.ia + old.ta > N - 2 - LEAD ? lifted(a, false) : false;
-          const offB = old.ib + old.tb < LEAD ? lifted(b, true)
-                     : old.ib + old.tb > N - 2 - LEAD ? lifted(b, false) : false;
-          if (offA || offB) continue;                  // carried off by a hand
-          const pa = at(A, old.ia, old.ta), pb = at(B, old.ib, old.tb);
-          const dx = pb.x - pa.x, dy = pb.y - pa.y;
-          const gap = Math.hypot(dx, dy);
-          if (gap > 260 * dpr) continue;               // hopeless; let it go
-          // Pull the two back together where they used to cross. Whichever is
-          // free to move takes the correction; a sleeping cable takes none.
-          const mA = live.has(a) ? 1 : 0, mB = live.has(b) ? 1 : 0;
-          const tot = mA + mB || 1;
-          nudge(A, old.ia, old.ta, (dx * mA) / tot * 0.6, (dy * mA) / tot * 0.6);
-          nudge(B, old.ib, old.tb, (-dx * mB) / tot * 0.6, (-dy * mB) / tot * 0.6);
-          keep.push(old);                              // it still exists
-        }
-        for (let k = 0; k < found.length; k++)
-          if (!taken[k]) keep.push(found[k]);          // newly laid across
-        if (keep.length) seen.set(key, keep);
-      }
-    }
-    knots = seen;
   }
 
   function tint(c, aMul, shade) {
