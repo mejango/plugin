@@ -893,7 +893,22 @@ export function startPatchBay(
       c.foldK = FOLD_RELAX *
         (1 - Math.min(1, Math.max(0, (Math.hypot(bx - ax, by - ay) / c.len - 0.84) / 0.08)));
 
-      for (let iter = 0; iter < 6; iter++) {
+      // The cord in hand is solved in SUBSTEPS: the hand's travel this frame
+      // is split into steps of a few pixels, and the length solve and the
+      // post contact run for each. A plug moved a barrel's width in one go
+      // let the taut cord behind it leap clean across a connector, and no
+      // guard written after the fact caught every way that could happen —
+      // the only sure thing is never to move that far at once.
+      const inHand = drag && drag.cable === c && drag.ends.length === 1;
+      const heldA = inHand && drag.ends[0] === "a";
+      const fromX = heldA ? c.prev[0].x : c.prev[N - 1].x, fromY = heldA ? c.prev[0].y : c.prev[N - 1].y;
+      const travel = inHand ? Math.hypot((heldA ? ax : bx) - fromX, (heldA ? ay : by) - fromY) : 0;
+      const K = inHand ? Math.min(12, Math.max(1, Math.ceil(travel / (8 * dpr)))) : 1;
+      for (let sub = 1; sub <= K; sub++) {
+        const f = sub / K;
+        const sax = heldA ? fromX + (ax - fromX) * f : ax, say = heldA ? fromY + (ay - fromY) * f : ay;
+        const sbx = !heldA && inHand ? fromX + (bx - fromX) * f : bx, sby = !heldA && inHand ? fromY + (by - fromY) * f : by;
+        for (let iter = 0; iter < (K > 1 ? 3 : 6); iter++) {
         // Inside the solver's own loop, not once before it. Swinging a fold open
         // holds the two segments either side of it but moves that neighbour
         // relative to the point BEYOND it, so the two constraints disagree.
@@ -918,12 +933,13 @@ export function startPatchBay(
           if (pFree) { p.x += ox; p.y += oy; }
           if (qFree) { q.x -= ox; q.y -= oy; }
         }
-        c.pts[0].x = ax; c.pts[0].y = ay;
-        c.pts[N - 1].x = bx; c.pts[N - 1].y = by;
+        c.pts[0].x = sax; c.pts[0].y = say;
+        c.pts[N - 1].x = sbx; c.pts[N - 1].y = sby;
         // Lifted clear on every pass, so the length solver has to route the cord
         // around the plug rather than through it; the pass after this one puts
         // the length back.
         offStuds(c, LIFT);
+        }
       }
 
       relaxBendMemory(c.pts, c.prev, c.kinkLocal, Math.min(0.35, c.stiff * 3), BEND_DAMP, N);
@@ -1761,7 +1777,9 @@ export function startPatchBay(
           anchor = last;
           spare = c.len * 0.995 - run;
           dx = mouse.x - anchor.x; dy = mouse.y - anchor.y;
-          if (Math.hypot(dx, dy) > spare) return;
+          // beyond the reach the plug is clamped to it below, and slides
+          // along it toward the hand — it used to freeze until the hand
+          // came back inside, which read as the plug ignoring the mouse
         }
         const d2 = Math.hypot(dx, dy) || 1e-6;
         if (d2 > spare) { dx *= spare / d2; dy *= spare / d2; }
@@ -1777,7 +1795,7 @@ export function startPatchBay(
           // the plug with it, in a single jump. The caps are well above any
           // speed a hand drags at, so they never lag; they are only there so
           // a change of anchor cannot fling the plug across the panel.
-          const STEP = (hooks.length ? 24 : 90) * dpr;
+          const STEP = (hooks.length ? 60 : 90) * dpr;
           if (md > STEP) { ex = cur.x + (mx / md) * STEP; ey = cur.y + (my / md) * STEP; }
         }
         end.x = ex;
