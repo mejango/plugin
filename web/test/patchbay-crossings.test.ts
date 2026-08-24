@@ -104,6 +104,15 @@ describe("crossing life-cycle", () => {
     xs = updateCrossings([A, B], xs, [150, 0], 0);
     expect(xs).toHaveLength(0);
   });
+  it("is lifted clear of a cord by the plug coming out from under it", () => {
+    const A = rope(0, 50, 300, 50, { heldB: true });
+    const B = rope(290, 0, 290, 100);   // over A's last segment
+    let xs = updateCrossings([A, B], [], [0, 0], -1);
+    xs[0].over = 1;                      // B lay across A's plug
+    xs = updateCrossings([A, B], xs, [0, 0], 0);   // then A's plug was picked up
+    expect(xs).toHaveLength(1);
+    expect(xs[0].over).toBe(0);
+  });
   it("annihilates a bight of two same-over crossings, keeps a mixed pair", () => {
     const line = rope(0, 50, 300, 50);
     const u = uRope(100, 200, 0, 90, );          // dips through the line twice

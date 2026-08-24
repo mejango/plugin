@@ -100,6 +100,13 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
   const lost: Crossing[] = [];
   const kept: Crossing[] = [];
   for (const c of crossings) {
+    // A plug pulled out from under a cord lifts clear of it: the stretch out
+    // of the hand is in the air, and nothing on the panel is over it. A
+    // crossing that had this cord under, on that stretch, is over now — it
+    // ends here and is born again on top below, like any other cord the
+    // lifted stretch is laid across.
+    const under = c.over === c.a ? c.b : c.a;
+    if (under === held && liftedSeg(ropes[held], held === c.a ? c.ia : c.ib)) continue;
     let best: Hit | null = null, bd = Infinity;
     for (const h of hits) {
       if (h.claimed || h.a !== c.a || h.b !== c.b) continue;

@@ -394,6 +394,9 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     } catch (_) {}
     saveCables();
     if (!REDUCED) for (let i = 0; i < 240; i++) step(); // pre-settle so it opens draped
+    // Nobody watched the cords fall into place, so nothing that happened on
+    // the way counts. What is crossing what once they lie still is the start.
+    crossings = [];
   }
 
   function saveCables() {
@@ -974,6 +977,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       for (const x of crossings) {
         if (x.over === ci || (x.a !== ci && x.b !== ci)) continue;
         const i = x.a === ci ? x.ia : x.ib, t = x.a === ci ? x.ta : x.tb;
+        if (liftedSeg(ropeOf(c), i)) continue;
         const p = c.pts[i], q = c.pts[i + 1];
         c.hooks.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t, i });
       }
@@ -1509,39 +1513,20 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         let anchor = other, spare = c.len * 0.995;
         const hooks = c.hooks || [];
         if (hooks.length) {
-          // the one nearest the end in your hand, counted along the cord
-          let near = null;
-          for (const k of hooks) {
-            const along = drag.ends[0] === "a" ? k.i : N - 2 - k.i;
-            if (!near || along < near.along) near = { along, k };
-          }
-          const h = near.k;
-          // How much cord is already spent getting from the far plug to the
-          // hook — along the cord itself, not straight across. A cord curves,
-          // so measuring the short way says there is more left than there is,
-          // and the hand is let out too far by exactly the difference.
-          let run = 0;
-          if (drag.ends[0] === "a") {
-            for (let k = h.i + 1; k < N - 1; k++)
-              run += Math.hypot(c.pts[k+1].x - c.pts[k].x, c.pts[k+1].y - c.pts[k].y);
-            run += Math.hypot(h.x - c.pts[h.i + 1].x, h.y - c.pts[h.i + 1].y);
-          } else {
-            for (let k = 0; k < h.i; k++)
-              run += Math.hypot(c.pts[k+1].x - c.pts[k].x, c.pts[k+1].y - c.pts[k].y);
-            run += Math.hypot(h.x - c.pts[h.i].x, h.y - c.pts[h.i].y);
-          }
-          anchor = h;
+          // How far the hand can go is how much cord is left once the run
+          // from the far plug to the last thing the cord is caught on is
+          // pulled TAUT — straight from hook to hook. The slack draped along
+          // that run is not lost, it draws through: a crossing slides along
+          // the cord and a post lets the cord run past it. Measuring the run
+          // along the cord as it lay put every hooked cord at its limit the
+          // moment it was caught, whatever slack it had.
+          const fromA = drag.ends[0] === "a";
+          const chain = [...hooks].sort((p, q) => (fromA ? q.i - p.i : p.i - q.i)); // far end first
+          let run = 0, last = other;
+          for (const k of chain) { run += Math.hypot(k.x - last.x, k.y - last.y); last = k; }
+          anchor = last;
           spare = c.len * 0.995 - run;
           dx = mouse.x - anchor.x; dy = mouse.y - anchor.y;
-          // Taut on a hook means STOP. It used to slide along the limit
-          // instead: the plug kept orbiting the hook, and going round is
-          // exactly what winds more cord onto it — so the free run between
-          // hook and plug shortened turn by turn until it was a stub sticking
-          // out at a hard angle, and then something had to give.
-          //
-          // Reaching the end of the cord stops the hand where it is. Nothing
-          // is wound on that was not already on, and the hand is free again
-          // the moment it comes back inside what the cord can reach.
           if (Math.hypot(dx, dy) > spare) return;
         }
         const d2 = Math.hypot(dx, dy) || 1e-6;
@@ -1623,6 +1608,8 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   });
 
   window.addEventListener("resize", size);
+  // ponytail: a handle for scripted checks; reads live state, drives nothing
+  canvas.__pb = () => ({ cables, crossings, jacks, dpr, N, drag });
   size();
   if (REDUCED) { for (let i = 0; i < 240; i++) step(); }
   draw(); // reduced motion: one settled, draped frame
