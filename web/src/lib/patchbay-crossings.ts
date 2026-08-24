@@ -56,7 +56,7 @@ export function liftedSeg(r: Rope, i: number): boolean {
 }
 
 const nearHeldEnd = (r: Rope, i: number) =>
-  (r.heldA && i <= 1) || (r.heldB && i >= r.pts.length - 3);
+  (r.heldA && r.heldB) || (r.heldA && i <= 1) || (r.heldB && i >= r.pts.length - 3);
 
 function allHits(ropes: Rope[]): Hit[] {
   const hits: Hit[] = [];
