@@ -614,8 +614,12 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
           // a plug pinned in a jack cannot be moved out of the way
           const f0 = i > 0, f1 = i < N - 2;
           if (!f0 && !f1) continue;
-          // The stretch out of a held plug is in the air: nothing on the panel
-          // can stop it. Set down across a post, it lies on top of it.
+          // The stretch out of a held plug is in the air, so a post it comes
+          // to it passes over, and set down across one it lies on top. A post
+          // it is already caught on is another matter: a wrap does not come
+          // off by dragging sideways, whatever height the hand is at — it
+          // slid straight through the plug it was wound round. Only unwinding
+          // frees it.
           const lifted = liftedSeg(rope, i);
           const ux = p1.x - p0.x, uy = p1.y - p0.y;
           const uu = ux * ux + uy * uy;
@@ -629,7 +633,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
             const tc = (ex * vy - ey * vx) / twist;
             const uc = (ex * uy - ey * ux) / twist;
             if (tc > 0 && tc < 1 && uc > 0 && uc < 1) {
-              if (lifted) { if (!live) inside = true; continue; }
+              if (lifted && !live) { inside = true; continue; }
               if (!live) { inside = true; continue; }
               if (mode === ASK) return true;
               const qx = -vy / BARREL, qy = vx / BARREL;
@@ -695,7 +699,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
           let nx = px - qx, ny = py - qy;
           const d = Math.hypot(nx, ny);
           if (d >= R) continue;
-          if (lifted) { if (!live) inside = true; continue; }
+          if (lifted && !live) { inside = true; continue; }
           if (!live) { inside = true; continue; }
           if (mode === ASK) return true;
           // share it along the stretch, so the point nearest where it touches
