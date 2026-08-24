@@ -521,8 +521,10 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     const above = cables.map(() => new Set());
     const owes = cables.map(() => 0);
     const nowTouching = new Set();
-    // what the cable in hand was just laid on top of
+    // what the cable in hand was just laid on top of, and what it is still
+    // lying against from before — which it cannot get past without going round
     const carriedOver = new Set();
+    const restingUnder = new Set();
     const want = (lower, upper) => {
       if (lower === upper || above[lower].has(upper)) return;
       above[lower].add(upper); owes[upper]++;
@@ -539,6 +541,8 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         // flip the cord above the one draped across it and then back again.
         // The order only gets to change when they come apart and meet afresh.
         if (touching.has(key)) {
+          if (c === lastMoved) restingUnder.add(o);
+          else if (o === lastMoved) restingUnder.add(c);
           if ((rank[c] ?? c) < (rank[o] ?? o)) want(c, o); else want(o, c);
           continue;
         }
@@ -588,8 +592,19 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       for (const o of carriedOver) highest = Math.max(highest, placed.indexOf(o));
       const at = placed.indexOf(lastMoved);
       if (at >= 0 && at < highest) {
-        placed.splice(at, 1);
-        placed.splice(highest, 0, lastMoved);
+        // Only as far as it can actually get. This used to lift the carried
+        // cable straight past everything between here and there, and some of
+        // what it passed were cords it was still lying against — which flipped
+        // from over to under while both were plainly still crossing, with
+        // neither end going anywhere near the other. A cord cannot pass
+        // through another cord to get above it. It stops underneath.
+        let limit = highest;
+        for (let k = at + 1; k <= highest; k++)
+          if (restingUnder.has(placed[k])) { limit = k - 1; break; }
+        if (limit > at) {
+          placed.splice(at, 1);
+          placed.splice(limit, 0, lastMoved);
+        }
       }
     }
     stack = placed;
