@@ -794,7 +794,11 @@ export function startPatchBay(
             if (g1) settleAt(c, i + 1, nx, ny);
           }
         }
-        if (!live && !inside && mode === SETTLE) on.add(s.key);
+        // A post a carried cord has come clear of does not turn solid behind
+        // it: in hand, the cord is over everything it is not caught on, until
+        // it is set down. Then whatever it is lying across it is over, and
+        // everything else is solid to it again.
+        if (!live && !inside && mode === SETTLE && !(drag && drag.cable === c)) on.add(s.key);
       }
       return hit;
     };
@@ -1630,6 +1634,38 @@ export function startPatchBay(
     const i = end === "a" ? 0 : N - 1;
     const key = cables.indexOf(c) + end;
     for (const o of cables) if (o.studsOn) o.studsOn.delete(key);
+    // A cord in hand is CARRIED, not slid along the panel. It passes over
+    // every cord and every connector it was not already caught on when it
+    // was picked up, and lands on whatever it is lying across when it is set
+    // down. So at pickup, every post the cord is not actually against stops
+    // being solid for it; only what it is hooked on now can still hold it.
+    if (c.studsOn) {
+      const BARREL = 15 * dpr;
+      cables.forEach((o, oi) => {
+        if (o === c) return;
+        for (const name of ["a", "b"]) {
+          const k = oi + name;
+          if (!c.studsOn.has(k)) continue;
+          const p0 = name === "a" ? o.pts[0] : o.pts[N - 1], p1 = name === "a" ? o.pts[1] : o.pts[N - 2];
+          const al = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
+          const vx = (p1.x - p0.x) / al * BARREL, vy = (p1.y - p0.y) / al * BARREL;
+          const R = o.width * 1.2 + c.width * 0.95;
+          let near = false;
+          for (let j = 0; j < N - 1 && !near; j++) {
+            const a = c.pts[j], b = c.pts[j + 1];
+            // closest approach of the cord's stretch to the barrel axis
+            const ux = b.x - a.x, uy = b.y - a.y, wx = a.x - p0.x, wy = a.y - p0.y;
+            const uu = ux * ux + uy * uy, vv = vx * vx + vy * vy, uv = ux * vx + uy * vy, uw = ux * wx + uy * wy, vw = vx * wx + vy * wy;
+            const den = uu * vv - uv * uv;
+            let t = den > 1e-9 ? (uv * vw - vv * uw) / den : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
+            let u = vv > 1e-9 ? (uv * t + vw) / vv : 0; u = u < 0 ? 0 : u > 1 ? 1 : u;
+            t = uu > 1e-9 ? (uv * u - uw) / uu : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
+            near = Math.hypot(a.x + ux * t - (p0.x + vx * u), a.y + uy * t - (p0.y + vy * u)) < R * 1.4;
+          }
+          if (!near) c.studsOn.delete(k);
+        }
+      });
+    }
     const point = { x: c.pts[i].x, y: c.pts[i].y, free: true };
     if (end === "a") { c.a = point; c.na = point; } else { c.b = point; c.nb = point; }
     c.move = 1;
