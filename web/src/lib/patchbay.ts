@@ -126,7 +126,12 @@ export function openTightFolds(pts, prev, kink, side, n, minCos, relax) {
 
 // ponytail: patch bay with verlet-rope cables — real gravity, drape, swing, and
 // settle. Grab a plug and the cord carries its own weight to the next jack.
-export function startPatchBay(canvas: HTMLCanvasElement): () => void {
+export function startPatchBay(
+  canvas: HTMLCanvasElement,
+  // `cables`: how many to deal. `bare`: jacks only — no traces, labels or
+  // glyphs — a blank board to watch two cords on.
+  opts: { cables?: number; bare?: boolean } = {},
+): () => void {
   const ctx = canvas.getContext("2d");
   const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const N = 16;                       // rope points per cable
@@ -190,6 +195,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       }
     }
     const rows = Math.floor(h / gap);
+    if (!opts.bare) {
 
     // signal-flow chains, centered in the bands between jack rows
     function arrowHead(x, y, angle) {
@@ -323,6 +329,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       if (kind === 3) arrowHead(gx + 4 * u, gy, 0);
     }
 
+    }
     const COLORS = [
       { rgb: [40, 40, 40], a: 0.30 },      // ink
       { rgb: [214, 48, 49], a: 0.48 },     // red
@@ -334,7 +341,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       { rgb: [41, 128, 185], a: 0.46 },    // blue
     ];
     cables = [];
-    const cableCount = Math.min(11, Math.floor(jacks.length / 4)); // leave room to play
+    const cableCount = Math.min(opts.cables ?? 11, Math.floor(jacks.length / 4)); // leave room to play
     for (let i = 0; i < cableCount; i++) {
       const [a, b] = pickPair();
       if (!a || !b) break;

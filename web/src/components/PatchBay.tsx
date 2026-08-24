@@ -11,14 +11,14 @@ import { startPatchBay } from "@/lib/patchbay";
  * `scrim` lays a translucent sheet between the bay and the page content — used on
  * form pages, where the cords are atmosphere rather than a toy.
  */
-export function PatchBay({ scrim = false }: { scrim?: boolean }) {
+export function PatchBay({ scrim = false, cables, bare }: { scrim?: boolean; cables?: number; bare?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    return startPatchBay(canvas);
-  }, []);
+    return startPatchBay(canvas, { cables, bare });
+  }, [cables, bare]);
 
   return (
     <>
