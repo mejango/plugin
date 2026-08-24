@@ -1398,15 +1398,22 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // it; wherever two cords cross, a disc of the one on top is painted back
     // over the other. Last, what is in the air: the stretch of cord out of a
     // held plug, and the plug itself.
-    // A stretch of cord painted back over the pile, inside a disc. It is the
-    // WHOLE cord drawn again and clipped, not a slice of it: the braid and the
+    // A stretch of cord painted back over the pile, inside a disc — or, given
+    // a second point, inside a capsule from one to the other. It is the WHOLE
+    // cord drawn again and clipped, not a slice of it: the braid and the
     // sheen are dashes phased along the drawn curve, and a slice starts its
     // curve somewhere else, so its pattern came out a step off the cord's own
     // at the edge of the disc.
-    const patch = (ci, x, y, r) => {
+    const patch = (ci, x, y, r, x2, y2) => {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(x, y, r, 0, 7);
+      if (x2 === undefined) ctx.arc(x, y, r, 0, 7);
+      else {
+        const a = Math.atan2(y2 - y, x2 - x);
+        ctx.arc(x, y, r, a + Math.PI / 2, a - Math.PI / 2);
+        ctx.arc(x2, y2, r, a - Math.PI / 2, a + Math.PI / 2);
+        ctx.closePath();
+      }
       ctx.clip();
       cordOf(ci, ci === held && grabbedA);
       ctx.restore();
@@ -1447,6 +1454,11 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       const i = x.over === x.a ? x.ia : x.ib, t = x.over === x.a ? x.ta : x.tb;
       const j = x.over === x.a ? x.ib : x.ia;
       const p = c.pts[i], q = c.pts[i + 1];
+      // A touch is two cords lying along each other: the whole of this
+      // segment is on top, so the whole of it is painted back — a disc at the
+      // nearest point left the deal order showing between one disc and the
+      // next along a run.
+      if (!x.linked) { patch(x.over, p.x, p.y, c.width * 1.2, q.x, q.y); continue; }
       // Two cords crossing overlap along a lens, and the shallower the angle
       // the longer it is: a disc that covers a square crossing leaves the ends
       // of a slanting one showing the other cord's edge over this one. Size
