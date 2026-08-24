@@ -29,7 +29,7 @@ import { type Crossing, type Rope, liftedSeg, segHit, solveCrossings, updateCros
 
 // Bumped on every change to the engine, and shown on the bench, so nobody is
 // ever looking at a stale build while judging it.
-export const PATCHBAY_VERSION = "v1";
+export const PATCHBAY_VERSION = "v2";
 
 export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   for (let i = 1; i < n - 1; i++) {
@@ -640,6 +640,7 @@ export function startPatchBay(
         // as "riding the plug", and it let a cord wound round a connector
         // snap free the moment it crossed the cord coming out of it.
         const live = on.has(s.key) || pinned.has(ci + ":" + s.oi);
+        let hitHere = false;
         const R = s.r + c.width * 0.95;
         // where this plug is standing RIGHT NOW, aimed along its own cord
         const hx = s.at.x, hy = s.at.y;
@@ -682,7 +683,7 @@ export function startPatchBay(
               // normal of the stretch pointing toward where the post was
               let nx = -uy / ul, ny = ux / ul;
               if (nx * (px - p0.x) + ny * (py - p0.y) > 0) { nx = -nx; ny = -ny; }
-              hit = true;
+              hit = hitHere = true;
               for (const [pt, free] of [[p0, f0], [p1, f1]]) {
                 if (!free) continue;
                 const sd = (pt.x - px) * nx + (pt.y - py) * ny;
@@ -714,7 +715,7 @@ export function startPatchBay(
             const sd = (p.x - hx) * nx + (p.y - hy) * ny;
             if (sd < R) {
               p.x += nx * (R - sd); p.y += ny * (R - sd);
-              hit = true;
+              hit = hitHere = true;
               if (mode === SETTLE) { c.hooks.push({ x: hx + vx * u, y: hy + vy * u, i: Math.max(0, i - 1) }); settleAt(c, i, nx, ny); }
             }
           }
@@ -775,7 +776,7 @@ export function startPatchBay(
               // half, frame after frame, however many times it was corrected.
               // Two straight pieces cross at most once, so with both ends the
               // same side of the barrel there is no crossing left to have.
-              hit = true;
+              hit = hitHere = true;
               if (mode === SETTLE) c.hooks.push({ x: hx, y: hy, i });
               if (f0) {
                 const sd = (p0.x - hx) * nx + (p0.y - hy) * ny;
@@ -820,7 +821,7 @@ export function startPatchBay(
           const g0 = f0 ? 1 - t : 0, g1 = f1 ? t : 0;
           const spread = g0 * g0 + g1 * g1;
           if (spread < 1e-9) continue;
-          hit = true;
+          hit = hitHere = true;
           if (d < 1e-6) { nx = -vy / BARREL; ny = vx / BARREL; }
           else { nx /= d; ny /= d; }
           const corr = (R - d) / spread;
@@ -837,6 +838,14 @@ export function startPatchBay(
         // it is set down. Then whatever it is lying across it is over, and
         // everything else is solid to it again.
         if (!live && !inside && mode === SETTLE && !(drag && drag.cable === c)) on.add(s.key);
+        // Caught is STICKY. A post that has actually stopped this cord stays
+        // solid to it until the cord is unwound, whatever made it solid to
+        // begin with. Being pinned under another cord is worked out afresh
+        // each frame from the crossing — and a cord wound round the tip of
+        // that cord's plug no longer crosses the cord at all, so the pin
+        // vanished and the cord fell straight through the post it was wound
+        // on.
+        if (live && hitHere && mode === SETTLE) on.add(s.key);
       }
       return hit;
     };
