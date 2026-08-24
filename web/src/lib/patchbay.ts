@@ -975,7 +975,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       const ci = cables.indexOf(c);
       if (!c.hooks) c.hooks = [];
       for (const x of crossings) {
-        if (x.over === ci || (x.a !== ci && x.b !== ci)) continue;
+        if (!x.linked || x.over === ci || (x.a !== ci && x.b !== ci)) continue;
         const i = x.a === ci ? x.ia : x.ib, t = x.a === ci ? x.ta : x.tb;
         if (liftedSeg(ropeOf(c), i)) continue;
         const p = c.pts[i], q = c.pts[i + 1];
@@ -1448,7 +1448,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     }
     // in the air: the stretch out of every held or flying plug, then the plug
     cables.forEach((c, i) => {
-      for (const [name, e, i0, i1] of [["a", ends[i][0], 0, 2], ["b", ends[i][1], N - 3, N - 1]]) {
+      for (const [name, e, i0, i1] of [["a", ends[i][0], 0, 1], ["b", ends[i][1], N - 2, N - 1]]) {
         if (!heldEnd(c, name)) continue;
         ctx.save();
         ctx.beginPath();

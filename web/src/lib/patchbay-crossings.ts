@@ -23,9 +23,28 @@ export type Crossing = {
   ia: number; ta: number;      // segment and fraction along rope a
   ib: number; tb: number;      // and along rope b
   over: number;                // which rope index is on top — set at birth, final
+  linked: boolean;             // the cords actually cross here (a ring holds them);
+                               // false is a touch — lying along each other
 };
 
-type Hit = { a: number; b: number; ia: number; ib: number; t: number; u: number; claimed: boolean };
+type Hit = { a: number; b: number; ia: number; ib: number; t: number; u: number; linked: boolean; dist: number; claimed: boolean };
+
+/** Closest approach of two segments, as fractions along each and the distance. */
+function segNear(p0: Pt, p1: Pt, q0: Pt, q1: Pt): { t: number; u: number; d: number } {
+  const ux = p1.x - p0.x, uy = p1.y - p0.y, vx = q1.x - q0.x, vy = q1.y - q0.y;
+  const wx = p0.x - q0.x, wy = p0.y - q0.y;
+  const uu = ux * ux + uy * uy, vv = vx * vx + vy * vy, uv = ux * vx + uy * vy;
+  const uw = ux * wx + uy * wy, vw = vx * wx + vy * wy;
+  const den = uu * vv - uv * uv;
+  let t = den > 1e-9 ? (uv * vw - vv * uw) / den : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  let u = vv > 1e-9 ? (uv * t + vw) / vv : 0;
+  u = u < 0 ? 0 : u > 1 ? 1 : u;
+  t = uu > 1e-9 ? (uv * u - uw) / uu : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const dx = p0.x + ux * t - (q0.x + vx * u), dy = p0.y + uy * t - (q0.y + vy * u);
+  return { t, u, d: Math.hypot(dx, dy) };
+}
 
 /** Where segment p0→p1 crosses q0→q1, as fractions along each, or null. */
 export function segHit(p0: Pt, p1: Pt, q0: Pt, q1: Pt): { t: number; u: number } | null {
@@ -70,18 +89,25 @@ function allHits(ropes: Rope[]): Hit[] {
   });
   for (let a = 0; a < ropes.length; a++) {
     for (let b = a + 1; b < ropes.length; b++) {
-      const A = box[a], B = box[b];
-      if (A.x1 < B.x0 || B.x1 < A.x0 || A.y1 < B.y0 || B.y1 < A.y0) continue;
+      // Touching is lying within a cord's width of each other. Found out to a
+      // little further than that, so a touch already known is not lost the
+      // moment they ease apart by a hair; only a new one needs them close.
+      const touch = (ropes[a].width + ropes[b].width) / 2;
+      const A = box[a], B = box[b], pad = touch * 1.5;
+      if (A.x1 + pad < B.x0 || B.x1 + pad < A.x0 || A.y1 + pad < B.y0 || B.y1 + pad < A.y0) continue;
       const P = ropes[a].pts, Q = ropes[b].pts;
       for (let i = 0; i < P.length - 1; i++) {
         for (let j = 0; j < Q.length - 1; j++) {
           const h = segHit(P[i], P[i + 1], Q[j], Q[j + 1]);
-          if (h) hits.push({ a, b, ia: i, ib: j, t: h.t, u: h.u, claimed: false });
+          if (h) { hits.push({ a, b, ia: i, ib: j, t: h.t, u: h.u, linked: true, dist: 0, claimed: false }); continue; }
+          const n = segNear(P[i], P[i + 1], Q[j], Q[j + 1]);
+          if (n.d < touch * 1.5) hits.push({ a, b, ia: i, ib: j, t: n.t, u: n.u, linked: false, dist: n.d / touch, claimed: false });
         }
       }
     }
   }
-  return hits;
+  // crossings first: the touches either side of one are part of it
+  return hits.sort((p, q) => Number(q.linked) - Number(p.linked));
 }
 
 /**
@@ -96,9 +122,16 @@ function allHits(ropes: Rope[]): Hit[] {
  */
 export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: number[], held: number): Crossing[] {
   const hits = allHits(ropes);
-  const REACH = 3;                      // segments either way to look for it
   const lost: Crossing[] = [];
   const kept: Crossing[] = [];
+  // How far along either cord to look for a crossing that has moved: a hand
+  // moves a plug sixty pixels a frame, and a short cord's segments are a
+  // quarter of that.
+  const segLen = (r: Rope) => {
+    const p = r.pts[0], q = r.pts[r.pts.length - 1];
+    return Math.max(1, Math.hypot(q.x - p.x, q.y - p.y) / (r.pts.length - 1));
+  };
+  const reachOf = (r: Rope) => Math.max(3, Math.ceil(90 / segLen(r)));
   for (const c of crossings) {
     // A plug pulled out from under a cord lifts clear of it: the stretch out
     // of the hand is in the air, and nothing on the panel is over it. A
@@ -107,18 +140,31 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
     // lifted stretch is laid across.
     const under = c.over === c.a ? c.b : c.a;
     if (under === held && liftedSeg(ropes[held], held === c.a ? c.ia : c.ib)) continue;
+    const ra = reachOf(ropes[c.a]), rb = reachOf(ropes[c.b]);
+    // A crossing looks for where the cords cross; only failing that, for where
+    // they touch. Taking the nearest of either let a crossing settle on a
+    // touch beside the real intersection, which was then born again as a
+    // second crossing of its own.
     let best: Hit | null = null, bd = Infinity;
-    for (const h of hits) {
-      if (h.claimed || h.a !== c.a || h.b !== c.b) continue;
-      if (Math.abs(h.ia - c.ia) > REACH || Math.abs(h.ib - c.ib) > REACH) continue;
-      const d = Math.abs(h.ia + h.t - (c.ia + c.ta)) + Math.abs(h.ib + h.u - (c.ib + c.tb));
-      if (d < bd) { bd = d; best = h; }
+    for (const wantLinked of c.linked ? [true, false] : [false, true]) {
+      for (const h of hits) {
+        if (h.claimed || h.a !== c.a || h.b !== c.b || h.linked !== wantLinked) continue;
+        if (Math.abs(h.ia - c.ia) > ra || Math.abs(h.ib - c.ib) > rb) continue;
+        const d = Math.abs(h.ia + h.t - (c.ia + c.ta)) + Math.abs(h.ib + h.u - (c.ib + c.tb));
+        if (d < bd) { bd = d; best = h; }
+      }
+      if (best) break;
     }
     if (best) {
       best.claimed = true;
       c.ia = best.ia; c.ta = best.t; c.ib = best.ib; c.tb = best.u;
+      // Once two cords cross they are crossed until something physical ends
+      // it; easing apart by a hair is still a crossing, and the ring pulls it
+      // closed. A touch that comes to cross, though, is a crossing from now on.
+      if (best.linked) c.linked = true;
       kept.push(c);
-    } else lost.push(c);
+    } else if (c.linked) lost.push(c);
+    // a touch that is no longer touching has simply come apart — nothing held it
   }
 
   // Gone: off an end that a hand is holding. The plug is lifted clear.
@@ -150,13 +196,21 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
   // its last known place on both cords, and the ring pulls them back together.
   for (const c of lost) if (!dead.has(c)) kept.push(c);
 
-  // Born: whichever cord came to the other is on top.
+  // Born: whichever cord came to the other is on top — unless this is more
+  // of a contact already there. A cord lying along another does not change
+  // which is on top partway down the run, and the stretch either side of a
+  // crossing is the crossing, not a contact of its own.
+  const adjacent = (h: Hit) => kept.find((o) => o.a === h.a && o.b === h.b &&
+    Math.abs(o.ia - h.ia) <= 1 && Math.abs(o.ib - h.ib) <= 1);
   for (const h of hits) {
-    if (h.claimed) continue;
+    if (h.claimed || h.dist >= 1) continue;
+    const near = adjacent(h);
+    if (near && !h.linked && near.linked) continue;
     let over: number;
-    if (held === h.a || held === h.b) over = held;
+    if (near) over = near.over;
+    else if (held === h.a || held === h.b) over = held;
     else over = moved[h.a] >= moved[h.b] ? h.a : h.b;
-    kept.push({ a: h.a, b: h.b, ia: h.ia, ta: h.t, ib: h.ib, tb: h.u, over });
+    kept.push({ a: h.a, b: h.b, ia: h.ia, ta: h.t, ib: h.ib, tb: h.u, over, linked: h.linked });
   }
   return kept;
 }
@@ -175,6 +229,7 @@ export function solveCrossings(ropes: Rope[], crossings: Crossing[], passes: num
   const moved = ropes.map(() => false);
   for (let pass = 0; pass < passes; pass++) {
     for (const c of crossings) {
+      if (!c.linked) continue;          // a touch holds nothing
       const A = ropes[c.a], B = ropes[c.b];
       const a0 = A.pts[c.ia], a1 = A.pts[c.ia + 1];
       const b0 = B.pts[c.ib], b1 = B.pts[c.ib + 1];

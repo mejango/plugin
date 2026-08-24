@@ -132,6 +132,29 @@ describe("crossing life-cycle", () => {
   });
 });
 
+describe("touches", () => {
+  it("two cords lying along each other are ordered, mover on top, and come apart freely", () => {
+    const A = rope(0, 50, 300, 50), B = rope(0, 56, 300, 56);   // 6px apart, width 8
+    let xs = updateCrossings([A, B], [], [0, 3], -1);
+    expect(xs.length).toBeGreaterThan(0);
+    expect(xs.every((x) => !x.linked && x.over === 1)).toBe(true);
+    const n = xs.length;
+    shift(B, 0, 4);                      // 10px: past touching, within the margin — still known
+    xs = updateCrossings([A, B], xs, [0, 4], -1);
+    expect(xs).toHaveLength(n);
+    shift(B, 0, 40);                     // clean apart: gone, no ring held them
+    xs = updateCrossings([A, B], xs, [0, 40], -1);
+    expect(xs).toHaveLength(0);
+  });
+  it("a touch holds nothing in the solver", () => {
+    const A = rope(0, 50, 300, 50), B = rope(0, 56, 300, 56);
+    const xs = updateCrossings([A, B], [], [0, 3], -1);
+    const before = JSON.stringify([A.pts, B.pts]);
+    solveCrossings([A, B], xs, 3);
+    expect(JSON.stringify([A.pts, B.pts])).toBe(before);
+  });
+});
+
 describe("solveCrossings", () => {
   const apart = (xs: Crossing[], ropes: Rope[]) => {
     const c = xs[0];
@@ -145,8 +168,8 @@ describe("solveCrossings", () => {
   it("pulls a kept crossing back to within half a width, moving prev with pts", () => {
     const A = rope(0, 50, 300, 50), B = rope(150, 0, 150, 100);
     let xs = updateCrossings([A, B], [], [0, 5], -1);
-    shift(B, 0, 30);
-    xs = updateCrossings([A, B], xs, [0, 30], -1);
+    shift(B, 0, 80);            // B now hangs entirely below A
+    xs = updateCrossings([A, B], xs, [0, 80], -1);
     expect(apart(xs, [A, B])).toBeGreaterThan(20);
     const moved = solveCrossings([A, B], xs, 4);
     expect(apart(xs, [A, B])).toBeLessThanOrEqual(A.width / 2 + 0.5);
@@ -156,14 +179,14 @@ describe("solveCrossings", () => {
       expect(r.pts[i].y - r.prev[i].y).toBeCloseTo(0);
     }
     // pinned ends never move
-    expect(B.pts[0].y).toBe(30); expect(B.pts[N - 1].y).toBe(130);
+    expect(B.pts[0].y).toBe(80); expect(B.pts[N - 1].y).toBe(180);
     expect(A.pts[0].y).toBe(50); expect(A.pts[N - 1].y).toBe(50);
   });
   it("leaves the first segment out of a held end alone — the hand wins", () => {
     const A = rope(0, 50, 300, 50, { heldA: true });
     const B = rope(10, 100, 10, 200);                 // well below A's first segment
     // a crossing pinned on A's lifted first segment, by hand
-    const xs: Crossing[] = [{ a: 0, b: 1, ia: 0, ta: 0.5, ib: 7, tb: 0.5, over: 0 }];
+    const xs: Crossing[] = [{ a: 0, b: 1, ia: 0, ta: 0.5, ib: 7, tb: 0.5, over: 0, linked: true }];
     const a1 = { ...A.pts[1] };
     solveCrossings([A, B], xs, 4);
     expect(A.pts[1]).toEqual(a1);

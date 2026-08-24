@@ -129,3 +129,16 @@ driven by the hand-rolled loop pattern already in `web/test/`.
 ## Out of scope
 
 True 2.5D height simulation (approach B); only if A proves insufficient.
+
+## Amendment (2026-08-24): touches
+
+Two cords can lie *along* each other without ever intersecting (adjacent jacks,
+parallel runs). With no crossing object, their order fell back to deal order and
+flipped when one was picked up and set down. So a **touch** — two segments within
+a cord's width — is the same object as a crossing with `linked: false`: born with
+the mover on top, tracked, drawn as a patch, but held by no ring and dying freely
+when the cords come apart (hysteresis: found out to 1.5 widths, born under 1).
+A contact born adjacent to an existing contact of the same pair inherits its side
+— a cord does not switch sides partway down a run — and a touch beside a crossing
+is that crossing, not a contact of its own. Once linked, always linked until a
+physical death. Only the lifted segment itself is drawn in the air.
