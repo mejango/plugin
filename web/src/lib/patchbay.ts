@@ -393,6 +393,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       }
     } catch (_) {}
     saveCables();
+    dealing();
     if (!REDUCED) for (let i = 0; i < 240; i++) step(); // pre-settle so it opens draped
     dealt();
   }
@@ -441,6 +442,15 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   // to rest beside a plug where it can — but one still lying across a barrel
   // once everything is still is lying OVER it, not wound on it, and what is
   // crossing what by then is the start.
+  const dealing = () => {
+    // every post solid from the first frame, so a cord dealt straight through
+    // a hole with a plug in it is shoved aside like any other — it is not
+    // "lying over" a plug it has never been laid on
+    for (const c of cables) {
+      c.studsOn = new Set();
+      cables.forEach((o, oi) => { if (o !== c) { c.studsOn.add(oi + "a"); c.studsOn.add(oi + "b"); } });
+    }
+  };
   const dealt = () => {
     crossings = [];
     for (const c of cables) c.studsOn = new Set();
@@ -1722,7 +1732,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   // ponytail: a handle for scripted checks; reads live state, drives nothing
   canvas.__pb = () => ({ cables, crossings, jacks, dpr, N, drag });
   size();
-  if (REDUCED) { for (let i = 0; i < 240; i++) step(); dealt(); }
+  if (REDUCED) { dealing(); for (let i = 0; i < 240; i++) step(); dealt(); }
   draw(); // reduced motion: one settled, draped frame
 
   return () => {
