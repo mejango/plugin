@@ -25,7 +25,7 @@
  * velocity; `bendDamp` then bleeds what is left along the bend normal only,
  * leaving drape and swing — which live in the tangential component — untouched.
  */
-import { type Crossing, type Rope, liftedSeg, solveCrossings, updateCrossings } from "./patchbay-crossings";
+import { type Crossing, type Rope, liftedSeg, segHit, solveCrossings, updateCrossings } from "./patchbay-crossings";
 
 export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   for (let i = 1; i < n - 1; i++) {
@@ -1498,40 +1498,29 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // another cord's connector, cover the thing being moved.
     const held = drag ? cables.indexOf(drag.cable) : -1;
     const grabbedA = held >= 0 && drag.ends.includes("a");
-    // A cord's place in the pile is decided crossing by crossing, not cable by
-    // cable — one cord can lie over another here and under it there, as they do
-    // in a real bay. So: every cord in the order it was dealt, every seated
-    // connector, and then the pile is corrected where it matters. Wherever a
-    // cord lies across a connector, that stretch of cord is painted back over
-    // it; wherever two cords cross, a disc of the one on top is painted back
-    // over the other. Last, what is in the air: the stretch of cord out of a
-    // held plug, and the plug itself.
-    // A stretch of cord painted back over the pile, inside a disc — or, given
-    // a second point, inside a capsule from one to the other. It is the WHOLE
-    // cord drawn again and clipped, not a slice of it: the braid and the
-    // sheen are dashes phased along the drawn curve, and a slice starts its
-    // curve somewhere else, so its pattern came out a step off the cord's own
-    // at the edge of the disc.
-    const patch = (ci, x, y, r, x2, y2) => {
-      ctx.save();
-      ctx.beginPath();
-      if (x2 === undefined) ctx.arc(x, y, r, 0, 7);
-      else {
-        const a = Math.atan2(y2 - y, x2 - x);
-        ctx.arc(x, y, r, a + Math.PI / 2, a - Math.PI / 2);
-        ctx.arc(x2, y2, r, a - Math.PI / 2, a + Math.PI / 2);
-        ctx.closePath();
-      }
-      ctx.clip();
-      cordOf(ci, ci === held && grabbedA);
-      ctx.restore();
-    };
-    cables.forEach((c, i) => cordOf(i, i === held && grabbedA));
-    cables.forEach((c, i) => {
-      if (!heldEnd(c, "a")) drawPlug(c, ends[i][0].p0, ends[i][0].p1, ends[i][0].expose);
-      if (!heldEnd(c, "b")) drawPlug(c, ends[i][1].p0, ends[i][1].p1, ends[i][1].expose);
-    });
-    // cords lying across a seated connector: the plug went into the hole under them
+    // What is on top of what, worked out ONCE for the whole panel and then
+    // painted bottom to top. Every stretch of cord between two of its points
+    // and every seated connector is a thing with a depth. Each crossing says
+    // one stretch is above another; a cord riding a connector says that
+    // stretch is above the connector; a cord's later strand is above its
+    // earlier one where it crosses itself. Relax those until they all hold,
+    // and paint in that order.
+    //
+    // The pile used to be painted whole and then corrected with a disc
+    // repainted over each crossing. Wherever two discs overlapped the LATER
+    // one won, whatever was actually on top, so a cord could show over and
+    // under another within an inch, or appear to pass through it. There is
+    // no order of discs that is right for every panel; there is only depth.
+    const SEG = N - 1;
+    const segId = (ci, k) => ci * SEG + k;
+    const plugId = (ci, name) => cables.length * SEG + ci * 2 + (name === "a" ? 0 : 1);
+    const depth = new Array(cables.length * SEG + cables.length * 2).fill(0);
+    for (let ci = 0; ci < cables.length; ci++) { depth[plugId(ci, "a")] = 1; depth[plugId(ci, "b")] = 1; }
+    const above = [];                 // [hi, lo]: hi is painted after lo
+    for (const x of crossings) {
+      const under = x.over === x.a ? x.b : x.a;
+      above.push([segId(x.over, x.over === x.a ? x.ia : x.ib), segId(under, under === x.a ? x.ia : x.ib)]);
+    }
     const BARREL = 15 * dpr;
     cables.forEach((o, oi) => {
       for (const name of ["a", "b"]) {
@@ -1541,44 +1530,71 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         const ux = (p1.x - p0.x) / al, uy = (p1.y - p0.y) / al;
         const cx = p0.x + ux * BARREL * 0.9, cy = p0.y + uy * BARREL * 0.9;
         const key = oi + name;
-        cables.forEach((c) => {
+        cables.forEach((c, ci) => {
           if (c === o || (c.studsOn && c.studsOn.has(key))) return;
-          const reach = o.width * 1.2 + c.width;
-          for (let i = 0; i < N - 1; i++) {
-            const a = c.pts[i], b = c.pts[i + 1];
+          const reach = o.width * 1.2 + c.width + BARREL;
+          for (let k = 0; k < SEG; k++) {
+            const a = c.pts[k], b = c.pts[k + 1];
             const dx = b.x - a.x, dy = b.y - a.y;
             const l2 = dx * dx + dy * dy || 1e-9;
             const t = Math.max(0, Math.min(1, ((cx - a.x) * dx + (cy - a.y) * dy) / l2));
-            if (Math.hypot(cx - (a.x + dx * t), cy - (a.y + dy * t)) < reach + BARREL) {
-              patch(cables.indexOf(c), cx, cy, BARREL * 1.4 + c.width);
-              return;
-            }
+            if (Math.hypot(cx - (a.x + dx * t), cy - (a.y + dy * t)) < reach) above.push([segId(ci, k), plugId(oi, name)]);
           }
         });
       }
     });
-    for (const x of crossings) {
-      const c = cables[x.over], u = cables[x.over === x.a ? x.b : x.a];
-      const i = x.over === x.a ? x.ia : x.ib, t = x.over === x.a ? x.ta : x.tb;
-      const j = x.over === x.a ? x.ib : x.ia;
-      const p = c.pts[i], q = c.pts[i + 1];
-      // A touch is two cords lying along each other: the whole of this
-      // segment is on top, so the whole of it is painted back — a disc at the
-      // nearest point left the deal order showing between one disc and the
-      // next along a run.
-      if (!x.linked) { patch(x.over, p.x, p.y, c.width * 1.2, q.x, q.y); continue; }
-      // Two cords crossing overlap along a lens, and the shallower the angle
-      // the longer it is: a disc that covers a square crossing leaves the ends
-      // of a slanting one showing the other cord's edge over this one. Size
-      // the disc to the angle — half a cord across the lens, plus its edge.
-      const ux = q.x - p.x, uy = q.y - p.y, vx = u.pts[j + 1].x - u.pts[j].x, vy = u.pts[j + 1].y - u.pts[j].y;
-      const sin = Math.abs(ux * vy - uy * vx) / ((Math.hypot(ux, uy) || 1) * (Math.hypot(vx, vy) || 1));
-      const r = Math.min(c.width * 6, c.width * (1.1 / Math.max(sin, 0.2) + 1.2));
-      patch(x.over, p.x + ux * t, p.y + uy * t, r);
+    cables.forEach((c, ci) => {
+      for (let k = 0; k < SEG; k++)
+        for (let l = k + 2; l < SEG; l++)
+          if (segHit(c.pts[k], c.pts[k + 1], c.pts[l], c.pts[l + 1])) above.push([segId(ci, l), segId(ci, k)]);
+    });
+    for (let round = 0; round < 12; round++) {
+      let changed = false;
+      for (const [hi, lo] of above) if (depth[hi] <= depth[lo]) { depth[hi] = depth[lo] + 1; changed = true; }
+      if (!changed) break;             // a knot of three that cannot all hold stops here
     }
-    // in the air: every held or flying plug. Only the plug — the cord out of
-    // it lies where its crossings say, and a stretch still pinned under
-    // another cord stays under it until the hand draws it out.
+    // paint: runs of a cord at one depth, and connectors, from the bottom up
+    const items = [];
+    cables.forEach((c, ci) => {
+      let from = 0;
+      for (let k = 1; k <= SEG; k++) {
+        if (k === SEG || depth[segId(ci, k)] !== depth[segId(ci, from)]) {
+          items.push({ d: depth[segId(ci, from)], ci, from, to: k - 1 });
+          from = k;
+        }
+      }
+      for (const name of ["a", "b"]) {
+        if (heldEnd(c, name)) continue;
+        items.push({ d: depth[plugId(ci, name)], ci, plug: name });
+      }
+    });
+    items.sort((p, q) => p.d - q.d || p.ci - q.ci);
+    for (const it of items) {
+      const c = cables[it.ci];
+      if (it.plug) {
+        const e = ends[it.ci][it.plug === "a" ? 0 : 1];
+        drawPlug(c, e.p0, e.p1, e.expose);
+        continue;
+      }
+      // this run of the cord, and no other part of it: the whole cord drawn
+      // and clipped to the capsules of its stretches, so the braid keeps its
+      // phase and the curve its shape
+      ctx.save();
+      ctx.beginPath();
+      const r = c.width * 1.15;
+      for (let k = it.from; k <= it.to; k++) {
+        const p = c.pts[k], q = c.pts[k + 1];
+        const a = Math.atan2(q.y - p.y, q.x - p.x);
+        ctx.moveTo(p.x + Math.cos(a + Math.PI / 2) * r, p.y + Math.sin(a + Math.PI / 2) * r);
+        ctx.arc(p.x, p.y, r, a + Math.PI / 2, a - Math.PI / 2);
+        ctx.arc(q.x, q.y, r, a - Math.PI / 2, a + Math.PI / 2);
+        ctx.closePath();
+      }
+      ctx.clip();
+      cordOf(it.ci, it.ci === held && grabbedA);
+      ctx.restore();
+    }
+    // in the air: every held or flying plug, above everything
     cables.forEach((c, i) => {
       for (const [name, e] of [["a", ends[i][0]], ["b", ends[i][1]]]) {
         if (heldEnd(c, name)) drawPlug(c, e.p0, e.p1, e.expose);
