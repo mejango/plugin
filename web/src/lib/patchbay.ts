@@ -472,26 +472,12 @@ export function startPatchBay(
 
   function step() {
     if (drag) aimHand();
-    // Which cords are riding onto a connector: lying over another cord within
-    // a couple of segments of that cord's end, they ride up the boot onto the
-    // barrel, and that post is not solid for them. Decided from last frame's
-    // crossings, BEFORE any contact is worked out — decided after, the post
-    // had already shoved the cord off the barrel, so the crossing that would
-    // have released it never formed, and a cord carried plainly over another
-    // hooked on its plug.
-    const rides = new Set();
-    // And which are pinned: a cord running UNDER another is held down by it,
-    // and that cord's connectors are walls to it — it slides along under
+    // Which cords are pinned: a cord running UNDER another is held down by
+    // it, and that cord's connectors are walls to it — it slides along under
     // the cord, and pulled against the plug it stops there. It cannot lift
     // over the plug without lifting through the cord.
     const pinned = new Set();
-    for (const x of crossings) {
-      const under = x.over === x.a ? x.b : x.a;
-      const i = under === x.a ? x.ia : x.ib;
-      if (i <= 1) rides.add(x.over + ":" + under + "a");
-      if (i >= N - 3) rides.add(x.over + ":" + under + "b");
-      pinned.add(under + ":" + x.over);
-    }
+    for (const x of crossings) pinned.add((x.over === x.a ? x.b : x.a) + ":" + x.over);
     const G = 2.3 * dpr;                // gravity ~9.8 m/s² at this pixel scale
     const DAMP = 0.992;                 // light air drag — cords fall, not float
     // Bend damping bleeds velocity along the bend normal — and a hanging cord's
@@ -644,7 +630,12 @@ export function startPatchBay(
         // from clear is held off it from then on. Which is also why nothing
         // jumps: a cord resting on a connector is never suddenly ejected from
         // it, whatever else changes around it.
-        const live = (on.has(s.key) && !rides.has(ci + ":" + s.key)) || pinned.has(ci + ":" + s.oi);
+        // Solid: a post this cord is caught on, or any post of a cord it runs
+        // under. Nothing else switches a caught post off — not even the cord
+        // crossing over the post's own cord at the boot. That used to count
+        // as "riding the plug", and it let a cord wound round a connector
+        // snap free the moment it crossed the cord coming out of it.
+        const live = on.has(s.key) || pinned.has(ci + ":" + s.oi);
         const R = s.r + c.width * 0.95;
         // where this plug is standing RIGHT NOW, aimed along its own cord
         const hx = s.at.x, hy = s.at.y;
@@ -661,6 +652,38 @@ export function startPatchBay(
         // came from.
         if (live && mode !== ASK) {
           const qx = -vy / BARREL, qy = vx / BARREL;
+          // And the stretch as a whole: a taut stretch pulled sideways sweeps
+          // over a post with neither of its points' paths coming near the
+          // barrel — the post simply changes sides of the stretch between one
+          // frame and the next. If it has, put the stretch back on the side
+          // it was.
+          for (let i = 0; i < N - 1; i++) {
+            const f0 = i > 0, f1 = i < N - 2;
+            if (!f0 && !f1) continue;
+            const p0 = c.pts[i], p1 = c.pts[i + 1], r0 = c.prev[i], r1 = c.prev[i + 1];
+            for (const [px, py] of [[hx, hy], [hx + vx, hy + vy]]) {
+              const sideNow = (p1.x - p0.x) * (py - p0.y) - (p1.y - p0.y) * (px - p0.x);
+              const sideWas = (r1.x - r0.x) * (py - r0.y) - (r1.y - r0.y) * (px - r0.x);
+              if (sideNow * sideWas >= 0) continue;
+              const ux = p1.x - p0.x, uy = p1.y - p0.y, uu = ux * ux + uy * uy || 1e-9;
+              const t = ((px - p0.x) * ux + (py - p0.y) * uy) / uu;
+              const rx = r1.x - r0.x, ry = r1.y - r0.y, rr = rx * rx + ry * ry || 1e-9;
+              const tw = ((px - r0.x) * rx + (py - r0.y) * ry) / rr;
+              if (t < 0 || t > 1 || tw < 0 || tw > 1) continue;
+              const ul = Math.sqrt(uu);
+              // normal of the stretch pointing toward where the post was
+              let nx = -uy / ul, ny = ux / ul;
+              if (nx * (px - p0.x) + ny * (py - p0.y) > 0) { nx = -nx; ny = -ny; }
+              hit = true;
+              for (const [pt, free] of [[p0, f0], [p1, f1]]) {
+                if (!free) continue;
+                const sd = (pt.x - px) * nx + (pt.y - py) * ny;
+                if (sd < R) { pt.x += nx * (R - sd); pt.y += ny * (R - sd); }
+              }
+              if (mode === SETTLE) { c.hooks.push({ x: px, y: py, i }); if (f0) settleAt(c, i, nx, ny); if (f1) settleAt(c, i + 1, nx, ny); }
+              break;
+            }
+          }
           for (let i = 1; i < N - 1; i++) {
             const p = c.pts[i], q = c.prev[i];
             const mx = p.x - q.x, my = p.y - q.y;
@@ -1089,10 +1112,9 @@ export function startPatchBay(
         const under = x.over === x.a ? x.b : x.a;
         const atUnder = plugged(x, under);
         if (atUnder) {
-          const over = cables[x.over];
-          if (over.studsOn) over.studsOn.delete(under + atUnder);
-          // stays as a contact — it is what lets the cord ride the plug and
-          // what draws it over the plug — but it is never a ring
+          // stays as a contact — it is what draws the cord over the plug —
+          // but it is never a ring, and it does not switch the post off: a
+          // post the cord is caught on stays caught
           if (!x.plug) { x.plug = true; x.linked = false; cables[under].still = 0; }
           return true;
         }
