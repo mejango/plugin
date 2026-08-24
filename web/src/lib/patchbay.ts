@@ -464,6 +464,20 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
 
   function step() {
     if (drag) aimHand();
+    // Which cords are riding onto a connector: lying over another cord within
+    // a couple of segments of that cord's end, they ride up the boot onto the
+    // barrel, and that post is not solid for them. Decided from last frame's
+    // crossings, BEFORE any contact is worked out — decided after, the post
+    // had already shoved the cord off the barrel, so the crossing that would
+    // have released it never formed, and a cord carried plainly over another
+    // hooked on its plug.
+    const rides = new Set();
+    for (const x of crossings) {
+      const under = x.over === x.a ? x.b : x.a;
+      const i = under === x.a ? x.ia : x.ib;
+      if (i <= 1) rides.add(x.over + ":" + under + "a");
+      if (i >= N - 3) rides.add(x.over + ":" + under + "b");
+    }
     const G = 2.3 * dpr;                // gravity ~9.8 m/s² at this pixel scale
     const DAMP = 0.992;                 // light air drag — cords fall, not float
     // Bend damping bleeds velocity along the bend normal — and a hanging cord's
@@ -616,7 +630,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         // from clear is held off it from then on. Which is also why nothing
         // jumps: a cord resting on a connector is never suddenly ejected from
         // it, whatever else changes around it.
-        const live = on.has(s.key);
+        const live = on.has(s.key) && !rides.has(ci + ":" + s.key);
         const R = s.r + c.width * 0.95;
         // where this plug is standing RIGHT NOW, aimed along its own cord
         const hx = s.at.x, hy = s.at.y;
@@ -1055,9 +1069,12 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         if (atUnder) {
           const over = cables[x.over];
           if (over.studsOn) over.studsOn.delete(under + atUnder);
-          cables[under].still = 0;
-          return false;
+          // stays as a contact — it is what lets the cord ride the plug and
+          // what draws it over the plug — but it is never a ring
+          if (!x.plug) { x.plug = true; x.linked = false; cables[under].still = 0; }
+          return true;
         }
+        x.plug = false;
         if (plugged(x, x.over)) { cables[under].still = 0; return false; }
         return true;
       });

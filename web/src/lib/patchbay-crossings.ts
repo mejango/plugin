@@ -26,6 +26,7 @@ export type Crossing = {
   linked: boolean;             // the cords actually cross here (a ring holds them);
                                // false is a touch — lying along each other
   lost?: boolean;              // not found this frame; kept, and the ring is closing it
+  plug?: boolean;              // the over cord is on the under cord's connector, not its cord: never a ring
 };
 
 type Hit = { a: number; b: number; ia: number; ib: number; t: number; u: number; linked: boolean; dist: number; claimed: boolean };
@@ -160,7 +161,7 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
       // Once two cords cross they are crossed until something physical ends
       // it; easing apart by a hair is still a crossing, and the ring pulls it
       // closed. A touch that comes to cross, though, is a crossing from now on.
-      if (best.linked) c.linked = true;
+      if (best.linked && !c.plug) c.linked = true;
       c.lost = false;
       kept.push(c);
     } else if (c.linked) { c.lost = true; lost.push(c); }
