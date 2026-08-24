@@ -453,6 +453,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   const ropeOf = (c): Rope => ({ pts: c.pts, prev: c.prev, width: c.width, heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b") });
 
   function step() {
+    if (drag) aimHand();
     const G = 2.3 * dpr;                // gravity ~9.8 m/s² at this pixel scale
     const DAMP = 0.992;                 // light air drag — cords fall, not float
     // Bend damping bleeds velocity along the bend normal — and a hanging cord's
@@ -1491,9 +1492,13 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     c.move = 1;
   }
 
-  canvas.addEventListener("pointermove", (e) => {
-    mouse.x = e.clientX * dpr; mouse.y = e.clientY * dpr;
-    if (drag) {
+  // Where the hand is taking the plug, worked every FRAME from where the mouse
+  // is. It used to move on each mouse event instead, by at most a step — and
+  // a fast hand sends the mouse further per event than the step, so the plug
+  // fell behind and only caught up when the hand slowed. Per frame, the cap
+  // is a rate, and a rate well above any hand is invisible.
+  function aimHand() {
+    {
       const c = drag.cable;
       if (drag.ends.length === 2) {
         // whole cord in hand: both plugs ride together
@@ -1546,22 +1551,25 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
           const cur = drag.ends[0] === "a" ? c.pts[0] : c.pts[N - 1];
           const mx = ex - cur.x, my = ey - cur.y;
           const md = Math.hypot(mx, my);
-          // Caught, a plug moves at a walk. Free, it still cannot teleport.
-          // Where a cord is hooked is worked out afresh every frame, and on
-          // the turn of a wind it flickers between one hook and none — which
-          // moves the anchor, and the plug with it, in a single jump. The
-          // loose cap is well above any speed a hand actually drags at, so it
-          // never lags; it is only there so a change of anchor cannot fling
-          // the plug across the panel.
-          const STEP = (hooks.length ? 12 : 60) * dpr;
+          // Caught, a plug moves more slowly, so the contact can keep up
+          // with it. Free, it still cannot teleport. Where a cord is hooked
+          // is worked out afresh every frame, and on the turn of a wind it
+          // flickers between one hook and none — which moves the anchor, and
+          // the plug with it, in a single jump. The caps are well above any
+          // speed a hand drags at, so they never lag; they are only there so
+          // a change of anchor cannot fling the plug across the panel.
+          const STEP = (hooks.length ? 40 : 90) * dpr;
           if (md > STEP) { ex = cur.x + (mx / md) * STEP; ey = cur.y + (my / md) * STEP; }
         }
         end.x = ex;
         end.y = ey;
       }
-    } else {
-      canvas.style.cursor = plugAt(mouse.x, mouse.y) ? "grab" : "default";
     }
+  }
+
+  canvas.addEventListener("pointermove", (e) => {
+    mouse.x = e.clientX * dpr; mouse.y = e.clientY * dpr;
+    if (!drag) canvas.style.cursor = plugAt(mouse.x, mouse.y) ? "grab" : "default";
   });
 
   function trySeat() {
