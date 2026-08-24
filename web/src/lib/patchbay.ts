@@ -923,7 +923,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       // A cable pulled near straight has no fold left to argue about, and its
       // length is doing all the work. Fade the constraint out as the cord comes
       // tight rather than leaving it to shove points around up there.
-      const foldK = FOLD_RELAX *
+      c.foldK = FOLD_RELAX *
         (1 - Math.min(1, Math.max(0, (Math.hypot(bx - ax, by - ay) / c.len - 0.84) / 0.08)));
 
       for (let iter = 0; iter < 6; iter++) {
@@ -934,7 +934,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         // frame — and the solver settles length by moving points without their
         // `prev`, which is a velocity — so a cord near the limit rang for
         // hundreds of frames. Relaxed together, they just converge.
-        if (foldK > 0) openTightFolds(c.pts, c.prev, c.kinkLocal, c.foldSide, N, FOLD_COS, foldK);
+        if (c.foldK > 0) openTightFolds(c.pts, c.prev, c.kinkLocal, c.foldSide, N, FOLD_COS, c.foldK);
         // alternate the sweep direction: a one-way sweep carries its residual
         // outward and dumps the whole length correction at the far plug
         for (let s = 0; s < N - 1; s++) {
@@ -1074,8 +1074,21 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // list crossing a plug — always the first, because every other cable moves
     // after it. Each round the rotations get smaller, and three rounds is
     // enough that nothing measurable is left.
+    // Contact gets the last word on WHERE the cord may be, but not on what
+    // shape it may be left in. The fold limit only ran inside the length
+    // solver, and these rounds run after it — so a cord wound round a
+    // connector could be left folded to 30 degrees against a 62 degree limit,
+    // with nothing after it to open the fold again. That fold is the spike
+    // that appeared out of the side of a cord being wound onto a plug.
     for (let pass = 0; pass < 3; pass++)
       for (const c of awake) offStuds(c, LIFT);
+    // Once, and gently. Three passes of it flung points about worse than the
+    // fold ever did — this is only here to take the corner off a fold that the
+    // contact rounds left too tight to be a cord, not to reshape the cord.
+    for (const c of awake)
+      if (c.foldK > 0)
+        openTightFolds(c.pts, c.prev, c.kinkLocal, c.foldSide, N, FOLD_COS, c.foldK * 0.6);
+    for (const c of awake) offStuds(c, LIFT);
     for (const c of awake) offStuds(c, SETTLE);
   }
 
@@ -1608,8 +1621,30 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         }
         const d2 = Math.hypot(dx, dy) || 1e-6;
         if (d2 > spare) { dx *= spare / d2; dy *= spare / d2; }
-        end.x = anchor.x + dx;
-        end.y = anchor.y + dy;
+        let ex = anchor.x + dx, ey = anchor.y + dy;
+        // Caught, the plug moves at a walk. Where the cord is hooked is worked
+        // out afresh every frame, and on the turn of a wind it flickers between
+        // one hook and none — which moves the anchor, and with it the plug, in
+        // a jump. Measured at 31.7px in a single frame while winding a cord
+        // onto a connector. Nothing is holding a real plug still, but nothing
+        // teleports it either: cap what one frame can move it, and a cord being
+        // wound tighter simply budges less and less.
+        {
+          const cur = drag.ends[0] === "a" ? c.pts[0] : c.pts[N - 1];
+          const mx = ex - cur.x, my = ey - cur.y;
+          const md = Math.hypot(mx, my);
+          // Caught, a plug moves at a walk. Free, it still cannot teleport.
+          // Where a cord is hooked is worked out afresh every frame, and on
+          // the turn of a wind it flickers between one hook and none — which
+          // moves the anchor, and the plug with it, in a single jump. The
+          // loose cap is well above any speed a hand actually drags at, so it
+          // never lags; it is only there so a change of anchor cannot fling
+          // the plug across the panel.
+          const STEP = (hooks.length ? 12 : 60) * dpr;
+          if (md > STEP) { ex = cur.x + (mx / md) * STEP; ey = cur.y + (my / md) * STEP; }
+        }
+        end.x = ex;
+        end.y = ey;
       }
     } else {
       canvas.style.cursor = plugAt(mouse.x, mouse.y) ? "grab" : "default";
