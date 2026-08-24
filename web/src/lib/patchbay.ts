@@ -1433,11 +1433,18 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       }
     });
     for (const x of crossings) {
-      const c = cables[x.over];
+      const c = cables[x.over], u = cables[x.over === x.a ? x.b : x.a];
       const i = x.over === x.a ? x.ia : x.ib, t = x.over === x.a ? x.ta : x.tb;
+      const j = x.over === x.a ? x.ib : x.ia;
       const p = c.pts[i], q = c.pts[i + 1];
-      patch(c, p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t, c.width * 1.6,
-        Math.max(0, i - 2), Math.min(N - 1, i + 3));
+      // Two cords crossing overlap along a lens, and the shallower the angle
+      // the longer it is: a disc that covers a square crossing leaves the ends
+      // of a slanting one showing the other cord's edge over this one. Size
+      // the disc to the angle — half a cord across the lens, plus its edge.
+      const ux = q.x - p.x, uy = q.y - p.y, vx = u.pts[j + 1].x - u.pts[j].x, vy = u.pts[j + 1].y - u.pts[j].y;
+      const sin = Math.abs(ux * vy - uy * vx) / ((Math.hypot(ux, uy) || 1) * (Math.hypot(vx, vy) || 1));
+      const r = Math.min(c.width * 6, c.width * (1.1 / Math.max(sin, 0.2) + 1.2));
+      patch(c, p.x + ux * t, p.y + uy * t, r, Math.max(0, i - 2), Math.min(N - 1, i + 3));
     }
     // in the air: the stretch out of every held or flying plug, then the plug
     cables.forEach((c, i) => {
