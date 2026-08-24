@@ -25,6 +25,7 @@ export type Crossing = {
   over: number;                // which rope index is on top — set at birth, final
   linked: boolean;             // the cords actually cross here (a ring holds them);
                                // false is a touch — lying along each other
+  lost?: boolean;              // not found this frame; kept, and the ring is closing it
 };
 
 type Hit = { a: number; b: number; ia: number; ib: number; t: number; u: number; linked: boolean; dist: number; claimed: boolean };
@@ -162,8 +163,9 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
       // it; easing apart by a hair is still a crossing, and the ring pulls it
       // closed. A touch that comes to cross, though, is a crossing from now on.
       if (best.linked) c.linked = true;
+      c.lost = false;
       kept.push(c);
-    } else if (c.linked) lost.push(c);
+    } else if (c.linked) { c.lost = true; lost.push(c); }
     // a touch that is no longer touching has simply come apart — nothing held it
   }
 
@@ -172,11 +174,18 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
   for (const c of lost) {
     if (nearHeldEnd(ropes[c.a], c.ia) || nearHeldEnd(ropes[c.b], c.ib)) dead.add(c);
   }
-  // Gone: a bight slid out. Two crossings of the same pair, both lost, the
-  // same cord on top at each, and nothing of that pair between them on either
-  // cord — the stretch between is a loop over (or under) the other cord, and
-  // with both ends of the loop gone it has come away. A pair with mixed tops
-  // is a wrap around the other cord; it holds.
+  // Gone: nothing is wound. Two cords that only ever cross the same way
+  // round are one lying over the other, and a cord lying over another lifts
+  // off it freely — however many times the two wiggle across each other in
+  // the drawing. Only a WEAVE holds: a pair crossing both ways round has one
+  // cord threaded through the other, and that is what the ring is for.
+  const woven = (c: Crossing) =>
+    crossings.some((o) => o.a === c.a && o.b === c.b && o.linked && o.over !== c.over);
+  for (const c of lost) if (!dead.has(c) && !woven(c)) dead.add(c);
+  // Gone: a bight slid out of a weave. Two crossings of the same pair, both
+  // lost, the same cord on top at each, and nothing of that pair between them
+  // on either cord — the stretch between is a loop over (or under) the other
+  // cord, and with both ends of the loop gone it has come away.
   const along = (c: Crossing, r: number) => (c.a === r ? c.ia + c.ta : c.ib + c.tb);
   const between = (c1: Crossing, c2: Crossing, r: number) =>
     crossings.some((o) => o !== c1 && o !== c2 && o.a === c1.a && o.b === c1.b &&
@@ -200,16 +209,36 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
   // of a contact already there. A cord lying along another does not change
   // which is on top partway down the run, and the stretch either side of a
   // crossing is the crossing, not a contact of its own.
+  //
+  // With no hand on either cord the answer comes from what is already
+  // decided between them, if anything is: two cords lying close zig-zag
+  // across each other as they settle, and deciding each of those crossings
+  // by which cord happened to move more that frame dealt out a braid of
+  // mixed sides that no bight could ever slide out of. A weave — over here,
+  // under there — is made by hands, one drag at a time, not by settling.
   const adjacent = (h: Hit) => kept.find((o) => o.a === h.a && o.b === h.b &&
     Math.abs(o.ia - h.ia) <= 1 && Math.abs(o.ib - h.ib) <= 1);
+  const nearest = (h: Hit) => {
+    let best: Crossing | undefined, bd = Infinity;
+    for (const o of kept) {
+      if (o.a !== h.a || o.b !== h.b) continue;
+      const d = Math.abs(o.ia - h.ia) + Math.abs(o.ib - h.ib);
+      if (d < bd) { bd = d; best = o; }
+    }
+    return best;
+  };
   for (const h of hits) {
     if (h.claimed || h.dist >= 1) continue;
     const near = adjacent(h);
     if (near && !h.linked && near.linked) continue;
+    const inHand = held === h.a || held === h.b;
     let over: number;
     if (near) over = near.over;
-    else if (held === h.a || held === h.b) over = held;
-    else over = moved[h.a] >= moved[h.b] ? h.a : h.b;
+    else if (inHand) over = held;
+    else {
+      const o = nearest(h);
+      over = o ? o.over : moved[h.a] >= moved[h.b] ? h.a : h.b;
+    }
     kept.push({ a: h.a, b: h.b, ia: h.ia, ta: h.t, ib: h.ib, tb: h.u, over, linked: h.linked });
   }
   return kept;
@@ -223,10 +252,13 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
  * the two cords. `prev` goes with `pts` so this changes where a cord is
  * without inventing any speed, which is what kept the last attempt twitching.
  *
- * Returns which ropes were moved, so a sleeping one can be woken.
+ * Returns how far each rope was moved at most, so a sleeping one can be woken
+ * — but only by a correction worth waking for. A crossing kept at its slop sits
+ * a hair inside it and outside it by turns, and waking a cord for that kept the
+ * whole panel from ever sleeping.
  */
-export function solveCrossings(ropes: Rope[], crossings: Crossing[], passes: number): boolean[] {
-  const moved = ropes.map(() => false);
+export function solveCrossings(ropes: Rope[], crossings: Crossing[], passes: number): number[] {
+  const moved = ropes.map(() => 0);
   for (let pass = 0; pass < passes; pass++) {
     for (const c of crossings) {
       if (!c.linked) continue;          // a touch holds nothing
@@ -259,12 +291,12 @@ export function solveCrossings(ropes: Rope[], crossings: Crossing[], passes: num
       if (shareA > 0) {
         const k = (need * shareA) / sa;
         push(A, c.ia, ga0, k); push(A, c.ia + 1, ga1, k);
-        moved[c.a] = true;
+        moved[c.a] = Math.max(moved[c.a], need * shareA);
       }
       if (shareA < 1) {
         const k = -(need * (1 - shareA)) / sb;
         push(B, c.ib, gb0, k); push(B, c.ib + 1, gb1, k);
-        moved[c.b] = true;
+        moved[c.b] = Math.max(moved[c.b], need * (1 - shareA));
       }
     }
   }

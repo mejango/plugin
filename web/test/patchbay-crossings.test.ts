@@ -86,13 +86,22 @@ describe("crossing life-cycle", () => {
     }
     expect(first.ia).toBeGreaterThan(ia0);
   });
-  it("is kept when the intersection is lost away from any held end (a cord cannot pass through a cord)", () => {
+  it("lets a cord lying over another lift off, but keeps a weave (a cord cannot pass through a cord)", () => {
     const A = rope(0, 50, 300, 50, { heldB: true });
     const B = rope(150, 0, 150, 100);
     let xs = updateCrossings([A, B], [], [0, 0], 0);
-    shift(B, 0, 80);            // B now hangs entirely below A: the crossing has no intersection
+    shift(B, 0, 80);            // B now hangs entirely below A: nothing is wound, it lifted off
     xs = updateCrossings([A, B], xs, [0, 80], 0);
-    expect(xs).toHaveLength(1);
+    expect(xs).toHaveLength(0);
+
+    const C = rope(0, 50, 300, 50, { heldB: true });
+    const D = rope(150, 0, 150, 100);
+    let ys = updateCrossings([C, D], [], [0, 0], 0);
+    // and a second crossing of the pair the other way round: D is threaded through C
+    ys.push({ a: 0, b: 1, ia: 2, ta: 0.5, ib: 2, tb: 0.5, over: 1, linked: true });
+    shift(D, 0, 80);
+    ys = updateCrossings([C, D], ys, [0, 80], 0);
+    expect(ys).toHaveLength(2);
   });
   it("dies when carried clear by a held end", () => {
     const A = rope(0, 50, 300, 50, { heldB: true });
@@ -146,6 +155,17 @@ describe("touches", () => {
     xs = updateCrossings([A, B], xs, [0, 40], -1);
     expect(xs).toHaveLength(0);
   });
+  it("settling births take the side already decided between the pair", () => {
+    const A = rope(0, 50, 300, 50), B = rope(150, 0, 150, 100);
+    let xs = updateCrossings([A, B], [], [0, 5], -1);        // B on top
+    expect(xs[0].over).toBe(1);
+    // B folds so it crosses A again, far along A, while A is the one moving
+    for (let i = 8; i < N; i++) { B.pts[i].x = 150 + (i - 7) * 20; B.prev[i].x = B.pts[i].x; }
+    for (let i = 10; i < N; i++) { B.pts[i].y = 30; B.prev[i].y = 30; }
+    xs = updateCrossings([A, B], xs, [9, 0], -1);
+    expect(xs.length).toBeGreaterThan(1);
+    expect(xs.every((x) => x.over === 1)).toBe(true);
+  });
   it("a touch holds nothing in the solver", () => {
     const A = rope(0, 50, 300, 50), B = rope(0, 56, 300, 56);
     const xs = updateCrossings([A, B], [], [0, 3], -1);
@@ -168,12 +188,13 @@ describe("solveCrossings", () => {
   it("pulls a kept crossing back to within half a width, moving prev with pts", () => {
     const A = rope(0, 50, 300, 50), B = rope(150, 0, 150, 100);
     let xs = updateCrossings([A, B], [], [0, 5], -1);
+    xs.push({ a: 0, b: 1, ia: 1, ta: 0.5, ib: 14, tb: 0.5, over: 0, linked: true }); // woven
     shift(B, 0, 80);            // B now hangs entirely below A
     xs = updateCrossings([A, B], xs, [0, 80], -1);
     expect(apart(xs, [A, B])).toBeGreaterThan(20);
     const moved = solveCrossings([A, B], xs, 4);
     expect(apart(xs, [A, B])).toBeLessThanOrEqual(A.width / 2 + 0.5);
-    expect(moved[0] || moved[1]).toBe(true);
+    expect(moved[0] + moved[1]).toBeGreaterThan(0);
     for (const r of [A, B]) for (let i = 1; i < N - 1; i++) {
       expect(r.pts[i].x - r.prev[i].x).toBeCloseTo(0);
       expect(r.pts[i].y - r.prev[i].y).toBeCloseTo(0);

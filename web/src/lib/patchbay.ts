@@ -964,7 +964,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       crossings = updateCrossings(ropes, crossings, moved, held);
       for (let round = 0; round < 3; round++) {
         const stirredBy = solveCrossings(ropes, crossings, 2);
-        stirredBy.forEach((m, i) => { if (m) cables[i].still = 0; });
+        stirredBy.forEach((m, i) => { if (m > SLEEP_BELOW) cables[i].still = 0; });
         for (const c of awake) offStuds(c, LIFT);
       }
     }
