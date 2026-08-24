@@ -1104,6 +1104,50 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         openTightFolds(c.pts, c.prev, c.kinkLocal, c.foldSide, N, FOLD_COS, c.foldK * 0.6);
     for (const c of awake) offStuds(c, LIFT);
     for (const c of awake) offStuds(c, SETTLE);
+
+    // Where the cord in hand runs under another cord, that crossing is a point
+    // it runs AROUND, exactly like a connector it is caught on — so it counts
+    // against how far the hand can reach, and nothing else. A cord underneath
+    // another is between the board and that cord: it can slide along under it,
+    // but it cannot come out through it, and running out of cord is what makes
+    // that true.
+    //
+    // Nothing here touches a cord. An earlier attempt hauled the cords back
+    // together wherever a crossing was about to be lost, and every complaint
+    // about it came from that: the pull landed in one shot with no speed taken
+    // off, so cords jumped and twitched; and when a crossing's place on the
+    // other cord went stale the pull was aimed at a point that no longer
+    // existed, which left cords hanging in mid air on an invisible anchor.
+    // A limit on the hand can do none of those things — there is no force to
+    // land anywhere, and the only thing it can get wrong is letting go.
+    if (drag) {
+      const c = drag.cable;
+      const ci = cables.indexOf(c);
+      const rank = [];
+      stack.forEach((id, z) => { rank[id] = z; });
+      if (!c.hooks) c.hooks = [];
+      for (let oi = 0; oi < cables.length; oi++) {
+        if (oi === ci) continue;
+        // only cords it runs UNDER. One it is lying on top of is not holding
+        // it down; it can be dragged off that freely.
+        if (!(rank[ci] < rank[oi])) continue;
+        const o = cables[oi];
+        for (let i = 0; i < N - 1; i++) {
+          const ax = c.pts[i].x, ay = c.pts[i].y;
+          const ux = c.pts[i + 1].x - ax, uy = c.pts[i + 1].y - ay;
+          for (let j = 0; j < N - 1; j++) {
+            const bx = o.pts[j].x, by = o.pts[j].y;
+            const vx = o.pts[j + 1].x - bx, vy = o.pts[j + 1].y - by;
+            const den = ux * vy - uy * vx;
+            if (Math.abs(den) < 1e-12) continue;
+            const t = ((bx - ax) * vy - (by - ay) * vx) / den;
+            const u = ((bx - ax) * uy - (by - ay) * ux) / den;
+            if (t >= 0 && t < 1 && u >= 0 && u < 1)
+              c.hooks.push({ x: ax + ux * t, y: ay + uy * t, i });
+          }
+        }
+      }
+    }
   }
 
   function tint(c, aMul, shade) {
