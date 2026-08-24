@@ -970,6 +970,22 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       });
       const held = drag ? cables.indexOf(drag.cable) : -1;
       crossings = updateCrossings(ropes, crossings, moved, held);
+      // A cord lying OVER another cord where it enters its plug is lying over
+      // the plug: it rides up the boot onto the barrel, it does not catch on
+      // it. Only a cord running under another there is beside its post.
+      for (const x of crossings) {
+        const under = cables[x.over === x.a ? x.b : x.a], over = cables[x.over];
+        if (under.move < 1) continue;
+        const i = x.over === x.a ? x.ib : x.ia, t = x.over === x.a ? x.tb : x.ta;
+        const p = under.pts[i], q = under.pts[i + 1];
+        const px = p.x + (q.x - p.x) * t, py = p.y + (q.y - p.y) * t;
+        const ui = cables.indexOf(under);
+        for (const [end, name] of [[under.pts[0], "a"], [under.pts[N - 1], "b"]]) {
+          if (heldEnd(under, name)) continue;
+          if (Math.hypot(px - end.x, py - end.y) < BARREL * 2.4 + over.width && over.studsOn)
+            over.studsOn.delete(ui + name);
+        }
+      }
       for (let round = 0; round < 3; round++) {
         const stirredBy = solveCrossings(ropes, crossings, 2);
         stirredBy.forEach((m, i) => { if (m > SLEEP_BELOW) cables[i].still = 0; });
