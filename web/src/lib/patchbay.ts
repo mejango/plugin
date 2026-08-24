@@ -444,6 +444,7 @@ export function startPatchBay(
   // Every place one cord crosses another, and which is on top. Worked out and
   // held together in step(); drawn as patches in draw(). See patchbay-crossings.
   let crossings: Crossing[] = [];
+  let lastSeated = -1;         // the cable most recently set down, settling
   // Nobody watched the cords fall into place, so nothing that happened on the
   // way counts. The posts shove the cords aside as they drape, so a cord comes
   // to rest beside a plug where it can — but one still lying across a barrel
@@ -479,11 +480,17 @@ export function startPatchBay(
     // have released it never formed, and a cord carried plainly over another
     // hooked on its plug.
     const rides = new Set();
+    // And which are pinned: a cord running UNDER another is held down by it,
+    // and that cord's connectors are walls to it — it slides along under
+    // the cord, and pulled against the plug it stops there. It cannot lift
+    // over the plug without lifting through the cord.
+    const pinned = new Set();
     for (const x of crossings) {
       const under = x.over === x.a ? x.b : x.a;
       const i = under === x.a ? x.ia : x.ib;
       if (i <= 1) rides.add(x.over + ":" + under + "a");
       if (i >= N - 3) rides.add(x.over + ":" + under + "b");
+      pinned.add(under + ":" + x.over);
     }
     const G = 2.3 * dpr;                // gravity ~9.8 m/s² at this pixel scale
     const DAMP = 0.992;                 // light air drag — cords fall, not float
@@ -637,7 +644,7 @@ export function startPatchBay(
         // from clear is held off it from then on. Which is also why nothing
         // jumps: a cord resting on a connector is never suddenly ejected from
         // it, whatever else changes around it.
-        const live = on.has(s.key) && !rides.has(ci + ":" + s.key);
+        const live = (on.has(s.key) && !rides.has(ci + ":" + s.key)) || pinned.has(ci + ":" + s.oi);
         const R = s.r + c.width * 0.95;
         // where this plug is standing RIGHT NOW, aimed along its own cord
         const hx = s.at.x, hy = s.at.y;
@@ -1039,7 +1046,11 @@ export function startPatchBay(
         for (let i = 1; i < N - 1; i++) m = Math.max(m, Math.hypot(c.pts[i].x - c.was[i].x, c.pts[i].y - c.was[i].y));
         return m;
       });
-      const held = drag ? cables.indexOf(drag.cable) : -1;
+      // The cord in hand — or the one just let go, flying to its jack and then
+      // settling onto the panel: it is being SET DOWN, on top of whatever it
+      // lands across, until it comes to rest.
+      const held = drag ? cables.indexOf(drag.cable)
+        : lastSeated >= 0 && (cables[lastSeated].move < 1 || cables[lastSeated].still < SLEEP_AFTER) ? lastSeated : -1;
       const before = crossings;
       crossings = updateCrossings(ropes, crossings, moved, held);
       // A crossing that has just ended was holding two cords a moment ago,
@@ -1085,8 +1096,11 @@ export function startPatchBay(
           if (!x.plug) { x.plug = true; x.linked = false; cables[under].still = 0; }
           return true;
         }
+        // The under cord beside the over cord's post: no ring — the post is
+        // what stops it — but the crossing stays, because it is what says the
+        // cord is under, and under is what makes the post a wall to it.
+        if (plugged(x, x.over)) { if (!x.plug) { x.plug = true; x.linked = false; cables[under].still = 0; } return true; }
         x.plug = false;
-        if (plugged(x, x.over)) { cables[under].still = 0; return false; }
         return true;
       });
       for (let round = 0; round < 3; round++) {
@@ -1762,6 +1776,7 @@ export function startPatchBay(
     }
     if (!best) return false;             // not over a free hole — keep carrying
     if (endName === "a") c.na = best; else c.nb = best;
+    lastSeated = cables.indexOf(c);
     c.moveSpeed = 0.12;
     c.move = 0;
     saveCables();
