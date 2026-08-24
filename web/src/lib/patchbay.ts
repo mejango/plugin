@@ -1033,10 +1033,21 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         }
         return null;
       };
+      // And the mirror: a cord lying over another where THAT cord enters its
+      // plug is lying over the connector, not the cord. Under the connector is
+      // the hole, and the cord can turn out of it any way it likes. Kept as a
+      // crossing, it made a weave with any other crossing of the pair, and a
+      // cord could not be drawn out from under a plug that was merely
+      // resting on its boot.
       crossings = crossings.filter((x) => {
         const under = x.over === x.a ? x.b : x.a;
         const atUnder = plugged(x, under);
-        if (atUnder) { const over = cables[x.over]; if (over.studsOn) over.studsOn.delete(under + atUnder); }
+        if (atUnder) {
+          const over = cables[x.over];
+          if (over.studsOn) over.studsOn.delete(under + atUnder);
+          cables[under].still = 0;
+          return false;
+        }
         if (plugged(x, x.over)) { cables[under].still = 0; return false; }
         return true;
       });
