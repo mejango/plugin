@@ -178,7 +178,7 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
   // the drawing. Only a WEAVE holds: a pair crossing both ways round has one
   // cord threaded through the other, and that is what the ring is for.
   const woven = (c: Crossing) =>
-    crossings.some((o) => o.a === c.a && o.b === c.b && o.linked && o.over !== c.over);
+    crossings.some((o) => o.a === c.a && o.b === c.b && o.linked && o.over !== c.over && !dead.has(o));
   for (const c of lost) if (!dead.has(c) && !woven(c)) dead.add(c);
   // Gone: a bight slid out of a weave. Two crossings of the same pair, both
   // lost, the same cord on top at each, and nothing of that pair between them

@@ -1016,20 +1016,30 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       }
       // A cord lying OVER another cord where it enters its plug is lying over
       // the plug: it rides up the boot onto the barrel, it does not catch on
-      // it. Only a cord running under another there is beside its post.
-      for (const x of crossings) {
-        const under = cables[x.over === x.a ? x.b : x.a], over = cables[x.over];
-        if (under.move < 1) continue;
-        const i = x.over === x.a ? x.ib : x.ia, t = x.over === x.a ? x.tb : x.ta;
-        const p = under.pts[i], q = under.pts[i + 1];
+      // it. A cord running UNDER another there is not under a cord at all —
+      // it is beside a post, and the post is what stops it. That is no
+      // crossing: kept as one, it was a ring pulling a cord at a point the
+      // post would never let it reach, and the cord stood in a spike.
+      const plugged = (x, who) => {
+        const c = cables[who];
+        if (c.move < 1) return null;
+        const i = who === x.a ? x.ia : x.ib, t = who === x.a ? x.ta : x.tb;
+        const p = c.pts[i], q = c.pts[i + 1];
         const px = p.x + (q.x - p.x) * t, py = p.y + (q.y - p.y) * t;
-        const ui = cables.indexOf(under);
-        for (const [end, name] of [[under.pts[0], "a"], [under.pts[N - 1], "b"]]) {
-          if (heldEnd(under, name)) continue;
-          if (Math.hypot(px - end.x, py - end.y) < BARREL * 2.4 + over.width && over.studsOn)
-            over.studsOn.delete(ui + name);
+        const other = cables[who === x.a ? x.b : x.a];
+        for (const [end, name] of [[c.pts[0], "a"], [c.pts[N - 1], "b"]]) {
+          if (heldEnd(c, name)) continue;
+          if (Math.hypot(px - end.x, py - end.y) < BARREL * 2.4 + other.width) return name;
         }
-      }
+        return null;
+      };
+      crossings = crossings.filter((x) => {
+        const under = x.over === x.a ? x.b : x.a;
+        const atUnder = plugged(x, under);
+        if (atUnder) { const over = cables[x.over]; if (over.studsOn) over.studsOn.delete(under + atUnder); }
+        if (plugged(x, x.over)) { cables[under].still = 0; return false; }
+        return true;
+      });
       for (let round = 0; round < 3; round++) {
         const stirredBy = solveCrossings(ropes, crossings, 2);
         stirredBy.forEach((m, i) => { if (m > SLEEP_BELOW) cables[i].still = 0; });
