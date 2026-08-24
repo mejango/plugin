@@ -474,8 +474,21 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // would go unnoticed. Both parts have thickness, so the reach is the two
     // half-widths together.
     const crossesPlugOf = (c, o) => {
+      const other = cables[o];
+      // Only a connector SEATED IN A JACK argues this way. The whole reason a
+      // cord across one is above it is that the connector had to go into the
+      // hole UNDERNEATH it — and one you are carrying is in no hole at all, so
+      // it settles nothing.
+      //
+      // Counting it meant any cord lying where you happen to be holding your
+      // plug pushed your whole cable beneath it: dragging a cord across two
+      // others put it under both, when laying it over them is the entire point
+      // of dragging it there.
+      if (other.move < 1) return false;
       const reach = 20 * dpr + cables[c].width;
-      for (const plug of [cables[o].pts[0], cables[o].pts[N - 1]]) {
+      const ends = [[other.pts[0], "a"], [other.pts[N - 1], "b"]];
+      for (const [plug, name] of ends) {
+        if (drag && drag.cable === other && drag.ends.includes(name)) continue;
         for (let i = 0; i < N - 1; i++) {
           const a = cables[c].pts[i], b = cables[c].pts[i + 1];
           if (segDist(plug.x, plug.y, a.x, a.y, b.x, b.y) < reach) return true;
@@ -508,6 +521,8 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     const above = cables.map(() => new Set());
     const owes = cables.map(() => 0);
     const nowTouching = new Set();
+    // what the cable in hand was just laid on top of
+    const carriedOver = new Set();
     const want = (lower, upper) => {
       if (lower === upper || above[lower].has(upper)) return;
       above[lower].add(upper); owes[upper]++;
@@ -535,8 +550,8 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         else if (oOverC && !cOverO) want(c, o);
         // Neither is lying across the other's hole, so it is simply one cord
         // laid on another: whichever was carried here came to rest on top.
-        else if (c === lastMoved) want(o, c);
-        else if (o === lastMoved) want(c, o);
+        else if (c === lastMoved) { want(o, c); carriedOver.add(o); }
+        else if (o === lastMoved) { want(c, o); carriedOver.add(c); }
         else if ((rank[c] ?? c) < (rank[o] ?? o)) want(c, o);
         else want(o, c);
       }
@@ -557,6 +572,25 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       done[next] = true;
       placed.push(next);
       for (const up of above[next]) owes[up]--;
+    }
+
+    // A knot cannot be satisfied both ways round, so the loop above takes the
+    // first cable left and carries on — and what it drops can be the very thing
+    // that was just decided. Dragging a cord across two others put it UNDER one
+    // of them while the rule had plainly said over: the constraint was made and
+    // then thrown away breaking a cycle it happened to be part of.
+    //
+    // So put it back. Of everything in a knot, the one the hand just moved is
+    // the one worth keeping — it is the most recent thing anybody asked for,
+    // and the only one they are watching.
+    if (lastMoved >= 0 && carriedOver.size) {
+      let highest = -1;
+      for (const o of carriedOver) highest = Math.max(highest, placed.indexOf(o));
+      const at = placed.indexOf(lastMoved);
+      if (at >= 0 && at < highest) {
+        placed.splice(at, 1);
+        placed.splice(highest, 0, lastMoved);
+      }
     }
     stack = placed;
   };
@@ -649,7 +683,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         // a cord shoved that cord aside instead of passing over it.
         if (flying) continue;
         if (drag && drag.cable === o && drag.ends.includes(name)) continue;
-        studs.push({ of: o, oi, at: q0, aim: q1, r: o.width * 1.2 });
+        studs.push({ of: o, oi, at: q0, aim: q1, r: o.width * 1.2, key: oi + name });
       }
     });
     // Only what is UNDERNEATH a connector is stopped by it. A cord lying over
@@ -699,9 +733,22 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         if (p.y < by0) by0 = p.y;
         if (p.y > by1) by1 = p.y;
       }
+      const on = c.studsOn || (c.studsOn = new Set());
       for (const s of studs) {
         if (s.of === c) continue;
-        if (!(zOf[ci] < zOf[s.oi])) continue;
+        // Drawn over it: nothing to catch on, and nothing to be let off.
+        if (!(zOf[ci] < zOf[s.oi])) { on.delete(s.key); continue; }
+        // A cord ALREADY lying over a plug when it becomes the one underneath
+        // is left where it is until it has moved clear by itself. Depth can
+        // change while nothing has moved: a cable dragged past gets promoted
+        // above a third one, and that one is suddenly beneath a connector it
+        // has been resting on all along. Enforcing the gap from that instant
+        // flung it 20px sideways — a cord jumping because of something that
+        // happened to a different cable entirely.
+        //
+        // So a connector only begins holding a cord off once the two are
+        // apart. After that it holds, which is all the catching needs.
+        const live = on.has(s.key);
         const R = s.r + c.width * 0.95;
         // where this plug is standing RIGHT NOW, aimed along its own cord
         const hx = s.at.x, hy = s.at.y;
@@ -711,6 +758,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         const vv = vx * vx + vy * vy || 1;
         if (Math.min(hx, hx + vx) - R > bx1 || Math.max(hx, hx + vx) + R < bx0) continue;
         if (Math.min(hy, hy + vy) - R > by1 || Math.max(hy, hy + vy) + R < by0) continue;
+        let inside = false;
         for (let i = 0; i < N - 1; i++) {
           const p0 = c.pts[i], p1 = c.pts[i + 1];
           // a plug pinned in a jack cannot be moved out of the way
@@ -728,6 +776,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
             const tc = (ex * vy - ey * vx) / twist;
             const uc = (ex * uy - ey * ux) / twist;
             if (tc > 0 && tc < 1 && uc > 0 && uc < 1) {
+              if (!live) { inside = true; continue; }
               if (mode === ASK) return true;
               const qx = -vy / BARREL, qy = vx / BARREL;
               const sideOf = (pt) => (pt.x - hx) * qx + (pt.y - hy) * qy;
@@ -792,6 +841,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
           let nx = px - qx, ny = py - qy;
           const d = Math.hypot(nx, ny);
           if (d >= R) continue;
+          if (!live) { inside = true; continue; }
           if (mode === ASK) return true;
           // share it along the stretch, so the point nearest where it touches
           // takes most of it and the cord bends around the plug
@@ -810,6 +860,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
             if (g1) settleAt(c, i + 1, nx, ny);
           }
         }
+        if (!live && !inside && mode === SETTLE) on.add(s.key);
       }
       return hit;
     };
