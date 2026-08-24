@@ -1387,18 +1387,17 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // it; wherever two cords cross, a disc of the one on top is painted back
     // over the other. Last, what is in the air: the stretch of cord out of a
     // held plug, and the plug itself.
-    const arcTo = (c, i0) => {
-      let a = 0;
-      for (let i = 0; i < i0; i++) a += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
-      return a;
-    };
-    // A stretch of cord painted back over the pile, inside a disc.
-    const patch = (c, x, y, r, i0, i1) => {
+    // A stretch of cord painted back over the pile, inside a disc. It is the
+    // WHOLE cord drawn again and clipped, not a slice of it: the braid and the
+    // sheen are dashes phased along the drawn curve, and a slice starts its
+    // curve somewhere else, so its pattern came out a step off the cord's own
+    // at the edge of the disc.
+    const patch = (ci, x, y, r) => {
       ctx.save();
       ctx.beginPath();
       ctx.arc(x, y, r, 0, 7);
       ctx.clip();
-      drawCable(c, c.pts.slice(i0, i1 + 1), true, arcTo(c, i0));
+      cordOf(ci, ci === held && grabbedA);
       ctx.restore();
     };
     cables.forEach((c, i) => cordOf(i, i === held && grabbedA));
@@ -1425,7 +1424,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
             const l2 = dx * dx + dy * dy || 1e-9;
             const t = Math.max(0, Math.min(1, ((cx - a.x) * dx + (cy - a.y) * dy) / l2));
             if (Math.hypot(cx - (a.x + dx * t), cy - (a.y + dy * t)) < reach + BARREL) {
-              patch(c, cx, cy, BARREL * 1.4 + c.width, Math.max(0, i - 2), Math.min(N - 1, i + 3));
+              patch(cables.indexOf(c), cx, cy, BARREL * 1.4 + c.width);
               return;
             }
           }
@@ -1444,19 +1443,14 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       const ux = q.x - p.x, uy = q.y - p.y, vx = u.pts[j + 1].x - u.pts[j].x, vy = u.pts[j + 1].y - u.pts[j].y;
       const sin = Math.abs(ux * vy - uy * vx) / ((Math.hypot(ux, uy) || 1) * (Math.hypot(vx, vy) || 1));
       const r = Math.min(c.width * 6, c.width * (1.1 / Math.max(sin, 0.2) + 1.2));
-      patch(c, p.x + ux * t, p.y + uy * t, r, Math.max(0, i - 2), Math.min(N - 1, i + 3));
+      patch(x.over, p.x + ux * t, p.y + uy * t, r);
     }
     // in the air: the stretch out of every held or flying plug, then the plug
     cables.forEach((c, i) => {
-      for (const [name, e, i0, i1] of [["a", ends[i][0], 0, 1], ["b", ends[i][1], N - 2, N - 1]]) {
+      for (const [name, e, i0] of [["a", ends[i][0], 0], ["b", ends[i][1], N - 2]]) {
         if (!heldEnd(c, name)) continue;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, 0, w, h);
-        plugHole(c, e.p0, e.p1, 11 * dpr * e.expose);
-        ctx.clip("evenodd");
-        drawCable(c, c.pts.slice(i0, i1 + 1), true, arcTo(c, i0));
-        ctx.restore();
+        const p = c.pts[i0], q = c.pts[i0 + 1];
+        patch(i, (p.x + q.x) / 2, (p.y + q.y) / 2, Math.hypot(q.x - p.x, q.y - p.y) / 2 + c.width * 1.2);
         drawPlug(c, e.p0, e.p1, e.expose);
       }
     });
