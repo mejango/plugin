@@ -1005,7 +1005,15 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         return m;
       });
       const held = drag ? cables.indexOf(drag.cable) : -1;
+      const before = crossings;
       crossings = updateCrossings(ropes, crossings, moved, held);
+      // A crossing that has just ended was holding two cords a moment ago,
+      // and one of them may have gone to sleep while it was held — folded
+      // round the other, say. Let go of a cord and it moves: wake them both.
+      if (before.length !== crossings.length || before.some((x, i) => x !== crossings[i])) {
+        const now = new Set(crossings);
+        for (const x of before) if (!now.has(x)) { cables[x.a].still = 0; cables[x.b].still = 0; }
+      }
       // A cord lying OVER another cord where it enters its plug is lying over
       // the plug: it rides up the boot onto the barrel, it does not catch on
       // it. Only a cord running under another there is beside its post.
