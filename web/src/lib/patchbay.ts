@@ -701,17 +701,6 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
         studs.push({ of: o, oi, at: q0, aim: q1, r: o.width * 1.2, key: oi + name });
       }
     });
-    // Only what is UNDERNEATH a connector is stopped by it. A cord lying over
-    // one is draped across the top of it, the way it would lie over anything
-    // else on the panel, and it has nowhere to be caught — it is already past.
-    // A cord underneath has to get between the plug and the socket it is seated
-    // in, and there is no room there: that is the one case where a connector is
-    // in the way, and the only one worth making a cord fight.
-    //
-    // Which is which is already settled, by the same stack the drawing uses, so
-    // a cord catches on exactly the plugs it visibly runs behind.
-    const zOf = new Array(cables.length).fill(0);
-    stack.forEach((id, z) => { zOf[id] = z; });
     // Stop a point dead against the barrel: the speed INTO the plug comes off
     // it so it does not bounce away, and what is left running along the barrel
     // is shaved so the cord grips instead of sliding off the end.
@@ -751,18 +740,28 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       const on = c.studsOn || (c.studsOn = new Set());
       for (const s of studs) {
         if (s.of === c) continue;
-        // Drawn over it: nothing to catch on, and nothing to be let off.
-        if (!(zOf[ci] < zOf[s.oi])) { on.delete(s.key); continue; }
-        // A cord ALREADY lying over a plug when it becomes the one underneath
-        // is left where it is until it has moved clear by itself. Depth can
-        // change while nothing has moved: a cable dragged past gets promoted
-        // above a third one, and that one is suddenly beneath a connector it
-        // has been resting on all along. Enforcing the gap from that instant
-        // flung it 20px sideways — a cord jumping because of something that
-        // happened to a different cable entirely.
+        // A connector stops any cord that comes to it, whatever the drawing
+        // says about which cable is in front.
         //
-        // So a connector only begins holding a cord off once the two are
-        // apart. After that it holds, which is all the catching needs.
+        // It used to stop only cords drawn BEHIND it, and that quietly made
+        // catching impossible: a cable you are dragging is laid on top of
+        // whatever it newly meets, so from the moment you pick one up nothing
+        // could block it. Measured winding a cord onto a connector — gap 31px,
+        // then -0.3px, then 71px the far side, with the plug never once
+        // holding it and the hand never once stopped.
+        //
+        // The two are different questions. Laying a cord over another CORD is
+        // nothing — it lies on top. Getting one over a PLUG means lifting it
+        // over a post standing off the panel, which dragging sideways does not
+        // do. Which cable is drawn in front says nothing about that.
+        //
+        // What separates a cord that is stopped from one that is draped over
+        // the top is not the drawing order but how it got there, and the only
+        // record of that is whether the two have ever been apart. A cord
+        // already lying over a plug is left alone; one that comes to the plug
+        // from clear is held off it from then on. Which is also why nothing
+        // jumps: a cord resting on a connector is never suddenly ejected from
+        // it, whatever else changes around it.
         const live = on.has(s.key);
         const R = s.r + c.width * 0.95;
         // where this plug is standing RIGHT NOW, aimed along its own cord
