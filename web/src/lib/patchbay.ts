@@ -27,6 +27,10 @@
  */
 import { type Crossing, type Rope, liftedSeg, segHit, solveCrossings, updateCrossings } from "./patchbay-crossings";
 
+// Bumped on every change to the engine, and shown on the bench, so nobody is
+// ever looking at a stale build while judging it.
+export const PATCHBAY_VERSION = "v1";
+
 export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   for (let i = 1; i < n - 1; i++) {
     const pm = pts[i - 1], pp = pts[i + 1], pnt = pts[i];
