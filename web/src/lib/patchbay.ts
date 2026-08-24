@@ -393,13 +393,8 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       }
     } catch (_) {}
     saveCables();
-    // Nobody watched the cords fall into place, so nothing that happened on
-    // the way counts: a cord is not wound on a post it merely fell across, and
-    // what is crossing what once they lie still is the start.
-    dealing = true;
     if (!REDUCED) for (let i = 0; i < 240; i++) step(); // pre-settle so it opens draped
-    dealing = false;
-    crossings = [];
+    dealt();
   }
 
   function saveCables() {
@@ -441,7 +436,15 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   // Every place one cord crosses another, and which is on top. Worked out and
   // held together in step(); drawn as patches in draw(). See patchbay-crossings.
   let crossings: Crossing[] = [];
-  let dealing = false;        // the panel is being dealt: cords drape, nothing catches
+  // Nobody watched the cords fall into place, so nothing that happened on the
+  // way counts. The posts shove the cords aside as they drape, so a cord comes
+  // to rest beside a plug where it can — but one still lying across a barrel
+  // once everything is still is lying OVER it, not wound on it, and what is
+  // crossing what by then is the start.
+  const dealt = () => {
+    crossings = [];
+    for (const c of cables) c.studsOn = new Set();
+  };
   const heldEnd = (c, name) => {
     if (drag && drag.cable === c && drag.ends.includes(name)) return true;
     // an end on its way to a jack is in the air the whole way
@@ -562,7 +565,6 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // nothing ever measuring as inside it.
     const ASK = 0, LIFT = 1, SETTLE = 2;
     const offStuds = (c, mode) => {
-      if (dealing) return false;
       let hit = false;
       const ci = cables.indexOf(c);
       // Where the cord is caught, kept for the drag: a cord hooked on a barrel
@@ -1619,7 +1621,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   // ponytail: a handle for scripted checks; reads live state, drives nothing
   canvas.__pb = () => ({ cables, crossings, jacks, dpr, N, drag });
   size();
-  if (REDUCED) { dealing = true; for (let i = 0; i < 240; i++) step(); dealing = false; crossings = []; }
+  if (REDUCED) { for (let i = 0; i < 240; i++) step(); dealt(); }
   draw(); // reduced motion: one settled, draped frame
 
   return () => {
