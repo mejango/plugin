@@ -635,7 +635,20 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     const BARREL = 15 * dpr;
     const studs = [];
     cables.forEach((o, oi) => {
-      for (const [q0, q1] of [[o.pts[0], o.pts[1]], [o.pts[N - 1], o.pts[N - 2]]]) {
+      const flying = o.move < 1;
+      const ends = [[o.pts[0], o.pts[1], "a"], [o.pts[N - 1], o.pts[N - 2], "b"]];
+      for (const [q0, q1, name] of ends) {
+        // Only a connector SEATED IN A JACK is in the way of anything. The one
+        // in your hand is held off the panel, and one still on its way to a
+        // hole is in the air the whole time — neither has a socket behind it,
+        // so neither has the gap that catches a cord. They pass over
+        // everything.
+        //
+        // They were obstacles like any other, and the plug in your hand
+        // bulldozed cords around the panel ahead of it: sweeping it back across
+        // a cord shoved that cord aside instead of passing over it.
+        if (flying) continue;
+        if (drag && drag.cable === o && drag.ends.includes(name)) continue;
         studs.push({ of: o, oi, at: q0, aim: q1, r: o.width * 1.2 });
       }
     });
