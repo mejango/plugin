@@ -134,13 +134,11 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
   };
   const reachOf = (r: Rope) => Math.max(3, Math.ceil(90 / segLen(r)));
   for (const c of crossings) {
-    // A plug pulled out from under a cord lifts clear of it: the stretch out
-    // of the hand is in the air, and nothing on the panel is over it. A
-    // crossing that had this cord under, on that stretch, is over now — it
-    // ends here and is born again on top below, like any other cord the
-    // lifted stretch is laid across.
-    const under = c.over === c.a ? c.b : c.a;
-    if (under === held && liftedSeg(ropes[held], held === c.a ? c.ia : c.ib)) continue;
+    // A plug picked up from under a cord does not lift its cord out from
+    // under it: the stretch by the plug is still pinned beneath the other cord
+    // until the hand draws it out — the crossing slides to the held end and
+    // ends there. Crossing back after that, it is laid on top like anything
+    // a hand lays down.
     const ra = reachOf(ropes[c.a]), rb = reachOf(ropes[c.b]);
     // A crossing looks for where the cords cross; only failing that, for where
     // they touch. Taking the nearest of either let a crossing settle on a

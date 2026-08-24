@@ -113,13 +113,19 @@ describe("crossing life-cycle", () => {
     xs = updateCrossings([A, B], xs, [150, 0], 0);
     expect(xs).toHaveLength(0);
   });
-  it("is lifted clear of a cord by the plug coming out from under it", () => {
+  it("stays under a cord when its plug is picked up, and comes out only through the held end", () => {
     const A = rope(0, 50, 300, 50, { heldB: true });
     const B = rope(290, 0, 290, 100);   // over A's last segment
     let xs = updateCrossings([A, B], [], [0, 0], -1);
     xs[0].over = 1;                      // B lay across A's plug
-    xs = updateCrossings([A, B], xs, [0, 0], 0);   // then A's plug was picked up
+    xs = updateCrossings([A, B], xs, [0, 0], 0);   // A's plug picked up: still under
     expect(xs).toHaveLength(1);
+    expect(xs[0].over).toBe(1);
+    A.pts[N - 1].x = 240; A.prev[N - 1].x = 240; A.pts[N - 2].x = 250; A.prev[N - 2].x = 250; // drawn clear out from under B
+    xs = updateCrossings([A, B], xs, [50, 0], 0);
+    expect(xs).toHaveLength(0);
+    A.pts[N - 1].x = 300; A.prev[N - 1].x = 300;   // and laid back across it: on top now
+    xs = updateCrossings([A, B], xs, [30, 0], 0);
     expect(xs[0].over).toBe(0);
   });
   it("annihilates a bight of two same-over crossings, keeps a mixed pair", () => {

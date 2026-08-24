@@ -393,9 +393,12 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       }
     } catch (_) {}
     saveCables();
-    if (!REDUCED) for (let i = 0; i < 240; i++) step(); // pre-settle so it opens draped
     // Nobody watched the cords fall into place, so nothing that happened on
-    // the way counts. What is crossing what once they lie still is the start.
+    // the way counts: a cord is not wound on a post it merely fell across, and
+    // what is crossing what once they lie still is the start.
+    dealing = true;
+    if (!REDUCED) for (let i = 0; i < 240; i++) step(); // pre-settle so it opens draped
+    dealing = false;
     crossings = [];
   }
 
@@ -438,6 +441,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   // Every place one cord crosses another, and which is on top. Worked out and
   // held together in step(); drawn as patches in draw(). See patchbay-crossings.
   let crossings: Crossing[] = [];
+  let dealing = false;        // the panel is being dealt: cords drape, nothing catches
   const heldEnd = (c, name) => {
     if (drag && drag.cable === c && drag.ends.includes(name)) return true;
     // an end on its way to a jack is in the air the whole way
@@ -558,6 +562,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
     // nothing ever measuring as inside it.
     const ASK = 0, LIFT = 1, SETTLE = 2;
     const offStuds = (c, mode) => {
+      if (dealing) return false;
       let hit = false;
       const ci = cables.indexOf(c);
       // Where the cord is caught, kept for the drag: a cord hooked on a barrel
@@ -981,7 +986,6 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       for (const x of crossings) {
         if (!x.linked || x.over === ci || (x.a !== ci && x.b !== ci)) continue;
         const i = x.a === ci ? x.ia : x.ib, t = x.a === ci ? x.ta : x.tb;
-        if (liftedSeg(ropeOf(c), i)) continue;
         const p = c.pts[i], q = c.pts[i + 1];
         c.hooks.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t, i });
       }
@@ -1449,13 +1453,12 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
       const r = Math.min(c.width * 6, c.width * (1.1 / Math.max(sin, 0.2) + 1.2));
       patch(x.over, p.x + ux * t, p.y + uy * t, r);
     }
-    // in the air: the stretch out of every held or flying plug, then the plug
+    // in the air: every held or flying plug. Only the plug — the cord out of
+    // it lies where its crossings say, and a stretch still pinned under
+    // another cord stays under it until the hand draws it out.
     cables.forEach((c, i) => {
-      for (const [name, e, i0] of [["a", ends[i][0], 0], ["b", ends[i][1], N - 2]]) {
-        if (!heldEnd(c, name)) continue;
-        const p = c.pts[i0], q = c.pts[i0 + 1];
-        patch(i, (p.x + q.x) / 2, (p.y + q.y) / 2, Math.hypot(q.x - p.x, q.y - p.y) / 2 + c.width * 1.2);
-        drawPlug(c, e.p0, e.p1, e.expose);
+      for (const [name, e] of [["a", ends[i][0]], ["b", ends[i][1]]]) {
+        if (heldEnd(c, name)) drawPlug(c, e.p0, e.p1, e.expose);
       }
     });
 
@@ -1616,7 +1619,7 @@ export function startPatchBay(canvas: HTMLCanvasElement): () => void {
   // ponytail: a handle for scripted checks; reads live state, drives nothing
   canvas.__pb = () => ({ cables, crossings, jacks, dpr, N, drag });
   size();
-  if (REDUCED) { for (let i = 0; i < 240; i++) step(); }
+  if (REDUCED) { dealing = true; for (let i = 0; i < 240; i++) step(); dealing = false; crossings = []; }
   draw(); // reduced motion: one settled, draped frame
 
   return () => {
