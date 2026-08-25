@@ -159,15 +159,24 @@ export function collide3(ropes: Rope3[], iters: number, stick: Map<string, numbe
         // Phase 2: separate every colliding pair, mostly in z along that one
         // order, a little in the plane so a stack is not perfectly colinear.
         for (const hh of hits) {
-          // Separate along geometry in the plane — that is what stops a fast
-          // drag passing through — but the z-component's SIGN is the pair's one
-          // order (no flicker) and floored so a flat crossing lifts one cord
-          // over the other rather than shoving them apart sideways.
-          // Separate PURELY in z: at a crossing the two cords are meant to
-          // overlap in the plane — one simply rides over the other — so the
-          // push has no in-plane part to jostle the crossing sideways. A
-          // sideways part made two crossing cords wiggle forever at rest.
-          const nx = 0, ny = 0, nz = order;
+          // Separation direction, blended by how DEEP the overlap is:
+          //  • shallow (a resting crossing): purely in z along the pair's one
+          //    order. The two cords are meant to overlap in the plane — one
+          //    rides over the other — so a sideways shove would just jitter the
+          //    crossing (that made crossings wiggle forever at rest).
+          //  • deep (one cord driven INTO another by a fast drag): bring in the
+          //    real in-plane normal so they are pushed APART sideways and cannot
+          //    slide through each other. Pure z cannot stop a lateral pass —
+          //    nothing acts in the plane — so a cord whipped sideways tunnelled.
+          const deep = (reach - hh.d) / reach;              // 0 touching .. 1 coincident
+          const wIn = Math.max(0, deep - 0.25) / 0.75;      // in-plane once a quarter overlapped (a resting crossing is z-separated, deep≈0, so never)
+          let nx = 0, ny = 0, nz = order;
+          if (wIn > 1e-3) {
+            const dl = Math.hypot(hh.dx, hh.dy) || 1e-6;
+            nx = (hh.dx / dl) * wIn; ny = (hh.dy / dl) * wIn; nz = order * (1 - wIn);
+            const nl = Math.hypot(nx, ny, nz) || 1e-6;
+            nx /= nl; ny /= nl; nz /= nl;
+          }
           const push = (reach - hh.d) / 2;
           const shove = (R: Rope3, k: number, t: number, sgn: number) => {
             if (lifted(R, k)) return;
