@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v19";
+export const PATCHBAY3D_VERSION = "3d-v20";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -475,7 +475,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       if (Math.hypot(j.x - far.x, j.y - far.y) > c.len) continue;   // hole is out of the cord's reach
       const d = Math.hypot(j.x - p.x, j.y - p.y); if (d < bd) { bd = d; best = j; }
     }
-    if (!best) return;
+    // Released with no free hole within reach → the cord springs back to the
+    // hole it came from, so an end is NEVER left dangling in space (a plug is
+    // always seated in some hole). Its home jack is c.na / c.nb, untouched
+    // during the drag.
+    if (!best) best = end === "a" ? c.na : c.nb;
     // Anchor the seat animation at where the plug IS right now, not where the
     // cord was first grabbed — otherwise the plug snaps back across the board
     // to the grab point and the cord explodes on release.
