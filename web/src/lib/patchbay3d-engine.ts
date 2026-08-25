@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v14";
+export const PATCHBAY3D_VERSION = "3d-v15";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -359,6 +359,32 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         patch(top, x, y, top.width * 1.8, Math.max(0, ti - 2), Math.min(N - 1, ti + 3));
       }
     }
+    // A cord that rides OVER another cord rides over that cord's PLUG too. The
+    // crossing repaint above only handles cord-over-cord; seated plugs were
+    // painted on top of every cord, so a cord crossing over a connector still
+    // showed the cap on top. Repaint the over-cord onto the connector it covers,
+    // deciding "over" by the same stacking order the physics uses (stick).
+    const CAP = 15 * dpr;
+    cables.forEach((O, oi) => {
+      for (const nm of ["a", "b"]) {
+        if (heldEnd(O, nm)) continue;
+        const end = nm === "a" ? ends[oi][0] : ends[oi][1];
+        const e = end[0], nb = end[1];
+        const ul = Math.hypot(nb.x - e.x, nb.y - e.y) || 1;
+        const cx = e.x + ((nb.x - e.x) / ul) * CAP, cy = e.y + ((nb.y - e.y) / ul) * CAP;   // cap centre
+        const capR = CAP * 1.9;
+        for (let ci = 0; ci < cables.length; ci++) {
+          if (ci === oi) continue;
+          const order = stick.get(Math.min(ci, oi) + "," + Math.max(ci, oi));
+          if (order === undefined || (ci < oi ? order <= 0 : order >= 0)) continue;   // C not over O
+          const C = cables[ci];
+          let bi = -1, bd = Infinity;
+          for (let k = 0; k < N; k++) { const d = Math.hypot(C.pts[k].x - cx, C.pts[k].y - cy); if (d < bd) { bd = d; bi = k; } }
+          if (bd > capR + C.width) continue;
+          patch(C, cx, cy, capR, Math.max(0, bi - 2), Math.min(N - 1, bi + 3));
+        }
+      }
+    });
     // the held plug and its lifted cord, above everything
     cables.forEach((c, i) => {
       for (const name of ["a", "b"]) if (heldEnd(c, name)) {
