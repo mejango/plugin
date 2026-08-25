@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v11";
+export const PATCHBAY3D_VERSION = "3d-v12";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -177,8 +177,19 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       for (const c of cables) for (const [name, idx] of [["a", 0], ["b", N - 1]]) {
         const p = c.pts[idx];
         if (drag && drag.cable === c && drag.end === name) {
-          const fr = from[name] || { x: mouse.x, y: mouse.y, z: LIFT_Z };
-          p.x = fr.x + (mouse.x - fr.x) * f; p.y = fr.y + (mouse.y - fr.y) * f; p.z = LIFT_Z;
+          // A cord has a fixed length: its free end can only reach a circle of
+          // that length around the end that stays plugged in. Clamp the aim to
+          // that circle so the hand cannot stretch the cord — past full reach
+          // the plug just stops, taut, instead of following the cursor. (The
+          // held plug rides at LIFT_Z above the board, so the flat reach is the
+          // leg of that right triangle.)
+          const far = c.pts[name === "a" ? N - 1 : 0];
+          const maxR = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
+          let mx = mouse.x, my = mouse.y;
+          const rx = mx - far.x, ry = my - far.y, rd = Math.hypot(rx, ry);
+          if (rd > maxR && rd > 1e-6) { mx = far.x + (rx / rd) * maxR; my = far.y + (ry / rd) * maxR; }
+          const fr = from[name] || { x: mx, y: my, z: LIFT_Z };
+          p.x = fr.x + (mx - fr.x) * f; p.y = fr.y + (my - fr.y) * f; p.z = LIFT_Z;
         } else if (c.move < 1) {
           const k = ease(c.move);
           const src = name === "a" ? c.a : c.b, dst = name === "a" ? c.na : c.nb;
@@ -417,8 +428,13 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
   function trySeat() {
     const c = drag.cable, end = drag.end, p = end === "a" ? c.pts[0] : c.pts[N - 1];
+    const far = end === "a" ? c.pts[N - 1] : c.pts[0];
     let best = null, bd = 44 * dpr;
-    for (const j of jacks) { if (jackTaken(j)) continue; const d = Math.hypot(j.x - p.x, j.y - p.y); if (d < bd) { bd = d; best = j; } }
+    for (const j of jacks) {
+      if (jackTaken(j)) continue;
+      if (Math.hypot(j.x - far.x, j.y - far.y) > c.len) continue;   // hole is out of the cord's reach
+      const d = Math.hypot(j.x - p.x, j.y - p.y); if (d < bd) { bd = d; best = j; }
+    }
     if (!best) return;
     // Anchor the seat animation at where the plug IS right now, not where the
     // cord was first grabbed — otherwise the plug snaps back across the board
