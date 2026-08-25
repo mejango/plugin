@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v17";
+export const PATCHBAY3D_VERSION = "3d-v18";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -126,43 +126,44 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     return (drag && drag.cable === c && drag.end === name) || (c.move < 1 && (name === "a" ? c.a !== c.na : c.b !== c.nb));
   }
 
-  // a seated plug is a post: a solid connector standing off the board. A cord
-  // cannot enter its footprint in xy. There are exactly two ways past it: the
-  // cord is riding OVER the plug's own cord (the stacking order the solver keeps
-  // in `stick`), so it rides over the connector too; or the cord is lifted clear
-  // OVER THE TOP of the connector (its height in z exceeds the post). A cord
-  // merely draped or carried a little off the board — caught UNDER the plug's
-  // cord — is neither, so it is stopped and cannot slip through the connector.
-  const POST_H = LIFT_Z * 0.85;   // connector height; a cord must clear this to pass over the top
+  // A seated plug is a short post standing off the board — a vertical cylinder
+  // at the jack (the cap is drawn centred there), radius R, height POST_H. A
+  // cord clears it in exactly ONE way: by going over its top. Whether it does is
+  // decided by two regimes that between them cover every case:
+  //   • the cords CROSS (in contact — `stick` has the pair): clearing the
+  //     connector means being OVER that cord, since the connector belongs to it.
+  //     Over → clears; under → stopped, with no height escape (you are pinned
+  //     under it, you cannot lift your end through its connector).
+  //   • the cords do NOT cross (no `stick` entry): the connector is just an
+  //     obstacle in space — a cord clears it only by being lifted above the post
+  //     (z > POST_H), e.g. an end carried over it.
+  // Anything else is pushed out of the footprint in the plane, so it drapes
+  // around the connector instead of through it.
+  const POST_H = LIFT_Z * 0.85;
   function offPosts(c) {
     const BARREL = 15 * dpr, R = BARREL + c.r;
     const ci = cables.indexOf(c);
     for (const o of cables) {
       const oi = cables.indexOf(o);
-      // is c currently over o? (order>0 means the lower-index cord is on top)
-      let cOverO = false;
-      if (o !== c) {
-        const order = stick.get(Math.min(ci, oi) + "," + Math.max(ci, oi));
-        if (order !== undefined) cOverO = ci < oi ? order > 0 : order < 0;
-      }
+      const order = o !== c ? stick.get(Math.min(ci, oi) + "," + Math.max(ci, oi)) : undefined;
+      const inContact = order !== undefined;
+      const cOverO = inContact && (ci < oi ? order > 0 : order < 0);
       if (cOverO) continue;   // riding over this cord — its connector is cleared too
       for (const name of ["a", "b"]) {
         if (heldEnd(o, name)) continue;
-        // the post is a CAPSULE from the jack out to the collar, so a cord is
-        // blocked everywhere around the connector — including the gap right at
-        // the hole, which a single circle further out left open (a cord slipped
-        // BETWEEN the endcap and the jack).
+        // Footprint is a CAPSULE from the jack out along the connector body, so a
+        // cord is blocked all around it — including the stretch where the cable
+        // exits, which a bare circle at the jack left open (cords slipped past).
         const e = name === "a" ? o.pts[0] : o.pts[N - 1];
         const nx = name === "a" ? o.pts[1] : o.pts[N - 2];
         const ux = nx.x - e.x, uy = nx.y - e.y, ul = Math.hypot(ux, uy) || 1;
-        const ex = e.x, ey = e.y, fx = e.x + (ux / ul) * BARREL, fy = e.y + (uy / ul) * BARREL;
-        const vx = fx - ex, vy = fy - ey, vv = vx * vx + vy * vy || 1;
+        const vx = (ux / ul) * BARREL, vy = (uy / ul) * BARREL, vv = vx * vx + vy * vy || 1;
         for (let i = 1; i < N - 1; i++) {
           if (o === c && (i <= 1 || i >= N - 2)) continue;   // a cord's own plug
           const p = c.pts[i];
-          if (p.z > POST_H) continue;                        // lifted clear over the top of the connector
-          const t = Math.max(0, Math.min(1, ((p.x - ex) * vx + (p.y - ey) * vy) / vv));
-          const gx = ex + vx * t, gy = ey + vy * t;
+          if (!inContact && p.z > POST_H) continue;          // carried clear over an unrelated post
+          const t = Math.max(0, Math.min(1, ((p.x - e.x) * vx + (p.y - e.y) * vy) / vv));
+          const gx = e.x + vx * t, gy = e.y + vy * t;
           const dx = p.x - gx, dy = p.y - gy, d = Math.hypot(dx, dy);
           if (d < R && d > 1e-6) { p.x = gx + (dx / d) * R; p.y = gy + (dy / d) * R; }
         }
