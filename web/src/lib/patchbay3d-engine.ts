@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v16";
+export const PATCHBAY3D_VERSION = "3d-v17";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -301,15 +301,21 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     ctx.restore();
     ctx.setLineDash([]);
   }
+  // The plug is seated IN the hole: the connector cap sits centred on the jack,
+  // and a short strain-relief collar runs from it out along the cable. (It used
+  // to be drawn a whole barrel-length off to the side, so caps floated beside
+  // their holes.)
   function drawPlug(c, p0, p1) {
     const len = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
-    const ux = (p1.x - p0.x) / len, uy = (p1.y - p0.y) / len, barrel = 15 * dpr;
-    ctx.beginPath(); ctx.moveTo(p0.x + ux * barrel, p0.y + uy * barrel); ctx.lineTo(p0.x + ux * barrel * 1.8, p0.y + uy * barrel * 1.8);
+    const ux = (p1.x - p0.x) / len, uy = (p1.y - p0.y) / len, collar = 16 * dpr;
+    // strain-relief collar: from the hole out toward the cable
+    ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p0.x + ux * collar, p0.y + uy * collar);
     ctx.strokeStyle = tint(c, 0.8, 0.5); ctx.lineWidth = c.width * 1.8; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p0.x + ux * barrel, p0.y + uy * barrel);
-    ctx.strokeStyle = tint(c, 1.15, 0.35); ctx.lineWidth = c.width * 2.4; ctx.stroke();
-    ctx.beginPath(); ctx.arc(p0.x + ux * barrel, p0.y + uy * barrel, c.width * 1.05, 0, 7);
-    ctx.fillStyle = tint(c, 0.9, 0.45); ctx.fill();
+    // connector cap, centred in the hole
+    ctx.beginPath(); ctx.arc(p0.x, p0.y, c.width * 1.35, 0, 7);
+    ctx.fillStyle = tint(c, 1.05, 0.4); ctx.fill();
+    ctx.beginPath(); ctx.arc(p0.x - ux * 2 * dpr, p0.y - uy * 2 * dpr, c.width * 0.7, 0, 7);
+    ctx.fillStyle = tint(c, 0.85, 0.5); ctx.fill();
   }
 
   // xy crossings between two cords this frame, and which is higher in z there —
