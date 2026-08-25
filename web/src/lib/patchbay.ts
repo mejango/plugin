@@ -29,7 +29,7 @@ import { type Crossing, type Rope, liftedSeg, segHit, solveCrossings, updateCros
 
 // Bumped on every change to the engine, and shown on the bench, so nobody is
 // ever looking at a stale build while judging it.
-export const PATCHBAY_VERSION = "v3";
+export const PATCHBAY_VERSION = "v4";
 
 export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   for (let i = 1; i < n - 1; i++) {
@@ -159,6 +159,11 @@ export function startPatchBay(
   let w, h, dpr, jacks = [], cables = [], panel, t = 0, JR = 0;
   let rafId = 0;
   const mouse = { x: -1e9, y: -1e9 };
+  // The recorder: the seed, the board, and the pointer every frame, so a drag
+  // that went wrong can be played back frame for frame off the panel and
+  // watched from the inside. Pressing R copies it.
+  const rec = { seed, w: innerWidth, h: innerHeight, dpr: 0, frames: [], events: [] };
+  const REC_MAX = 1800;
   let drag = null;                    // { cable, ends: ["a"] | ["a","b"] }
 
   function size() {
@@ -1495,6 +1500,9 @@ export function startPatchBay(
 
   function draw() {
     t += 0.016;
+    rec.dpr = dpr;
+    rec.frames.push([Math.round(mouse.x / dpr), Math.round(mouse.y / dpr)]);
+    if (rec.frames.length > REC_MAX) { rec.frames.shift(); rec.events = rec.events.map((e) => [e[0] - 1, e[1], e[2], e[3]]).filter((e) => e[0] >= 0); }
     step();
     ctx.clearRect(0, 0, w, h);
     ctx.drawImage(panel, 0, 0);
@@ -1854,6 +1862,7 @@ export function startPatchBay(
 
   canvas.addEventListener("pointerdown", (e) => {
     const x = e.clientX * dpr, y = e.clientY * dpr;
+    rec.events.push([rec.frames.length, "down", e.clientX, e.clientY]);
     if (drag) {
       // holding one end and clicking the cord's other plug: carry both.
       // Check the other end directly — the held plug rides the cursor and
@@ -1879,13 +1888,21 @@ export function startPatchBay(
   });
 
   canvas.addEventListener("pointerup", () => {
+    rec.events.push([rec.frames.length, "up", 0, 0]);
     if (!drag) return;
     trySeat();
   });
 
   window.addEventListener("resize", size);
   // ponytail: a handle for scripted checks; reads live state, drives nothing
-  canvas.__pb = () => ({ cables, crossings, jacks, dpr, N, drag });
+  canvas.__pb = () => ({ cables, crossings, jacks, dpr, N, drag, rec });
+  // R copies the recording; the bench shows "copied" for a moment
+  const onKey = (e) => {
+    if (e.key !== "r" && e.key !== "R") return;
+    const json = JSON.stringify(rec);
+    navigator.clipboard?.writeText(json).then(() => canvas.dispatchEvent(new CustomEvent("patchbay:copied")));
+  };
+  window.addEventListener("keydown", onKey);
   size();
   if (REDUCED) { dealing(); for (let i = 0; i < 240; i++) step(); dealt(); }
   draw(); // reduced motion: one settled, draped frame
@@ -1893,5 +1910,6 @@ export function startPatchBay(
   return () => {
     cancelAnimationFrame(rafId);
     window.removeEventListener("resize", size);
+    window.removeEventListener("keydown", onKey);
   };
 }
