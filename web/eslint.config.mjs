@@ -7,7 +7,7 @@ export default defineConfig([
   // Next's plugin set still exposes the ESLint 9 rule API; adapt rather than
   // disable while the ecosystem finishes its ESLint 10 move (same as revnet-money).
   ...fixupConfigRules([...nextVitals, ...nextTypeScript]),
-  globalIgnores([".next/**", "node_modules/**", "src/lib/patchbay.ts", "src/lib/patchbay3d-engine.ts"]),
+  globalIgnores([".next/**", "node_modules/**", "src/lib/patchbay.ts", "src/lib/patchbay3d-engine.ts", "src/lib/patchbay-spline-engine.ts"]),
   {
     rules: {
       "react/no-unescaped-entities": "off",
