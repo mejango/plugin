@@ -4,9 +4,9 @@
 // from the flat engine (the cord and plug look are unchanged); the physics is
 // the 3D solver in patchbay3d.ts.
 
-import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
+import { collide3, constrainLength3, integrate3, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v15";
+export const PATCHBAY3D_VERSION = "3d-v16";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -127,15 +127,15 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
 
   // a seated plug is a post: a solid connector standing off the board. A cord
-  // cannot enter its footprint in xy — UNLESS that cord is riding OVER the
-  // plug's own cord, in which case it rides over the connector too. "Over" is
-  // the stacking order the collision solver already tracks per pair (stick), not
-  // a height threshold: a cord merely lifted by the hand (draped near a held
-  // end) is NOT over the cord it is caught under, so it is still stopped by that
-  // cord's plug and cannot teleport through it.
+  // cannot enter its footprint in xy. There are exactly two ways past it: the
+  // cord is riding OVER the plug's own cord (the stacking order the solver keeps
+  // in `stick`), so it rides over the connector too; or the cord is lifted clear
+  // OVER THE TOP of the connector (its height in z exceeds the post). A cord
+  // merely draped or carried a little off the board — caught UNDER the plug's
+  // cord — is neither, so it is stopped and cannot slip through the connector.
+  const POST_H = LIFT_Z * 0.85;   // connector height; a cord must clear this to pass over the top
   function offPosts(c) {
     const BARREL = 15 * dpr, R = BARREL + c.r;
-    const view = ropeView(c);
     const ci = cables.indexOf(c);
     for (const o of cables) {
       const oi = cables.indexOf(o);
@@ -159,8 +159,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         const vx = fx - ex, vy = fy - ey, vv = vx * vx + vy * vy || 1;
         for (let i = 1; i < N - 1; i++) {
           if (o === c && (i <= 1 || i >= N - 2)) continue;   // a cord's own plug
-          if (lifted(view, i)) continue;
           const p = c.pts[i];
+          if (p.z > POST_H) continue;                        // lifted clear over the top of the connector
           const t = Math.max(0, Math.min(1, ((p.x - ex) * vx + (p.y - ey) * vy) / vv));
           const gx = ex + vx * t, gy = ey + vy * t;
           const dx = p.x - gx, dy = p.y - gy, d = Math.hypot(dx, dy);
