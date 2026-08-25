@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v3";
+export const PATCHBAY3D_VERSION = "3d-v4";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -355,7 +355,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     let best = null, bd = 44 * dpr;
     for (const j of jacks) { if (jackTaken(j)) continue; const d = Math.hypot(j.x - p.x, j.y - p.y); if (d < bd) { bd = d; best = j; } }
     if (!best) return;
-    if (end === "a") c.na = best; else c.nb = best;
+    // Anchor the seat animation at where the plug IS right now, not where the
+    // cord was first grabbed — otherwise the plug snaps back across the board
+    // to the grab point and the cord explodes on release.
+    const here = { x: p.x, y: p.y };
+    if (end === "a") { c.a = here; c.na = best; } else { c.b = here; c.nb = best; }
     c.moveSpeed = 0.1; c.move = 0;
     drag = null; canvas.style.cursor = "default";
   }
