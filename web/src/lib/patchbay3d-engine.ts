@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v20";
+export const PATCHBAY3D_VERSION = "3d-v21";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -116,7 +116,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
 
   // ── physics ──────────────────────────────────────────────────────────────
-  const G = 1.0, GZ = 0.04, DAMP = 0.992, LIFT_Z = 26;
+  const G = 1.0, GZ = 0.04, DAMP = 0.9, LIFT_Z = 26;
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
