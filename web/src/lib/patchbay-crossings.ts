@@ -201,8 +201,16 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
     }
   }
   // Anything else lost was lost by a cord going through a cord. It stays, at
-  // its last known place on both cords, and the ring pulls them back together.
-  for (const c of lost) if (!dead.has(c)) kept.push(c);
+  // its last known place on both cords, and the ring pulls them back together
+  // — unless the two have been torn further apart than any cord could be
+  // from one it is wound through. Then it has already failed, and a ring
+  // dragging at a point that far away is a ghost, not a hold.
+  const apart = (c: Crossing) => {
+    const A = ropes[c.a], B = ropes[c.b];
+    const a0 = A.pts[c.ia], a1 = A.pts[c.ia + 1], b0 = B.pts[c.ib], b1 = B.pts[c.ib + 1];
+    return Math.hypot(a0.x + (a1.x - a0.x) * c.ta - (b0.x + (b1.x - b0.x) * c.tb), a0.y + (a1.y - a0.y) * c.ta - (b0.y + (b1.y - b0.y) * c.tb));
+  };
+  for (const c of lost) if (!dead.has(c) && apart(c) <= (ropes[c.a].width + ropes[c.b].width) * 2) kept.push(c);
 
   // Born: whichever cord came to the other is on top — unless this is more
   // of a contact already there. A cord lying along another does not change

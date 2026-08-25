@@ -29,7 +29,7 @@ import { type Crossing, type Rope, liftedSeg, segHit, solveCrossings, updateCros
 
 // Bumped on every change to the engine, and shown on the bench, so nobody is
 // ever looking at a stale build while judging it.
-export const PATCHBAY_VERSION = "v2";
+export const PATCHBAY_VERSION = "v3";
 
 export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   for (let i = 1; i < n - 1; i++) {
@@ -1176,9 +1176,16 @@ export function startPatchBay(
       if (!c.hooks) c.hooks = [];
       for (const x of crossings) {
         if (!x.linked || x.over === ci || (x.a !== ci && x.b !== ci)) continue;
-        const i = x.a === ci ? x.ia : x.ib, t = x.a === ci ? x.ta : x.tb;
-        const p = c.pts[i], q = c.pts[i + 1];
-        c.hooks.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t, i });
+        // The hook is the point on the OTHER cord. Measured on the cord in
+        // hand, the hook drifted with it under a hard pull, the ring lost to
+        // the length solver, and the cord slid straight through the cord it
+        // was under. Measured on the cord it runs under, the hand can haul
+        // that cord along while it has slack to give, and stops when it has
+        // none — which is what being caught under a cord is.
+        const o = cables[x.over];
+        const j = x.a === x.over ? x.ia : x.ib, u = x.a === x.over ? x.ta : x.tb;
+        const p = o.pts[j], q = o.pts[j + 1];
+        c.hooks.push({ x: p.x + (q.x - p.x) * u, y: p.y + (q.y - p.y) * u, i: x.a === ci ? x.ia : x.ib });
       }
     }
   }

@@ -88,19 +88,19 @@ describe("crossing life-cycle", () => {
   });
   it("lets a cord lying over another lift off, but keeps a weave (a cord cannot pass through a cord)", () => {
     const A = rope(0, 50, 300, 50, { heldB: true });
-    const B = rope(150, 0, 150, 100);
+    const B = rope(150, 30, 150, 70);   // short, so a small move loses the crossing
     let xs = updateCrossings([A, B], [], [0, 0], 0);
-    shift(B, 0, 80);            // B now hangs entirely below A: nothing is wound, it lifted off
-    xs = updateCrossings([A, B], xs, [0, 80], 0);
+    shift(B, 0, 40);            // B now hangs clear below A: nothing is wound, it lifted off
+    xs = updateCrossings([A, B], xs, [0, 40], 0);
     expect(xs).toHaveLength(0);
 
     const C = rope(0, 50, 300, 50, { heldB: true });
-    const D = rope(150, 0, 150, 100);
+    const D = rope(150, 30, 150, 70);
     let ys = updateCrossings([C, D], [], [0, 0], 0);
     // and a second crossing of the pair the other way round: D is threaded through C
-    ys.push({ a: 0, b: 1, ia: 2, ta: 0.5, ib: 2, tb: 0.5, over: 1, linked: true });
-    shift(D, 0, 80);
-    ys = updateCrossings([C, D], ys, [0, 80], 0);
+    ys.push({ a: 0, b: 1, ia: 7, ta: 0.5, ib: 1, tb: 0.5, over: 1, linked: true });
+    shift(D, 0, 30);
+    ys = updateCrossings([C, D], ys, [0, 30], 0);
     expect(ys).toHaveLength(2);
   });
   it("dies when carried clear by a held end", () => {
@@ -130,19 +130,19 @@ describe("crossing life-cycle", () => {
   });
   it("annihilates a bight of two same-over crossings, keeps a mixed pair", () => {
     const line = rope(0, 50, 300, 50);
-    const u = uRope(100, 200, 0, 90, );          // dips through the line twice
+    const u = uRope(100, 200, 0, 62);            // dips through the line twice
     let xs = updateCrossings([line, u], [], [0, 5], -1);
     expect(xs).toHaveLength(2);
     expect(xs[0].over).toBe(1); expect(xs[1].over).toBe(1);
-    shift(u, 0, -60);                            // pulled back out
-    xs = updateCrossings([line, u], xs, [0, 60], -1);
+    shift(u, 0, -25);                            // pulled back out
+    xs = updateCrossings([line, u], xs, [0, 25], -1);
     expect(xs).toHaveLength(0);
 
-    const u2 = uRope(100, 200, 0, 90);
+    const u2 = uRope(100, 200, 0, 62);
     let ys = updateCrossings([line, u2], [], [0, 5], -1);
     ys[0].over = 0;                              // a real wrap: over, then under
-    shift(u2, 0, -60);
-    ys = updateCrossings([line, u2], ys, [0, 60], -1);
+    shift(u2, 0, -25);
+    ys = updateCrossings([line, u2], ys, [0, 25], -1);
     expect(ys).toHaveLength(2);
   });
 });
@@ -192,12 +192,12 @@ describe("solveCrossings", () => {
     return Math.hypot(p.x - q.x, p.y - q.y);
   };
   it("pulls a kept crossing back to within half a width, moving prev with pts", () => {
-    const A = rope(0, 50, 300, 50), B = rope(150, 0, 150, 100);
+    const A = rope(0, 50, 300, 50), B = rope(150, 30, 150, 70);
     let xs = updateCrossings([A, B], [], [0, 5], -1);
     xs.push({ a: 0, b: 1, ia: 1, ta: 0.5, ib: 14, tb: 0.5, over: 0, linked: true }); // woven
-    shift(B, 0, 80);            // B now hangs entirely below A
-    xs = updateCrossings([A, B], xs, [0, 80], -1);
-    expect(apart(xs, [A, B])).toBeGreaterThan(20);
+    shift(B, 0, 30);            // B now hangs entirely below A
+    xs = updateCrossings([A, B], xs, [0, 30], -1);
+    expect(apart(xs, [A, B])).toBeGreaterThan(8);
     const moved = solveCrossings([A, B], xs, 4);
     expect(apart(xs, [A, B])).toBeLessThanOrEqual(A.width / 2 + 0.5);
     expect(moved[0] + moved[1]).toBeGreaterThan(0);
@@ -206,7 +206,7 @@ describe("solveCrossings", () => {
       expect(r.pts[i].y - r.prev[i].y).toBeCloseTo(0);
     }
     // pinned ends never move
-    expect(B.pts[0].y).toBe(80); expect(B.pts[N - 1].y).toBe(180);
+    expect(B.pts[0].y).toBe(60); expect(B.pts[N - 1].y).toBe(100);
     expect(A.pts[0].y).toBe(50); expect(A.pts[N - 1].y).toBe(50);
   });
   it("leaves the first segment out of a held end alone — the hand wins", () => {
