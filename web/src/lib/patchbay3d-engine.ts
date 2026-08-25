@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v2";
+export const PATCHBAY3D_VERSION = "3d-v3";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -17,7 +17,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   let drag = null;                    // { cable, end: "a"|"b" }
   const rec = { seed: 0, w: innerWidth, h: innerHeight, dpr: 0, frames: [], events: [] };
 
-  let seed = ((Math.random() * 2 ** 31) | 0) || 1;
+  let seed = (typeof window !== "undefined" && (window as unknown as { __patchbaySeed?: number }).__patchbaySeed) || ((Math.random() * 2 ** 31) | 0) || 1;
   rec.seed = seed;
   let _s = seed >>> 0;
   const rand = () => {
@@ -129,19 +129,27 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // A cord cannot enter its footprint in xy (unless the cord is lifted over it).
   function offPosts(c) {
     const BARREL = 15 * dpr, R = BARREL + c.r;
+    const view = ropeView(c);
     for (const o of cables) {
       for (const name of ["a", "b"]) {
         if (heldEnd(o, name)) continue;
+        // the post is a CAPSULE from the jack out to the collar, so a cord is
+        // blocked everywhere around the connector — including the gap right at
+        // the hole, which a single circle further out left open (a cord slipped
+        // BETWEEN the endcap and the jack).
         const e = name === "a" ? o.pts[0] : o.pts[N - 1];
         const nx = name === "a" ? o.pts[1] : o.pts[N - 2];
         const ux = nx.x - e.x, uy = nx.y - e.y, ul = Math.hypot(ux, uy) || 1;
-        const cx = e.x + (ux / ul) * BARREL * 0.7, cy = e.y + (uy / ul) * BARREL * 0.7;
+        const ex = e.x, ey = e.y, fx = e.x + (ux / ul) * BARREL, fy = e.y + (uy / ul) * BARREL;
+        const vx = fx - ex, vy = fy - ey, vv = vx * vx + vy * vy || 1;
         for (let i = 1; i < N - 1; i++) {
           if (o === c && (i <= 1 || i >= N - 2)) continue;   // a cord's own plug
-          if (lifted(ropeView(c), i)) continue;
+          if (lifted(view, i)) continue;
           const p = c.pts[i];
-          const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy);
-          if (d < R && d > 1e-6) { p.x = cx + (dx / d) * R; p.y = cy + (dy / d) * R; }
+          const t = Math.max(0, Math.min(1, ((p.x - ex) * vx + (p.y - ey) * vy) / vv));
+          const gx = ex + vx * t, gy = ey + vy * t;
+          const dx = p.x - gx, dy = p.y - gy, d = Math.hypot(dx, dy);
+          if (d < R && d > 1e-6) { p.x = gx + (dx / d) * R; p.y = gy + (dy / d) * R; }
         }
       }
     }
