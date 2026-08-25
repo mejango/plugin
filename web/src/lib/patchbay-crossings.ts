@@ -170,7 +170,15 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
 
   // Gone: off an end that a hand is holding. The plug is lifted clear.
   const dead = new Set<Crossing>();
+  const pinned2 = new Set<Crossing>();
+  const seatedEnd = (r: Rope, i: number) =>
+    (i <= 0 && !r.heldA) || (i >= r.pts.length - 2 && !r.heldB);
   for (const c of lost) {
+    // Pinned: a crossing whose contact has reached a SEATED plug of either
+    // cord cannot fall off it — the connector stands in the way. It is kept
+    // wherever it was, and no later rule may kill it. This is what stops a
+    // caught cord sliding off the other's insert and out the far side.
+    if (seatedEnd(ropes[c.a], c.ia) || seatedEnd(ropes[c.b], c.ib)) { kept.push(c); c.lost = true; pinned2.add(c); continue; }
     if (nearHeldEnd(ropes[c.a], c.ia) || nearHeldEnd(ropes[c.b], c.ib)) dead.add(c);
   }
   // Gone: nothing is wound. Two cords that only ever cross the same way
@@ -200,17 +208,13 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
       break;
     }
   }
-  // Anything else lost was lost by a cord going through a cord. It stays, at
-  // its last known place on both cords, and the ring pulls them back together
-  // — unless the two have been torn further apart than any cord could be
-  // from one it is wound through. Then it has already failed, and a ring
-  // dragging at a point that far away is a ghost, not a hold.
-  const apart = (c: Crossing) => {
-    const A = ropes[c.a], B = ropes[c.b];
-    const a0 = A.pts[c.ia], a1 = A.pts[c.ia + 1], b0 = B.pts[c.ib], b1 = B.pts[c.ib + 1];
-    return Math.hypot(a0.x + (a1.x - a0.x) * c.ta - (b0.x + (b1.x - b0.x) * c.tb), a0.y + (a1.y - a0.y) * c.ta - (b0.y + (b1.y - b0.y) * c.tb));
-  };
-  for (const c of lost) if (!dead.has(c) && apart(c) <= (ropes[c.a].width + ropes[c.b].width) * 2) kept.push(c);
+  // Anything else lost is a MID-SPAN crossing: two cords cross here and neither
+  // end has run off. It is permanent — a cord cannot stop crossing another
+  // except by an end sliding off (held above) or a bight sliding out (below).
+  // It stays at its last place and the ring, with the cords being solid to
+  // each other, holds the two together. Letting a stretched one die was what
+  // freed a caught cord to slide through the other and out the far side.
+  for (const c of lost) if (!dead.has(c) && !pinned2.has(c)) kept.push(c);
 
   // Born: whichever cord came to the other is on top — unless this is more
   // of a contact already there. A cord lying along another does not change
@@ -304,6 +308,73 @@ export function solveCrossings(ropes: Rope[], crossings: Crossing[], passes: num
         const k = -(need * (1 - shareA)) / sb;
         push(B, c.ib, gb0, k); push(B, c.ib + 1, gb1, k);
         moved[c.b] = Math.max(moved[c.b], need * (1 - shareA));
+      }
+    }
+  }
+  return moved;
+}
+
+/**
+ * Cords are solid to each other everywhere EXCEPT at a crossing. A crossing is
+ * the one place two cords may overlap — there one lies over the other. Between
+ * crossings they are on definite sides and may not pass through: where two
+ * segments come within a cord-width and neither is exempt, they push apart
+ * along the line already separating them, so a cord kept out stays out.
+ *
+ * Exempt from the push:
+ *  - a segment within a segment of a registered crossing (the gate, where they
+ *    are meant to touch);
+ *  - a LIFTED segment — the stretch by a held plug is in the air and passes
+ *    over everything, which is how a new crossing is ever made.
+ *
+ * One-sided (only when penetrating) and along the current normal (the side the
+ * cord is already on), so it never fights a cord that is already clear — that
+ * is what keeps it from the jitter that sank the first attempt at solid cords.
+ * `prev` moves with `pts`: it reshapes without inventing speed.
+ */
+export function cordCollide(ropes: Rope[], crossings: Crossing[], only = -1): boolean[] {
+  const moved = ropes.map(() => false);
+  const N = ropes[0]?.pts.length ?? 0;
+  for (let a = 0; a < ropes.length; a++) {
+    for (let b = a + 1; b < ropes.length; b++) {
+      if (only >= 0 && a !== only && b !== only) continue;
+      const A = ropes[a], B = ropes[b];
+      // gate cells: segment pairs at or beside a crossing of this pair
+      const gate = new Set<number>();
+      for (const c of crossings) {
+        if (!((c.a === a && c.b === b) || (c.a === b && c.b === a))) continue;
+        const ia = c.a === a ? c.ia : c.ib, ib = c.a === a ? c.ib : c.ia;
+        for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+          gate.add((ia + di) * 64 + (ib + dj));
+        }
+      }
+      const clear = (A.width + B.width) / 2;
+      for (let i = 0; i < N - 1; i++) {
+        if (liftedSeg(A, i)) continue;
+        for (let j = 0; j < N - 1; j++) {
+          if (gate.has(i * 64 + j)) continue;
+          if (liftedSeg(B, j)) continue;
+          const p0 = A.pts[i], p1 = A.pts[i + 1], q0 = B.pts[j], q1 = B.pts[j + 1];
+          const n = segNear(p0, p1, q0, q1);
+          if (n.d >= clear || n.d < 1e-6) continue;
+          const px = p0.x + (p1.x - p0.x) * n.t, py = p0.y + (p1.y - p0.y) * n.t;
+          const qx = q0.x + (q1.x - q0.x) * n.u, qy = q0.y + (q1.y - q0.y) * n.u;
+          let nx = px - qx, ny = py - qy;
+          const d = Math.hypot(nx, ny) || 1e-6;
+          nx /= d; ny /= d;
+          const push = (clear - n.d) / 2;
+          const shove = (r: Rope, k: number, t: number, sign: number) => {
+            const g0 = k > 0 ? 1 - t : 0, g1 = k + 1 < N - 1 ? t : 0;
+            const spread = g0 * g0 + g1 * g1;
+            if (spread < 1e-6) return;
+            const s = (push * sign) / spread;
+            const m0 = r.pts[k], m1 = r.pts[k + 1], r0 = r.prev[k], r1 = r.prev[k + 1];
+            if (g0) { m0.x += nx * s * g0; m0.y += ny * s * g0; r0.x += nx * s * g0; r0.y += ny * s * g0; }
+            if (g1) { m1.x += nx * s * g1; m1.y += ny * s * g1; r1.x += nx * s * g1; r1.y += ny * s * g1; }
+          };
+          shove(A, i, n.t, 1); shove(B, j, n.u, -1);
+          moved[a] = true; moved[b] = true;
+        }
       }
     }
   }

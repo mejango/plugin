@@ -25,11 +25,11 @@
  * velocity; `bendDamp` then bleeds what is left along the bend normal only,
  * leaving drape and swing — which live in the tangential component — untouched.
  */
-import { type Crossing, type Rope, liftedSeg, segHit, solveCrossings, updateCrossings } from "./patchbay-crossings";
+import { type Crossing, type Rope, cordCollide, liftedSeg, segHit, solveCrossings, updateCrossings } from "./patchbay-crossings";
 
 // Bumped on every change to the engine, and shown on the bench, so nobody is
 // ever looking at a stale build while judging it.
-export const PATCHBAY_VERSION = "v10";
+export const PATCHBAY_VERSION = "v11";
 
 export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   for (let i = 1; i < n - 1; i++) {
@@ -604,31 +604,6 @@ export function startPatchBay(
     // other but never swings out to its far side. Run inside the drag substeps
     // (the plug moves only a few pixels a step) so the point is turned back
     // before it can complete the crossing, not after.
-    const offCord = (c, o) => {
-      for (let i = 1; i < N - 1; i++) {
-        const p = c.pts[i], r = c.prev[i];
-        const mx = p.x - r.x, my = p.y - r.y;
-        if (mx * mx + my * my < 0.5) continue;
-        for (let j = 0; j < N - 1; j++) {
-          const a = o.pts[j], b = o.pts[j + 1];
-          const ex = b.x - a.x, ey = b.y - a.y;
-          const d1 = (p.x - a.x) * ey - (p.y - a.y) * ex;
-          const d0 = (r.x - a.x) * ey - (r.y - a.y) * ex;
-          if (d1 * d0 >= 0) continue;              // both ends the same side: no cross
-          const den = mx * ey - my * ex;
-          if (Math.abs(den) < 1e-9) continue;
-          const u = ((a.x - r.x) * ey - (a.y - r.y) * ex) / den;
-          const t = ((a.x - r.x) * my - (a.y - r.y) * mx) / den;
-          if (u < 0 || u > 1 || t < 0 || t > 1) continue;
-          const el = Math.hypot(ex, ey) || 1e-6;
-          let nx = -ey / el, ny = ex / el;
-          if (nx * (r.x - a.x) + ny * (r.y - a.y) < 0) { nx = -nx; ny = -ny; }
-          const clear = o.width * 0.55 + c.width * 0.45;
-          const sd = (p.x - a.x) * nx + (p.y - a.y) * ny;
-          if (sd < clear) { const push = clear - sd; p.x += nx * push; p.y += ny * push; }
-        }
-      }
-    };
     const offStuds = (c, mode) => {
       let hit = false;
       const ci = cables.indexOf(c);
@@ -1006,11 +981,9 @@ export function startPatchBay(
       const fromX = heldA ? c.prev[0].x : c.prev[N - 1].x, fromY = heldA ? c.prev[0].y : c.prev[N - 1].y;
       const travel = inHand ? Math.hypot((heldA ? ax : bx) - fromX, (heldA ? ay : by) - fromY) : 0;
       const K = inHand ? Math.min(12, Math.max(1, Math.ceil(travel / (8 * dpr)))) : 1;
-      // cords this dragged one runs UNDER — it must not pass through them
-      const underOf = [];
-      if (inHand) for (const x of crossings) {
-        if ((x.a === ci || x.b === ci) && x.over !== ci) underOf.push(cables[x.over]);
-      }
+      // a live view of every cord, so the dragged one can be kept solid against
+      // them inside its own substeps (they barely move between its frames)
+      const ropeView = inHand ? cables.map(ropeOf) : null;
       for (let sub = 1; sub <= K; sub++) {
         const f = sub / K;
         const sax = heldA ? fromX + (ax - fromX) * f : ax, say = heldA ? fromY + (ay - fromY) * f : ay;
@@ -1046,7 +1019,7 @@ export function startPatchBay(
         // around the plug rather than through it; the pass after this one puts
         // the length back.
         offStuds(c, LIFT);
-        for (const o of underOf) offCord(c, o);
+        if (ropeView) cordCollide(ropeView, crossings, ci);
         }
       }
 
@@ -1096,6 +1069,7 @@ export function startPatchBay(
       }
       relaxBendMemory(c.pts, c.prev, c.kinkLocal, Math.min(0.35, c.stiff * 3), BEND_DAMP, N);
       for (let sc = 0; sc < 2; sc++) if (!selfCollide(c)) break;
+      if (ropeView) cordCollide(ropeView, crossings, ci);
 
       for (let d = 1; d <= STRAIN_REACH; d++) {
         const w = STRAIN * (1 - (d - 1) / STRAIN_REACH);
@@ -1319,6 +1293,9 @@ export function startPatchBay(
       for (let round = 0; round < 3; round++) {
         const stirredBy = solveCrossings(ropes, crossings, 2);
         stirredBy.forEach((m, i) => { if (m > SLEEP_BELOW) cables[i].still = 0; });
+        // cords are solid to each other between their crossings
+        const bumped = cordCollide(ropes, crossings);
+        bumped.forEach((m, i) => { if (m) cables[i].still = 0; });
         for (const c of awake) offStuds(c, LIFT);
       }
     }
