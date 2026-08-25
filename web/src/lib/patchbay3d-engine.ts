@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v13";
+export const PATCHBAY3D_VERSION = "3d-v14";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -126,17 +126,26 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     return (drag && drag.cable === c && drag.end === name) || (c.move < 1 && (name === "a" ? c.a !== c.na : c.b !== c.nb));
   }
 
-  // a seated plug is a post: a short vertical cylinder standing off the board.
-  // A cord cannot enter its footprint in xy — UNLESS it is riding higher than
-  // the post is tall, the same way a cord draped over another rides above it.
-  // The post is only about a cord-diameter tall (a connector, not a wall), so a
-  // cord that has climbed onto the plug's own cord clears its connector too;
-  // only a cord flat on the board is stopped.
+  // a seated plug is a post: a solid connector standing off the board. A cord
+  // cannot enter its footprint in xy — UNLESS that cord is riding OVER the
+  // plug's own cord, in which case it rides over the connector too. "Over" is
+  // the stacking order the collision solver already tracks per pair (stick), not
+  // a height threshold: a cord merely lifted by the hand (draped near a held
+  // end) is NOT over the cord it is caught under, so it is still stopped by that
+  // cord's plug and cannot teleport through it.
   function offPosts(c) {
     const BARREL = 15 * dpr, R = BARREL + c.r;
-    const POST_H = c.r * 1.2;   // a connector ~a cord-diameter tall; a cord stacked one diameter up (z≈2·r) clears it
     const view = ropeView(c);
+    const ci = cables.indexOf(c);
     for (const o of cables) {
+      const oi = cables.indexOf(o);
+      // is c currently over o? (order>0 means the lower-index cord is on top)
+      let cOverO = false;
+      if (o !== c) {
+        const order = stick.get(Math.min(ci, oi) + "," + Math.max(ci, oi));
+        if (order !== undefined) cOverO = ci < oi ? order > 0 : order < 0;
+      }
+      if (cOverO) continue;   // riding over this cord — its connector is cleared too
       for (const name of ["a", "b"]) {
         if (heldEnd(o, name)) continue;
         // the post is a CAPSULE from the jack out to the collar, so a cord is
@@ -152,8 +161,6 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           if (o === c && (i <= 1 || i >= N - 2)) continue;   // a cord's own plug
           if (lifted(view, i)) continue;
           const p = c.pts[i];
-          if (p.z > e.z + POST_H) continue;                  // riding over the connector
-
           const t = Math.max(0, Math.min(1, ((p.x - ex) * vx + (p.y - ey) * vy) / vv));
           const gx = ex + vx * t, gy = ey + vy * t;
           const dx = p.x - gx, dy = p.y - gy, d = Math.hypot(dx, dy);
