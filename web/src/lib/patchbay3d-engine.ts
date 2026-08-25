@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v5";
+export const PATCHBAY3D_VERSION = "3d-v6";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -171,14 +171,6 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         if (drag && drag.cable === c && drag.end === name) {
           const fr = from[name] || { x: mouse.x, y: mouse.y, z: LIFT_Z };
           p.x = fr.x + (mouse.x - fr.x) * f; p.y = fr.y + (mouse.y - fr.y) * f; p.z = LIFT_Z;
-          // drape: the cord hangs from the hand down to the board, so a carried
-          // cord rides over what it crosses (high z near the hand)
-          const n = c.pts.length;
-          for (let k = 1; k < n - 1; k++) {
-            const d = name === "a" ? k : n - 1 - k;
-            const want = LIFT_Z * Math.max(0, 1 - d / 5);
-            if (c.pts[k].z < want) c.pts[k].z = want;
-          }
         } else if (c.move < 1) {
           const k = ease(c.move);
           const src = name === "a" ? c.a : c.b, dst = name === "a" ? c.na : c.nb;
@@ -193,11 +185,26 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     // the substep count changes. Only the constraint solve is substepped, with
     // the held plug interpolated across it so the body never leaps a cord.
     for (const c of cables) integrate3(ropeView(c), G * dpr, GZ, DAMP);
+    // The dragged cord DRAPES from the hand down to the board — but as a soft
+    // pull, not a command. Where it runs UNDER another cord, collision (run
+    // last) pushes it back down and it stays caught; away from that the drape
+    // lifts it and it rides over. So a caught cord is never teleported over —
+    // you must pull it free.
+    const drape = () => {
+      if (!drag) return;
+      const c = drag.cable, n = c.pts.length;
+      for (let k = 1; k < n - 1; k++) {
+        const d = drag.end === "a" ? k : n - 1 - k;
+        const want = LIFT_Z * Math.max(0, 1 - d / 5);
+        c.pts[k].z += (want - c.pts[k].z) * 0.25;
+      }
+    };
     const SUB = 8;
     for (let s = 1; s <= SUB; s++) {
       for (const c of cables) constrainLength3(ropeView(c), 3);
       pin(s / SUB);
       for (const c of cables) offPosts(c);
+      drape();
       collide3(ropes, 2);
       pin(s / SUB);
     }
