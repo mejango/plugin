@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v9";
+export const PATCHBAY3D_VERSION = "3d-v10";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -341,10 +341,54 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         drawPlug(c, e[0], e[1]);
       }
     });
+    // debug overlay (lab only): when an end is grabbed, show what physics says.
+    // The grabbed cord is cyan. Any cord that currently sits ABOVE it where they
+    // cross is magenta — those are what it cannot climb over. The seated ends of
+    // those over-cords are ringed amber: each is an impasse, an anchor that pins
+    // a cord down across the grabbed one, so the grabbed end cannot pass it.
+    if (canvas.__lab && drag) {
+      const G = drag.cable;
+      const above = new Set();
+      for (const C of cables) {
+        if (C === G) continue;
+        for (let i = 0; i < N - 1 && !above.has(C); i++) for (let j = 0; j < N - 1; j++) {
+          const hit = segHit(G.pts[i], G.pts[i + 1], C.pts[j], C.pts[j + 1]);
+          if (!hit) continue;
+          const zg = G.pts[i].z + (G.pts[i + 1].z - G.pts[i].z) * hit.t;
+          const zc = C.pts[j].z + (C.pts[j + 1].z - C.pts[j].z) * hit.u;
+          if (zc > zg) { above.add(C); break; }
+        }
+      }
+      ctx.save();
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      const glow = (c, col) => {
+        ctx.globalAlpha = 0.35; ropePath(c.pts, 0); ctx.strokeStyle = col; ctx.lineWidth = c.width * 3.4; ctx.stroke();
+        ctx.globalAlpha = 0.95; ropePath(c.pts, 0); ctx.strokeStyle = col; ctx.lineWidth = c.width * 0.7; ctx.stroke();
+      };
+      glow(G, "rgb(0,190,255)");
+      for (const C of above) glow(C, "rgb(255,45,130)");
+      ctx.globalAlpha = 1;
+      for (const C of above) for (const e of [C.pts[0], C.pts[N - 1]]) {
+        ctx.beginPath(); ctx.arc(e.x, e.y, C.width * 2.3, 0, 7);
+        ctx.fillStyle = "rgba(255,200,0,0.18)"; ctx.fill();
+        ctx.strokeStyle = "rgb(255,200,0)"; ctx.lineWidth = 3 * dpr; ctx.stroke();
+        ctx.beginPath(); ctx.arc(e.x, e.y, C.width * 2.3 + 5 * dpr, 0, 7);
+        ctx.strokeStyle = "rgba(255,200,0,0.4)"; ctx.lineWidth = 2 * dpr; ctx.stroke();
+      }
+      ctx.restore();
+    }
     // frame counter for lining up recordings
     if (canvas.__lab) {
       ctx.save(); ctx.font = "600 " + 11 * dpr + "px ui-monospace, Menlo, monospace";
-      ctx.fillStyle = "rgba(120,120,120,0.9)"; ctx.fillText("f " + rec.frames.length, 12 * dpr, h - 12 * dpr); ctx.restore();
+      ctx.fillStyle = "rgba(120,120,120,0.9)"; ctx.fillText("f " + rec.frames.length, 12 * dpr, h - 12 * dpr);
+      const leg = [["grabbed", "rgb(0,190,255)"], ["above", "rgb(255,45,130)"], ["impasse", "rgb(255,200,0)"]];
+      let lx = 12 * dpr; const ly = h - 30 * dpr;
+      for (const [t, col] of leg) {
+        ctx.fillStyle = col; ctx.beginPath(); ctx.arc(lx + 5 * dpr, ly - 4 * dpr, 5 * dpr, 0, 7); ctx.fill();
+        ctx.fillStyle = "rgba(120,120,120,0.9)"; ctx.fillText(t, lx + 14 * dpr, ly);
+        lx += (14 + t.length * 7 + 14) * dpr;
+      }
+      ctx.restore();
     }
     if (!REDUCED) rafId = requestAnimationFrame(draw);
   }
@@ -390,7 +434,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   canvas.addEventListener("pointerup", () => { rec.events.push([rec.frames.length, "up", 0, 0]); if (drag) trySeat(); });
 
   canvas.__pb3d = () => ({ cables, jacks, dpr, N, drag, rec });
-  canvas.__lab = false;
+  if (canvas.__lab == null) canvas.__lab = false;   // the lab page sets it true before us; don't clobber
   const onKey = (e) => { if (e.key === "r" || e.key === "R") navigator.clipboard?.writeText(JSON.stringify(rec)).then(() => canvas.dispatchEvent(new CustomEvent("patchbay:copied"))); };
   window.addEventListener("keydown", onKey);
   window.addEventListener("resize", size);
