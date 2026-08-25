@@ -29,7 +29,7 @@ import { type Crossing, type Rope, liftedSeg, segHit, solveCrossings, updateCros
 
 // Bumped on every change to the engine, and shown on the bench, so nobody is
 // ever looking at a stale build while judging it.
-export const PATCHBAY_VERSION = "v6";
+export const PATCHBAY_VERSION = "v7";
 
 export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   for (let i = 1; i < n - 1; i++) {
@@ -969,6 +969,45 @@ export function startPatchBay(
         }
       }
 
+      // Taut: a cord has a length. Pinned to a hand that has gone further
+      // than the cord can follow — round a post, under another cord — it comes
+      // out of the solve longer than it is. Then the plug is drawn back along
+      // the cord by the excess, less a little give, and the length is settled
+      // again. The cord stays taut and still, and follows the hand along its
+      // limit, wherever that limit runs.
+      // Only a cord that is CAUGHT — on a post, under another cord — gets this.
+      // A free cord's reach is the straight line, settled in aimHand, and the
+      // solver's ordinary give at speed must not read as overreach.
+      c.taut = 0;
+      if (c.hooks && c.hooks.length) c.caughtAt = t;
+      if (inHand && c.caughtAt !== undefined && t - c.caughtAt < 0.25) {
+        for (let round = 0; round < 2; round++) {
+          let arc = 0;
+          for (let i = 0; i < N - 1; i++) arc += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
+          const excess = arc - c.len * 1.02;
+          if (excess <= 0) break;
+          c.taut = excess;
+          const end = heldA ? c.pts[0] : c.pts[N - 1], next = heldA ? c.pts[1] : c.pts[N - 2];
+          const dx = next.x - end.x, dy = next.y - end.y, dl = Math.hypot(dx, dy) || 1e-6;
+          const pull = Math.min(excess, dl * 0.9);
+          end.x += (dx / dl) * pull; end.y += (dy / dl) * pull;
+          const hold = heldA ? c.a : c.b;
+          hold.x = end.x; hold.y = end.y;
+          for (let iter = 0; iter < 4; iter++) {
+            for (let s = 0; s < N - 1; s++) {
+              const i = iter % 2 === 0 ? s : N - 2 - s;
+              const p = c.pts[i], q = c.pts[i + 1];
+              const ddx = q.x - p.x, ddy = q.y - p.y;
+              const d = Math.hypot(ddx, ddy) || 1e-6;
+              const pFree = i > 0, qFree = i < N - 2;
+              const diff = (d - rest) / d / (pFree && qFree ? 2 : 1);
+              if (pFree) { p.x += ddx * diff; p.y += ddy * diff; }
+              if (qFree) { q.x -= ddx * diff; q.y -= ddy * diff; }
+            }
+            offStuds(c, LIFT);
+          }
+        }
+      }
       relaxBendMemory(c.pts, c.prev, c.kinkLocal, Math.min(0.35, c.stiff * 3), BEND_DAMP, N);
 
       for (let d = 1; d <= STRAIN_REACH; d++) {
@@ -1817,25 +1856,11 @@ export function startPatchBay(
         // holding taut where it was caught.
         let anchor = other, spare = c.len * 0.995;
         const hooks = c.hooks || [];
-        if (hooks.length) {
-          // How far the hand can go is how much cord is left once the run
-          // from the far plug to the last thing the cord is caught on is
-          // pulled TAUT — straight from hook to hook. The slack draped along
-          // that run is not lost, it draws through: a crossing slides along
-          // the cord and a post lets the cord run past it. Measuring the run
-          // along the cord as it lay put every hooked cord at its limit the
-          // moment it was caught, whatever slack it had.
-          const fromA = drag.ends[0] === "a";
-          const chain = [...hooks].sort((p, q) => (fromA ? q.i - p.i : p.i - q.i)); // far end first
-          let run = 0, last = other;
-          for (const k of chain) { run += Math.hypot(k.x - last.x, k.y - last.y); last = k; }
-          anchor = last;
-          spare = c.len * 0.995 - run;
-          dx = mouse.x - anchor.x; dy = mouse.y - anchor.y;
-          // beyond the reach the plug is clamped to it below, and slides
-          // along it toward the hand — it used to freeze until the hand
-          // came back inside, which read as the plug ignoring the mouse
-        }
+        // No chain through the hooks any more. It flickered — one contact
+        // this frame, two the next — and the plug bounced a whole step between
+        // two answers with the hand dead still. The cord decides instead: the
+        // plug is pinned to the hand, the cord is solved, and if it came out
+        // longer than it is, the plug is drawn back along it (below, in step).
         const d2 = Math.hypot(dx, dy) || 1e-6;
         if (d2 > spare) { dx *= spare / d2; dy *= spare / d2; }
         let ex = anchor.x + dx, ey = anchor.y + dy;
@@ -1850,7 +1875,10 @@ export function startPatchBay(
           // the plug with it, in a single jump. The caps are well above any
           // speed a hand drags at, so they never lag; they are only there so
           // a change of anchor cannot fling the plug across the panel.
-          const STEP = (hooks.length ? 60 : 90) * dpr;
+          // Taut, the plug creeps: it is being drawn back along the cord
+          // every frame by whatever it overreached, so the step toward the
+          // hand has to be small or the two would trade blows a step at a time.
+          const STEP = (c.taut > 0.5 * dpr ? 6 : hooks.length ? 60 : 90) * dpr;
           if (md > STEP) { ex = cur.x + (mx / md) * STEP; ey = cur.y + (my / md) * STEP; }
         }
         end.x = ex;
