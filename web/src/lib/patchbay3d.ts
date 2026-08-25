@@ -167,6 +167,42 @@ export function collide3(ropes: Rope3[], iters: number): boolean[] {
   return moved;
 }
 
+/**
+ * Minimum bend radius: a real cable resists folding flat. Where a point's two
+ * arms have closed to nearly a hairpin, rotate them apart a little so the fold
+ * opens into a rounded bight instead of a pinched crease that reads as the cord
+ * "caught on itself". Works in the plane (z is tiny) and never moves a pinned
+ * end. This is what a stiff rubber cord does; the solver has no other opinion
+ * about how sharp a bend may be.
+ */
+export function openFolds3(r: Rope3, minCos: number, relax: number) {
+  const n = r.pts.length;
+  for (let i = 1; i < n - 1; i++) {
+    const p = r.pts[i], pm = r.pts[i - 1], pp = r.pts[i + 1];
+    const ax = pm.x - p.x, ay = pm.y - p.y, la = Math.hypot(ax, ay) || 1e-6;
+    const bx = pp.x - p.x, by = pp.y - p.y, lb = Math.hypot(bx, by) || 1e-6;
+    const cos = (ax * bx + ay * by) / (la * lb);
+    if (cos < minCos) continue;                 // open enough, leave it
+    // rotate each free arm outward about p to widen the angle
+    const target = Math.acos(Math.max(-1, Math.min(1, minCos)));
+    const cur = Math.acos(Math.max(-1, Math.min(1, cos)));
+    const cross = ax * by - ay * bx;
+    const sgn = cross >= 0 ? 1 : -1;
+    const open = (target - cur) * relax;
+    const mFree = i - 1 > 0, pFree = i + 1 < n - 1;
+    const each = mFree && pFree ? open / 2 : open;
+    const swing = (q: P3, prev: P3, ang: number) => {
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const dx = q.x - p.x, dy = q.y - p.y;
+      const nx = p.x + dx * ca - dy * sa, ny = p.y + dx * sa + dy * ca;
+      prev.x += nx - q.x; prev.y += ny - q.y;
+      q.x = nx; q.y = ny;
+    };
+    if (mFree) swing(pm, r.prev[i - 1], -sgn * each);
+    if (pFree) swing(pp, r.prev[i + 1], sgn * each);
+  }
+}
+
 /** Smallest 3D gap between any non-adjacent segment pair across two cords —
  * the measurement the tests use: if this stays at or above the cords' combined
  * radius, one cord never passed through the other. */

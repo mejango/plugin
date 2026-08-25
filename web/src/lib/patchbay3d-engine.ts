@@ -4,9 +4,9 @@
 // from the flat engine (the cord and plug look are unchanged); the physics is
 // the 3D solver in patchbay3d.ts.
 
-import { collide3, constrainLength3, integrate3, lifted, segClosest3 } from "./patchbay3d";
+import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v7";
+export const PATCHBAY3D_VERSION = "3d-v8";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -200,8 +200,10 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       }
     };
     const SUB = 8;
+    const FOLD_COS = Math.cos((70 * Math.PI) / 180);   // no sharper than 70 degrees
     for (let s = 1; s <= SUB; s++) {
       for (const c of cables) constrainLength3(ropeView(c), 3);
+      for (const c of cables) openFolds3(ropeView(c), FOLD_COS, 0.3);
       pin(s / SUB);
       for (const c of cables) offPosts(c);
       drape();
