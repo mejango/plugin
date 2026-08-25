@@ -29,7 +29,7 @@ import { type Crossing, type Rope, liftedSeg, segHit, solveCrossings, updateCros
 
 // Bumped on every change to the engine, and shown on the bench, so nobody is
 // ever looking at a stale build while judging it.
-export const PATCHBAY_VERSION = "v8";
+export const PATCHBAY_VERSION = "v9";
 
 export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   for (let i = 1; i < n - 1; i++) {
@@ -866,6 +866,49 @@ export function startPatchBay(
     // Only a plug that is on the move can reach into a cord that has been left
     // alone, and usually none of them is, so this costs nothing while the panel
     // is at rest.
+    // A cord has thickness against ITSELF. Where it loops back and two of its
+    // own stretches come within a cord-width, they push apart — so a loop
+    // cannot pinch shut to nothing, and a cord cannot pass through itself.
+    // Non-adjacent segments only; neighbours share a point and always "touch".
+    // prev moves with pts, so this changes shape without inventing speed.
+    const selfCollide = (c) => {
+      const W = c.width * 0.9;
+      let hit = false;
+      for (let i = 0; i < N - 1; i++) {
+        for (let j = i + 2; j < N - 1; j++) {
+          if (i === 0 && j === N - 2) continue;         // the two ends never fold to meet
+          const p0 = c.pts[i], p1 = c.pts[i + 1], q0 = c.pts[j], q1 = c.pts[j + 1];
+          // closest approach of the two segments
+          const ux = p1.x - p0.x, uy = p1.y - p0.y, vx = q1.x - q0.x, vy = q1.y - q0.y;
+          const wx = p0.x - q0.x, wy = p0.y - q0.y;
+          const uu = ux * ux + uy * uy, vv = vx * vx + vy * vy, uv = ux * vx + uy * vy;
+          const uw = ux * wx + uy * wy, vw = vx * wx + vy * wy;
+          const den = uu * vv - uv * uv;
+          let t = den > 1e-9 ? (uv * vw - vv * uw) / den : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
+          let u2 = vv > 1e-9 ? (uv * t + vw) / vv : 0; u2 = u2 < 0 ? 0 : u2 > 1 ? 1 : u2;
+          t = uu > 1e-9 ? (uv * u2 - uw) / uu : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const ax = p0.x + ux * t, ay = p0.y + uy * t, bx = q0.x + vx * u2, by = q0.y + vy * u2;
+          let nx = ax - bx, ny = ay - by;
+          const d = Math.hypot(nx, ny);
+          if (d >= W || d < 1e-6) continue;
+          nx /= d; ny /= d;
+          const push = (W - d) / 2;
+          hit = true;
+          const move = (pt, pr, g, sign) => {
+            if (g < 1e-3) return;
+            pt.x += nx * push * g * sign; pt.y += ny * push * g * sign;
+            pr.x += nx * push * g * sign; pr.y += ny * push * g * sign;
+          };
+          // split along each segment by how near the contact sits to each end,
+          // and never move a pinned plug
+          move(p0, c.prev[i], i > 0 ? 1 - t : 0, 1);
+          move(p1, c.prev[i + 1], i + 1 < N - 1 ? t : 0, 1);
+          move(q0, c.prev[j], j > 0 ? 1 - u2 : 0, -1);
+          move(q1, c.prev[j + 1], j + 1 < N - 1 ? u2 : 0, -1);
+        }
+      }
+      return hit;
+    };
     const anyLive = cables.some((o) => o.move < 1 || (drag && drag.cable === o));
 
     const awake = [];
@@ -1014,6 +1057,7 @@ export function startPatchBay(
         }
       }
       relaxBendMemory(c.pts, c.prev, c.kinkLocal, Math.min(0.35, c.stiff * 3), BEND_DAMP, N);
+      for (let sc = 0; sc < 2; sc++) if (!selfCollide(c)) break;
 
       for (let d = 1; d <= STRAIN_REACH; d++) {
         const w = STRAIN * (1 - (d - 1) / STRAIN_REACH);
