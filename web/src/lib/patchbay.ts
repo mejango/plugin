@@ -29,7 +29,7 @@ import { type Crossing, type Rope, liftedSeg, segHit, solveCrossings, updateCros
 
 // Bumped on every change to the engine, and shown on the bench, so nobody is
 // ever looking at a stale build while judging it.
-export const PATCHBAY_VERSION = "v7";
+export const PATCHBAY_VERSION = "v8";
 
 export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   for (let i = 1; i < n - 1; i++) {
@@ -984,12 +984,17 @@ export function startPatchBay(
         for (let round = 0; round < 2; round++) {
           let arc = 0;
           for (let i = 0; i < N - 1; i++) arc += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y);
-          const excess = arc - c.len * 1.02;
+          const excess = arc - c.len * 1.04;
           if (excess <= 0) break;
           c.taut = excess;
           const end = heldA ? c.pts[0] : c.pts[N - 1], next = heldA ? c.pts[1] : c.pts[N - 2];
           const dx = next.x - end.x, dy = next.y - end.y, dl = Math.hypot(dx, dy) || 1e-6;
-          const pull = Math.min(excess, dl * 0.9);
+          // A little at a time — never the whole overreach in one go. Pulled
+          // back by all of it, the plug landed somewhere the next solve
+          // disagreed with, and it wandered a hundred pixels with the hand
+          // dead still. Drawn back a few pixels a frame it settles where the
+          // pull and the hand's creep balance, a hair stretched, and stays.
+          const pull = Math.min(excess, dl * 0.9, 4 * dpr);
           end.x += (dx / dl) * pull; end.y += (dy / dl) * pull;
           const hold = heldA ? c.a : c.b;
           hold.x = end.x; hold.y = end.y;
