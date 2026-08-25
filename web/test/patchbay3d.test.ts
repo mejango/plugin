@@ -116,6 +116,61 @@ describe("cords are solid to each other", () => {
     expect(flips).toBe(0);
   });
 
+  it("an under cord stays under while lifted near its hand (no teleport)", () => {
+    // B rests UNDER A at a crossing. We lift B's a-end (as a drag would) and
+    // drag it in the plane while it stays caught under A. A real cable cannot
+    // climb over the one it is trapped beneath just because we raised its end —
+    // it must be pulled clear first. The stack must hold until they separate.
+    const A = rope(0, 200, 400, 200);
+    const B = rope(200, 60, 200, 400);
+    // settle B a touch below A so A is on top
+    for (let i = 0; i < N; i++) { B.pts[i].z = 0; B.prev[i] = { ...B.pts[i] }; }
+    const stick = new Map<string, number>();
+    const stepS = (aim: Parameters<typeof step>[1]) => {
+      const held = aim ? (aim.end === "a" ? aim.rope.pts[0] : aim.rope.pts[aim.rope.pts.length - 1]) : null;
+      const from = held ? { x: held.x, y: held.y, z: held.z } : null;
+      const sub = 8;
+      for (let s = 1; s <= sub; s++) {
+        for (const r of [A, B]) integrate3(r, 2.3 / sub, 0.15, 0.99);
+        for (const r of [A, B]) constrainLength3(r, 6);
+        if (held && from && aim) {
+          const f = s / sub;
+          held.x = from.x + (aim.to.x - from.x) * f;
+          held.y = from.y + (aim.to.y - from.y) * f;
+          held.z = 26;
+          const r = aim.rope, n = r.pts.length;
+          for (let k = 1; k < n - 1; k++) {
+            const d = aim.end === "a" ? k : n - 1 - k;
+            const want = 26 * Math.max(0, 1 - d / 5);
+            if (r.pts[k].z < want) r.pts[k].z = want;
+          }
+        }
+        collide3([A, B], 2, stick);
+      }
+    };
+    for (let f = 0; f < 40; f++) stepS(null);          // let A settle on top of B
+    const topOf = () => {
+      let best = Infinity, dz = 0;
+      for (let i = 0; i < N - 1; i++) for (let j = 0; j < N - 1; j++) {
+        const c = segClosest3(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1]);
+        if (c.d < best) { best = c.d; dz = c.dz; }
+      }
+      return { best, aOverB: dz < 0 };   // dz = zA - zB; A over B when B is lower
+    };
+    expect(topOf().aOverB).toBe(true);                 // A settled on top
+    B.heldA = true;
+    // lift B's end and jiggle it around the crossing WITHOUT pulling it clear
+    let flips = 0, prev = topOf().aOverB;
+    for (let f = 0; f <= 30; f++) {
+      const to = { x: 200 + Math.sin(f / 3) * 20, y: 60 - f, z: 0 };  // wander, stay near
+      stepS({ rope: B, end: "a", to });
+      const t = topOf();
+      if (t.best < R * 2 && t.aOverB !== prev) flips++;   // only count while in contact
+      prev = t.aOverB;
+    }
+    expect(flips).toBe(0);                              // A stayed on top the whole time
+  });
+
   it("a cord does not pass through itself (self-contact)", () => {
     const A = rope(200, 400, 400, 838);
     A.heldA = true;

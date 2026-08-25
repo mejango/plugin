@@ -107,8 +107,16 @@ export function lifted(r: Rope3, i: number) {
  * one rides up onto the other: that IS over/under, decided by geometry, not a
  * flag. A carried (lifted) stretch is skipped as the mover — it is above the
  * board and passes over — but it still shoves what is beneath it.
+ *
+ * `stick` remembers which cord is on top for each pair, and is the one bit of
+ * physical state the rule keeps: two cords cannot swap who is over whom without
+ * first pulling clear of each other. While a pair stays in contact the order is
+ * held; only when they separate (closest approach past the contact band) is the
+ * memory dropped, so the next time they touch the stack is decided fresh. Pass
+ * a persistent Map to get this (the driver does); omit it and each call decides
+ * from geometry alone (fine for one-shot settling, and what the unit tests use).
  */
-export function collide3(ropes: Rope3[], iters: number): boolean[] {
+export function collide3(ropes: Rope3[], iters: number, stick: Map<string, number> = new Map()): boolean[] {
   const moved = ropes.map(() => false);
   for (let it = 0; it < iters; it++) {
     for (let a = 0; a < ropes.length; a++) {
@@ -118,22 +126,36 @@ export function collide3(ropes: Rope3[], iters: number): boolean[] {
         const reach = A.r + B.r;
         const na = A.pts.length, nb = B.pts.length;
         const hits: { i: number; j: number; t: number; s: number; dx: number; dy: number; dz: number; d: number }[] = [];
+        let minD = Infinity;
         for (let i = 0; i < na - 1; i++) {
           for (let j = self ? i + 2 : 0; j < nb - 1; j++) {
             if (self && i === 0 && j === nb - 2) continue;
             const c = segClosest3(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1]);
+            if (c.d < minD) minD = c.d;
             if (c.d >= reach || c.d < 1e-6) continue;
             hits.push({ i, j, t: c.t, s: c.s, dx: c.dx, dy: c.dy, dz: c.dz, d: c.d });
           }
         }
+        // Once the cords are clearly apart (past the contact band) forget who
+        // was on top — a fresh touch is free to stack either way. The band
+        // spans the 1px grazing dips of a resting crossing so a settled stack
+        // is never counted as "separated".
+        const key = self ? "" : a + "," + b;
+        if (key && minD >= reach * 1.6) stick.delete(key);
         if (!hits.length) continue;
-        // Phase 1: ONE stacking order for this pair of cords, from the net z
-        // difference across everywhere they overlap. Edge pairs where the cords
-        // are nearly level cannot out-vote the crossing itself, so the order
-        // does not flip frame to frame — that is what kills the flicker.
-        let netdz = 0;
-        for (const hh of hits) netdz += (reach - hh.d) * hh.dz;
-        const order = netdz > 1e-6 ? 1 : netdz < -1e-6 ? -1 : (a < b ? -1 : 1);
+        // Phase 1: ONE stacking order for this pair of cords. If we already know
+        // who is on top from an unbroken contact, KEEP it — a cord lifted near
+        // its hand cannot climb over another it is still caught under; it must
+        // be pulled clear first. Only a first, memory-less contact reads the
+        // order from the net z difference across the overlap (edge pairs at the
+        // same level cannot out-vote the crossing, so it does not flicker).
+        let order = key ? stick.get(key) ?? 0 : 0;
+        if (!order) {
+          let netdz = 0;
+          for (const hh of hits) netdz += (reach - hh.d) * hh.dz;
+          order = netdz > 1e-6 ? 1 : netdz < -1e-6 ? -1 : (a < b ? -1 : 1);
+          if (key) stick.set(key, order);
+        }
         // Phase 2: separate every colliding pair, mostly in z along that one
         // order, a little in the plane so a stack is not perfectly colinear.
         for (const hh of hits) {

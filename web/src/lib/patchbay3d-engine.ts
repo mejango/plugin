@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v8";
+export const PATCHBAY3D_VERSION = "3d-v9";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -15,6 +15,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   let w, h, dpr, jacks = [], cables = [], panel, JR = 0, rafId = 0;
   const mouse = { x: -1e9, y: -1e9 };
   let drag = null;                    // { cable, end: "a"|"b" }
+  const stick = new Map();            // who is on top, per cord pair; held while in contact
   const rec = { seed: 0, w: innerWidth, h: innerHeight, dpr: 0, frames: [], events: [] };
 
   let seed = (typeof window !== "undefined" && (window as unknown as { __patchbaySeed?: number }).__patchbaySeed) || ((Math.random() * 2 ** 31) | 0) || 1;
@@ -207,7 +208,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       pin(s / SUB);
       for (const c of cables) offPosts(c);
       drape();
-      collide3(ropes, 2);
+      collide3(ropes, 2, stick);
       pin(s / SUB);
     }
     for (const c of cables) if (c.move < 1) c.move = Math.min(1, c.move + (c.moveSpeed || 0.05));
