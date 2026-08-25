@@ -240,6 +240,12 @@ export function updateCrossings(ropes: Rope[], crossings: Crossing[], moved: num
   };
   for (const h of hits) {
     if (h.claimed || h.dist >= 1) continue;
+    // No new TOUCH is born on the pair a hand is dragging. Pressed against the
+    // other cord by the solid constraint, a dragged cord otherwise spawned a
+    // swarm of parallel-lying touches every frame, which fought each other and
+    // then tore the cord free — a teleport. Only a real crossing (segments that
+    // actually intersect) is born mid-drag; touches are for cords at rest.
+    if (!h.linked && (held === h.a || held === h.b)) continue;
     const near = adjacent(h);
     if (near && !h.linked && near.linked) continue;
     const inHand = held === h.a || held === h.b;
