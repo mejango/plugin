@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v1";
+export const PATCHBAY3D_VERSION = "3d-v2";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -115,7 +115,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
 
   // ── physics ──────────────────────────────────────────────────────────────
-  const G = 2.3, GZ = 0.14, DAMP = 0.992, LIFT_Z = 26;
+  const G = 2.3, GZ = 0.04, DAMP = 0.992, LIFT_Z = 26;
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
@@ -150,44 +150,49 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
 
   function step() {
-    // aim the held plug at the mouse, or animate a seating plug home
-    let held = null;
-    if (drag) held = { c: drag.cable, name: drag.end, to: { x: mouse.x, y: mouse.y, z: LIFT_Z } };
-
-    const ropes = cables.map(ropeView);
-    for (const c of cables) {
-      integrate3({ pts: c.pts, prev: c.prev, r: c.r, rest: c.rest, heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b") }, G * dpr, GZ, DAMP);
+    // where each held plug is coming from, this frame, so we can interpolate it
+    // across sub-frames (nothing leaps far enough to jump a cord)
+    const from = {};
+    for (const c of cables) for (const [name, idx] of [["a", 0], ["b", N - 1]]) {
+      if (drag && drag.cable === c && drag.end === name) from[name] = { x: c.pts[idx].x, y: c.pts[idx].y, z: c.pts[idx].z };
     }
-    // pin ends: seated plugs sit at their jack (z 0), the held plug rides the hand
-    const pin = () => {
-      for (const c of cables) {
-        for (const [name, idx] of [["a", 0], ["b", N - 1]]) {
-          if (drag && drag.cable === c && drag.end === name) {
-            const p = c.pts[idx]; p.x = mouse.x; p.y = mouse.y; p.z = LIFT_Z;
-          } else if (c.move < 1) {
-            const k = ease(c.move);
-            const from = name === "a" ? c.a : c.b, to = name === "a" ? c.na : c.nb;
-            const p = c.pts[idx]; p.x = from.x + (to.x - from.x) * k; p.y = from.y + (to.y - from.y) * k; p.z = LIFT_Z * (1 - k);
-          } else {
-            const j = name === "a" ? c.a : c.b;
-            const p = c.pts[idx]; p.x = j.x; p.y = j.y; p.z = 0;
+    const ropes = cables.map(ropeView);
+    const pin = (f) => {
+      for (const c of cables) for (const [name, idx] of [["a", 0], ["b", N - 1]]) {
+        const p = c.pts[idx];
+        if (drag && drag.cable === c && drag.end === name) {
+          const fr = from[name] || { x: mouse.x, y: mouse.y, z: LIFT_Z };
+          p.x = fr.x + (mouse.x - fr.x) * f; p.y = fr.y + (mouse.y - fr.y) * f; p.z = LIFT_Z;
+          // drape: the cord hangs from the hand down to the board, so a carried
+          // cord rides over what it crosses (high z near the hand)
+          const n = c.pts.length;
+          for (let k = 1; k < n - 1; k++) {
+            const d = name === "a" ? k : n - 1 - k;
+            const want = LIFT_Z * Math.max(0, 1 - d / 5);
+            if (c.pts[k].z < want) c.pts[k].z = want;
           }
+        } else if (c.move < 1) {
+          const k = ease(c.move);
+          const src = name === "a" ? c.a : c.b, dst = name === "a" ? c.na : c.nb;
+          p.x = src.x + (dst.x - src.x) * k; p.y = src.y + (dst.y - src.y) * k; p.z = LIFT_Z * (1 - k);
+        } else {
+          const j = name === "a" ? c.a : c.b; p.x = j.x; p.y = j.y; p.z = 0;
         }
       }
     };
-    // substep the whole panel: length, posts, then the one contact rule
-    const SUB = drag ? 6 : 2;
-    for (let s = 0; s < SUB; s++) {
+    const SUB = drag ? 8 : 2;
+    for (let s = 1; s <= SUB; s++) {
+      for (const c of cables) integrate3(ropeView(c), (G * dpr) / SUB, GZ, DAMP);
       for (const c of cables) constrainLength3(ropeView(c), 6);
-      pin();
+      pin(s / SUB);
       for (const c of cables) offPosts(c);
       collide3(ropes, 2);
-      pin();
+      pin(s / SUB);
     }
     for (const c of cables) if (c.move < 1) c.move = Math.min(1, c.move + (c.moveSpeed || 0.05));
   }
 
-  // ── drawing (ported from the flat engine; reads x,y only) ─────────────────
+    // ── drawing (ported from the flat engine; reads x,y only) ─────────────────
   function tint(c, aMul, shade) {
     const k = shade === undefined ? 1 : shade;
     const fade = Math.max(0, Math.min(0.22, (1.22 - c.wear) * 0.35));

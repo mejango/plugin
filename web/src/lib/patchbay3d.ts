@@ -117,35 +117,47 @@ export function collide3(ropes: Rope3[], iters: number): boolean[] {
         const self = a === b;
         const reach = A.r + B.r;
         const na = A.pts.length, nb = B.pts.length;
+        const hits: { i: number; j: number; t: number; s: number; dx: number; dy: number; dz: number; d: number }[] = [];
         for (let i = 0; i < na - 1; i++) {
           for (let j = self ? i + 2 : 0; j < nb - 1; j++) {
-            if (self && i === 0 && j === nb - 2) continue;   // a cord's two ends never meet
+            if (self && i === 0 && j === nb - 2) continue;
             const c = segClosest3(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1]);
             if (c.d >= reach || c.d < 1e-6) continue;
-            let nx = c.dx / c.d, ny = c.dy / c.d, nz = c.dz / c.d;
-            // two stretches lying flat and crossing separate along almost pure
-            // z with rounding for a sign: nudge them onto z so one rides over
-            // the other instead of jostling in the plane
-            if (Math.abs(nz) < 0.2) {
-              const s = nz >= 0 ? 1 : -1;
-              nz = 0.4 * s; const f = Math.hypot(nx, ny) || 1e-6;
-              const k = Math.sqrt(1 - nz * nz) / f; nx *= k; ny *= k;
-            }
-            const push = (reach - c.d) / 2;
-            const shove = (R: Rope3, k: number, t: number, sign: number) => {
-              if (lifted(R, k)) return;
-              const n = R.pts.length;
-              const g0 = k > 0 ? 1 - t : 0, g1 = k + 1 < n - 1 ? t : 0;
-              const spread = g0 * g0 + g1 * g1;
-              if (spread < 1e-6) return;
-              const m = (push * sign) / spread;
-              const p0 = R.pts[k], p1 = R.pts[k + 1], r0 = R.prev[k], r1 = R.prev[k + 1];
-              if (g0) { p0.x += nx * m * g0; p0.y += ny * m * g0; p0.z += nz * m * g0; if (p0.z < 0) p0.z = 0; r0.x += nx * m * g0; r0.y += ny * m * g0; r0.z += nz * m * g0; }
-              if (g1) { p1.x += nx * m * g1; p1.y += ny * m * g1; p1.z += nz * m * g1; if (p1.z < 0) p1.z = 0; r1.x += nx * m * g1; r1.y += ny * m * g1; r1.z += nz * m * g1; }
-            };
-            shove(A, i, c.t, 1); shove(B, j, c.s, -1);
-            moved[a] = true; moved[b] = true;
+            hits.push({ i, j, t: c.t, s: c.s, dx: c.dx, dy: c.dy, dz: c.dz, d: c.d });
           }
+        }
+        if (!hits.length) continue;
+        // Phase 1: ONE stacking order for this pair of cords, from the net z
+        // difference across everywhere they overlap. Edge pairs where the cords
+        // are nearly level cannot out-vote the crossing itself, so the order
+        // does not flip frame to frame — that is what kills the flicker.
+        let netdz = 0;
+        for (const hh of hits) netdz += (reach - hh.d) * hh.dz;
+        const order = netdz > 1e-6 ? 1 : netdz < -1e-6 ? -1 : (a < b ? -1 : 1);
+        // Phase 2: separate every colliding pair, mostly in z along that one
+        // order, a little in the plane so a stack is not perfectly colinear.
+        for (const hh of hits) {
+          // Separate along geometry in the plane — that is what stops a fast
+          // drag passing through — but the z-component's SIGN is the pair's one
+          // order (no flicker) and floored so a flat crossing lifts one cord
+          // over the other rather than shoving them apart sideways.
+          const zc = order * Math.abs(hh.dz);
+          const nl = Math.hypot(hh.dx, hh.dy, zc) || 1e-6;
+          const nx = hh.dx / nl, ny = hh.dy / nl, nz = zc / nl;
+          const push = (reach - hh.d) / 2;
+          const shove = (R: Rope3, k: number, t: number, sgn: number) => {
+            if (lifted(R, k)) return;
+            const n = R.pts.length;
+            const g0 = k > 0 ? 1 - t : 0, g1 = k + 1 < n - 1 ? t : 0;
+            const spread = g0 * g0 + g1 * g1;
+            if (spread < 1e-6) return;
+            const m = (push * sgn) / spread;
+            const p0 = R.pts[k], p1 = R.pts[k + 1], r0 = R.prev[k], r1 = R.prev[k + 1];
+            if (g0) { p0.x += nx * m * g0; p0.y += ny * m * g0; p0.z += nz * m * g0; if (p0.z < 0) p0.z = 0; r0.x += nx * m * g0; r0.y += ny * m * g0; }
+            if (g1) { p1.x += nx * m * g1; p1.y += ny * m * g1; p1.z += nz * m * g1; if (p1.z < 0) p1.z = 0; r1.x += nx * m * g1; r1.y += ny * m * g1; }
+          };
+          shove(A, hh.i, hh.t, 1); shove(B, hh.j, hh.s, -1);
+          moved[a] = true; moved[b] = true;
         }
       }
     }
