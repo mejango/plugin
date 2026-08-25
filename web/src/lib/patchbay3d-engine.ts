@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v10";
+export const PATCHBAY3D_VERSION = "3d-v11";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -126,10 +126,15 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     return (drag && drag.cable === c && drag.end === name) || (c.move < 1 && (name === "a" ? c.a !== c.na : c.b !== c.nb));
   }
 
-  // a seated plug is a post: a solid vertical cylinder standing off the board.
-  // A cord cannot enter its footprint in xy (unless the cord is lifted over it).
+  // a seated plug is a post: a short vertical cylinder standing off the board.
+  // A cord cannot enter its footprint in xy — UNLESS it is riding higher than
+  // the post is tall, the same way a cord draped over another rides above it.
+  // The post is only about a cord-diameter tall (a connector, not a wall), so a
+  // cord that has climbed onto the plug's own cord clears its connector too;
+  // only a cord flat on the board is stopped.
   function offPosts(c) {
     const BARREL = 15 * dpr, R = BARREL + c.r;
+    const POST_H = c.r * 1.2;   // a connector ~a cord-diameter tall; a cord stacked one diameter up (z≈2·r) clears it
     const view = ropeView(c);
     for (const o of cables) {
       for (const name of ["a", "b"]) {
@@ -147,6 +152,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           if (o === c && (i <= 1 || i >= N - 2)) continue;   // a cord's own plug
           if (lifted(view, i)) continue;
           const p = c.pts[i];
+          if (p.z > e.z + POST_H) continue;                  // riding over the connector
+
           const t = Math.max(0, Math.min(1, ((p.x - ex) * vx + (p.y - ey) * vy) / vv));
           const gx = ex + vx * t, gy = ey + vy * t;
           const dx = p.x - gx, dy = p.y - gy, d = Math.hypot(dx, dy);
@@ -433,7 +440,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   });
   canvas.addEventListener("pointerup", () => { rec.events.push([rec.frames.length, "up", 0, 0]); if (drag) trySeat(); });
 
-  canvas.__pb3d = () => ({ cables, jacks, dpr, N, drag, rec });
+  canvas.__pb3d = () => ({ cables, jacks, dpr, N, drag, rec, stick });
   if (canvas.__lab == null) canvas.__lab = false;   // the lab page sets it true before us; don't clobber
   const onKey = (e) => { if (e.key === "r" || e.key === "R") navigator.clipboard?.writeText(JSON.stringify(rec)).then(() => canvas.dispatchEvent(new CustomEvent("patchbay:copied"))); };
   window.addEventListener("keydown", onKey);
