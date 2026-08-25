@@ -368,7 +368,7 @@ export function cordCollide(ropes: Rope[], crossings: Crossing[], only = -1): bo
           let nx = px - qx, ny = py - qy;
           const d = Math.hypot(nx, ny) || 1e-6;
           nx /= d; ny /= d;
-          const push = (clear - n.d) / 2;
+          const push = (clear - n.d) / 2 * 0.7;  // under-relaxed: gentle convergence widens the stability margin when a wound cord has many constraints fighting at once
           const shove = (r: Rope, k: number, t: number, sign: number) => {
             const g0 = k > 0 ? 1 - t : 0, g1 = k + 1 < N - 1 ? t : 0;
             const spread = g0 * g0 + g1 * g1;

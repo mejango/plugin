@@ -14,6 +14,8 @@ export default function LabPage() {
   useEffect(() => {
     const on = () => { setCopied(true); setTimeout(() => setCopied(false), 1500); };
     document.addEventListener("patchbay:copied", on, true);
+    const c = document.querySelector("canvas");
+    if (c) (c as unknown as { __lab: boolean }).__lab = true;
     return () => document.removeEventListener("patchbay:copied", on, true);
   }, []);
   return (

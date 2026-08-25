@@ -1827,6 +1827,17 @@ export function startPatchBay(
       }
     });
 
+    // Frame counter, matching rec.frames.length — so a screenshot of the bench
+    // names the exact JSON frame it was taken at, and a filmed snap can be
+    // lined up against the recording.
+    if (canvas.__lab) {
+      ctx.save();
+      ctx.font = "600 " + 11 * dpr + "px ui-monospace, Menlo, monospace";
+      ctx.fillStyle = "rgba(120,120,120,0.9)";
+      ctx.textAlign = "left";
+      ctx.fillText("f " + rec.frames.length, 12 * dpr, h - 12 * dpr);
+      ctx.restore();
+    }
     if (!REDUCED) rafId = requestAnimationFrame(draw);
   }
 
@@ -2016,6 +2027,7 @@ export function startPatchBay(
   window.addEventListener("resize", size);
   // ponytail: a handle for scripted checks; reads live state, drives nothing
   canvas.__pb = () => ({ cables, crossings, jacks, dpr, N, drag, rec });
+  canvas.__lab = false;   // the /lab page turns this on to show the frame counter
   // R copies the recording; the bench shows "copied" for a moment
   const onKey = (e) => {
     if (e.key !== "r" && e.key !== "R") return;
