@@ -6,7 +6,7 @@
 // explicit z-order (the cord you grab comes to the top). The board, plugs, and
 // cord look are the same as before; only the thing driving the shape changed.
 
-export const PATCHBAY_SPLINE_VERSION = "spline-v1";
+export const PATCHBAY_SPLINE_VERSION = "spline-v2";
 
 export function startPatchBaySpline(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -112,11 +112,21 @@ export function startPatchBaySpline(canvas: HTMLCanvasElement, opts: { cables?: 
   function shape(c) {
     const ax = c.a.x, ay = c.a.y, bx = c.b.x, by = c.b.y;
     const dx = bx - ax, dy = by - ay, dl = Math.hypot(dx, dy) || 1e-6;
-    let px = -dy / dl, py = dx / dl; if (py < 0) { px = -px; py = -py; }   // perpendicular, toward the low side
     const mx = (ax + bx) / 2, my = (ay + by) / 2;
+    // Belly direction: the downward normal of the chord, so a cord hangs BELOW
+    // its span. As the chord turns vertical that normal goes sideways; steer it
+    // toward screen centre so a near-vertical cord curves gently inward instead
+    // of ballooning off the edge — never dead-straight (that read as "stiff").
+    const ux = dx / dl, uy = dy / dl;
+    let gx = -uy, gy = ux; if (gy < 0) { gx = -gx; gy = -gy; }
+    if (gy < 0.5) {
+      const toward = mx < w / 2 ? 1 : -1, vert = 1 - gy / 0.5;
+      gx = gx * (1 - vert) + toward * vert;
+      const l = Math.hypot(gx, gy) || 1e-6; gx /= l; gy /= l;
+    }
     const S = 16;
     const arcLen = (sag) => {
-      const cx = mx + px * sag, cy = my + py * sag;
+      const cx = mx + gx * sag, cy = my + gy * sag;
       let L = 0, prevx = ax, prevy = ay;
       for (let k = 1; k <= S; k++) {
         const t = k / S, u = 1 - t;
@@ -126,13 +136,15 @@ export function startPatchBaySpline(canvas: HTMLCanvasElement, opts: { cables?: 
       }
       return L;
     };
+    // Full-slack droop (arc length == fixed cord length), but the belly is capped
+    // so an extreme cord can't reach off the board.
     let sag = 0;
-    if (dl < c.len - 0.5) {          // there is slack to hang
+    if (dl < c.len - 0.5) {
       let lo = 0, hi = c.len;
       for (let it = 0; it < 22; it++) { const md = (lo + hi) / 2; if (arcLen(md) < c.len) lo = md; else hi = md; }
-      sag = (lo + hi) / 2;
+      sag = Math.min((lo + hi) / 2, 300 * dpr);
     }
-    const cx = mx + px * sag, cy = my + py * sag;
+    const cx = mx + gx * sag, cy = my + gy * sag;
     c.pts.length = 0;
     for (let k = 0; k < N; k++) {
       const t = k / (N - 1), u = 1 - t;
