@@ -141,9 +141,11 @@ export function collide3(ropes: Rope3[], iters: number): boolean[] {
           // drag passing through — but the z-component's SIGN is the pair's one
           // order (no flicker) and floored so a flat crossing lifts one cord
           // over the other rather than shoving them apart sideways.
-          const zc = order * Math.abs(hh.dz);
-          const nl = Math.hypot(hh.dx, hh.dy, zc) || 1e-6;
-          const nx = hh.dx / nl, ny = hh.dy / nl, nz = zc / nl;
+          // Separate PURELY in z: at a crossing the two cords are meant to
+          // overlap in the plane — one simply rides over the other — so the
+          // push has no in-plane part to jostle the crossing sideways. A
+          // sideways part made two crossing cords wiggle forever at rest.
+          const nx = 0, ny = 0, nz = order;
           const push = (reach - hh.d) / 2;
           const shove = (R: Rope3, k: number, t: number, sgn: number) => {
             if (lifted(R, k)) return;

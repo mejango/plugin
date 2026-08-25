@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v6";
+export const PATCHBAY3D_VERSION = "3d-v7";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
