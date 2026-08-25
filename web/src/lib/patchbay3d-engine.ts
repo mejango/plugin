@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v4";
+export const PATCHBAY3D_VERSION = "3d-v5";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -111,7 +111,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       c.r = c.width * 0.5;
       cables.push(c);
     }
-    for (let i = 0; i < 200; i++) step();
+    for (let i = 0; i < 240; i++) step();
   }
 
   // ── physics ──────────────────────────────────────────────────────────────
@@ -188,10 +188,14 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         }
       }
     };
-    const SUB = drag ? 8 : 2;
+    // Integrate ONCE per frame — velocity and gravity are applied consistently
+    // whether or not a cord is being dragged, so a free cord never jumps when
+    // the substep count changes. Only the constraint solve is substepped, with
+    // the held plug interpolated across it so the body never leaps a cord.
+    for (const c of cables) integrate3(ropeView(c), G * dpr, GZ, DAMP);
+    const SUB = 8;
     for (let s = 1; s <= SUB; s++) {
-      for (const c of cables) integrate3(ropeView(c), (G * dpr) / SUB, GZ, DAMP);
-      for (const c of cables) constrainLength3(ropeView(c), 6);
+      for (const c of cables) constrainLength3(ropeView(c), 3);
       pin(s / SUB);
       for (const c of cables) offPosts(c);
       collide3(ropes, 2);
