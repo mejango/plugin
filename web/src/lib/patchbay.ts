@@ -29,7 +29,7 @@ import { type Crossing, type Rope, liftedSeg, segHit, solveCrossings, updateCros
 
 // Bumped on every change to the engine, and shown on the bench, so nobody is
 // ever looking at a stale build while judging it.
-export const PATCHBAY_VERSION = "v4";
+export const PATCHBAY_VERSION = "v6";
 
 export function relaxBendMemory(pts, prev, kink, stiffNow, bendDamp, n) {
   for (let i = 1; i < n - 1; i++) {
@@ -651,7 +651,12 @@ export function startPatchBay(
         const hx = s.at.x, hy = s.at.y;
         const adx = s.aim.x - hx, ady = s.aim.y - hy;
         const al = Math.hypot(adx, ady) || 1;
-        const vx = (adx / al) * BARREL, vy = (ady / al) * BARREL;
+        // The solid part of a connector is the whole boot as drawn, jack to
+        // strain relief. With only the barrel solid, a cord wound round a
+        // plug slid off the end of it onto the cord in one frame and lay flat
+        // under it, and a flat loop under a cord slides out.
+        const POST = BARREL * 1.8;
+        const vx = (adx / al) * POST, vy = (ady / al) * POST;
         const vv = vx * vx + vy * vy || 1;
         // Where a point has BEEN this frame, not only where it is. A taut cord
         // pulled hard moves its points further in one pass than a barrel is
@@ -661,7 +666,7 @@ export function startPatchBay(
         // against the barrel; one that crossed it goes back to the side it
         // came from.
         if (live && mode !== ASK) {
-          const qx = -vy / BARREL, qy = vx / BARREL;
+          const qx = -vy / POST, qy = vx / POST;
           // And the stretch as a whole: a taut stretch pulled sideways sweeps
           // over a post with neither of its points' paths coming near the
           // barrel — the post simply changes sides of the stretch between one
@@ -685,9 +690,13 @@ export function startPatchBay(
               const ul = Math.sqrt(uu), rl = Math.sqrt(rr);
               const m = R / ul, mw = R / rl;
               if (t < -m || t > 1 + m || tw < -mw || tw > 1 + mw) continue;
-              // normal of the stretch pointing toward where the post was
+              // the normal points from the post toward the side the stretch
+              // WAS on. It used to point away from the post on the side the
+              // stretch had landed — so a stretch that had leapt across a
+              // connector was shoved further along on the wrong side, and
+              // the "guard" finished the pass-through it was there to stop.
               let nx = -uy / ul, ny = ux / ul;
-              if (nx * (px - p0.x) + ny * (py - p0.y) > 0) { nx = -nx; ny = -ny; }
+              if ((r0.x - px) * nx + (r0.y - py) * ny < 0) { nx = -nx; ny = -ny; }
               hit = hitHere = true;
               for (const [pt, free] of [[p0, f0], [p1, f1]]) {
                 if (!free) continue;
@@ -755,7 +764,7 @@ export function startPatchBay(
               if (lifted && !live) { inside = true; continue; }
               if (!live) { inside = true; continue; }
               if (mode === ASK) return true;
-              const qx = -vy / BARREL, qy = vx / BARREL;
+              const qx = -vy / POST, qy = vx / POST;
               const sideOf = (pt) => (pt.x - hx) * qx + (pt.y - hy) * qy;
               // Which side to put it back on. Normally the side it was on when
               // the frame began — but a stretch ending at a plug has one end
@@ -827,7 +836,7 @@ export function startPatchBay(
           const spread = g0 * g0 + g1 * g1;
           if (spread < 1e-9) continue;
           hit = hitHere = true;
-          if (d < 1e-6) { nx = -vy / BARREL; ny = vx / BARREL; }
+          if (d < 1e-6) { nx = -vy / POST; ny = vx / POST; }
           else { nx /= d; ny /= d; }
           const corr = (R - d) / spread;
           if (g0) { p0.x += nx * corr * g0; p0.y += ny * corr * g0; }
@@ -1159,7 +1168,25 @@ export function startPatchBay(
         // The under cord beside the over cord's post: no ring — the post is
         // what stops it — but the crossing stays, because it is what says the
         // cord is under, and under is what makes the post a wall to it.
-        if (plugged(x, x.over)) { if (!x.plug) { x.plug = true; x.linked = false; cables[under].still = 0; } return true; }
+        const atOver = plugged(x, x.over);
+        if (atOver) {
+          // Unless the under cord is CAUGHT on that post and has come round
+          // it onto the cord: then this is a loop with the cord passing
+          // THROUGH it — a weave, its two crossings on opposite sides — not a
+          // loop lying flat under the cord, which would slide out.
+          const caught = cables[under].studsOn && cables[under].studsOn.has(x.over + atOver);
+          if (caught) {
+            const mates = crossings.filter((o) => o !== x && o.a === x.a && o.b === x.b && plugged(o, x.over) === atOver);
+            if (mates.length) {
+              x.plug = false; x.linked = true;
+              const first = mates.every((o) => o.plug === false && o.linked) ? mates[0] : null;
+              if (first && first.over === x.over) x.over = under;   // the other way round from its mate
+            }
+            return true;
+          }
+          if (!x.plug) { x.plug = true; x.linked = false; cables[under].still = 0; }
+          return true;
+        }
         x.plug = false;
         return true;
       });
