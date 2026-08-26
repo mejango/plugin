@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v22";
+export const PATCHBAY3D_VERSION = "3d-v23";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -236,9 +236,49 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         c.pts[k].z += (want - c.pts[k].z) * 0.25;
       }
     };
+    // Caught-crossing WALL. While the dragged cord is UNDER another cord, none of
+    // its points may cross that cord's line as they move: a point's travel this
+    // sub-step is tested against the over-cord's segments, and if it would cross,
+    // it is stopped just short — B piles up against A like a wall. Routing the
+    // end PAST the over-cord's tip works because there is no segment there to
+    // cross, so the only way to free a caught cord is around the end. (Over-cords
+    // are never walled — a cord riding on top slides freely.)
+    const segT = (p0, p1, q0, q1) => {
+      const rx = p1.x - p0.x, ry = p1.y - p0.y, sx = q1.x - q0.x, sy = q1.y - q0.y;
+      const den = rx * sy - ry * sx; if (Math.abs(den) < 1e-9) return -1;
+      const wx = q0.x - p0.x, wy = q0.y - p0.y;
+      const t = (wx * sy - wy * sx) / den, u = (wx * ry - wy * rx) / den;
+      return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : -1;
+    };
+    const wall = (snap) => {
+      if (!drag) return;
+      const B = drag.cable, bi = cables.indexOf(B);
+      for (const A of cables) {
+        if (A === B) continue;
+        const ai = cables.indexOf(A);
+        const order = stick.get(Math.min(bi, ai) + "," + Math.max(bi, ai));
+        if (order === undefined) continue;                       // not crossing → nothing to wall
+        if (!(bi < ai ? order < 0 : order > 0)) continue;         // B rides OVER A → no wall
+        const reach = B.r + A.r;
+        for (let i = 0; i < N; i++) {
+          const p = B.pts[i], p0 = snap[i];
+          const mlen = Math.hypot(p.x - p0.x, p.y - p0.y); if (mlen < 1e-6) continue;
+          let best = -1;
+          for (let j = 0; j < N - 1; j++) {
+            const t = segT(p0, p, A.pts[j], A.pts[j + 1]);
+            if (t >= 0 && (best < 0 || t < best)) best = t;
+          }
+          if (best >= 0) {
+            const back = Math.max(0, best - reach / mlen);        // keep a cord-radius clear of A's line
+            p.x = p0.x + (p.x - p0.x) * back; p.y = p0.y + (p.y - p0.y) * back;
+          }
+        }
+      }
+    };
     const SUB = 8;
     const FOLD_COS = Math.cos((70 * Math.PI) / 180);   // no sharper than 70 degrees
     for (let s = 1; s <= SUB; s++) {
+      const wsnap = drag ? drag.cable.pts.map((q) => ({ x: q.x, y: q.y })) : null;
       for (const c of cables) constrainLength3(ropeView(c), 16);
       for (const c of cables) openFolds3(ropeView(c), FOLD_COS, 0.3);
       pin(s / SUB);
@@ -246,6 +286,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       drape();
       collide3(ropes, 5, stick);
       pin(s / SUB);
+      if (wsnap) wall(wsnap);
     }
     for (const c of cables) if (c.move < 1) c.move = Math.min(1, c.move + (c.moveSpeed || 0.05));
   }
