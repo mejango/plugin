@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v21";
+export const PATCHBAY3D_VERSION = "3d-v22";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -117,6 +117,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
 
   // ── physics ──────────────────────────────────────────────────────────────
   const G = 1.0, GZ = 0.04, DAMP = 0.9, LIFT_Z = 26;
+  // Bounded drag: the held plug advances at most MAX_STEP per frame. With 8
+  // sub-steps that is ~8px per sub-step — under a cord's diameter — so the cord
+  // can never be driven through another faster than collision resolves it. A
+  // fast flick just lags the cursor and catches up, like a real cable.
+  const MAX_STEP = 64;
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
@@ -192,11 +197,16 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           // held plug rides at LIFT_Z above the board, so the flat reach is the
           // leg of that right triangle.)
           const far = c.pts[name === "a" ? N - 1 : 0];
+          const fr = from[name] || { x: mouse.x, y: mouse.y, z: LIFT_Z };
           const maxR = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
           let mx = mouse.x, my = mouse.y;
           const rx = mx - far.x, ry = my - far.y, rd = Math.hypot(rx, ry);
           if (rd > maxR && rd > 1e-6) { mx = far.x + (rx / rd) * maxR; my = far.y + (ry / rd) * maxR; }
-          const fr = from[name] || { x: mx, y: my, z: LIFT_Z };
+          // bounded drag: cap the plug's advance this frame so no sub-step leaps
+          // far enough to punch the cord through another (kills tunnels AND the
+          // fast-drag buckle, since the cord is never compressed by a big jump)
+          const sx = mx - fr.x, sy = my - fr.y, sd = Math.hypot(sx, sy);
+          if (sd > MAX_STEP && sd > 1e-6) { mx = fr.x + (sx / sd) * MAX_STEP; my = fr.y + (sy / sd) * MAX_STEP; }
           p.x = fr.x + (mx - fr.x) * f; p.y = fr.y + (my - fr.y) * f; p.z = LIFT_Z;
         } else if (c.move < 1) {
           const k = ease(c.move);
@@ -234,7 +244,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       pin(s / SUB);
       for (const c of cables) offPosts(c);
       drape();
-      collide3(ropes, 2, stick);
+      collide3(ropes, 5, stick);
       pin(s / SUB);
     }
     for (const c of cables) if (c.move < 1) c.move = Math.min(1, c.move + (c.moveSpeed || 0.05));

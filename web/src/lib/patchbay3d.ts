@@ -169,7 +169,7 @@ export function collide3(ropes: Rope3[], iters: number, stick: Map<string, numbe
           //    slide through each other. Pure z cannot stop a lateral pass —
           //    nothing acts in the plane — so a cord whipped sideways tunnelled.
           const deep = (reach - hh.d) / reach;              // 0 touching .. 1 coincident
-          const wIn = Math.max(0, deep - 0.25) / 0.75;      // in-plane once a quarter overlapped (a resting crossing is z-separated, deep≈0, so never)
+          const wIn = Math.max(0, deep - 0.08) / 0.92;      // in-plane as soon as they're pressed together, so an under-cord hits the other like a WALL (a resting crossing is z-separated, deep≈0, so it stays pure-z and never jitters)
           let nx = 0, ny = 0, nz = order;
           if (wIn > 1e-3) {
             const dl = Math.hypot(hh.dx, hh.dy) || 1e-6;
