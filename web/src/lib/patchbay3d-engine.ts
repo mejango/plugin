@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v29";
+export const PATCHBAY3D_VERSION = "3d-v30";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -155,7 +155,9 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         const e = name === "a" ? o.pts[0] : o.pts[N - 1];
         const nx = name === "a" ? o.pts[1] : o.pts[N - 2];
         const ux = nx.x - e.x, uy = nx.y - e.y, ul = Math.hypot(ux, uy) || 1;
-        const ex = e.x, ey = e.y, fx = e.x + (ux / ul) * BARREL, fy = e.y + (uy / ul) * BARREL;
+        // the capsule runs from the jack past the collar to the cord's first point:
+        // the cable leaves the plug's tip, so nothing slides off that end
+        const ex = e.x, ey = e.y, fx = e.x + (ux / ul) * Math.max(BARREL, ul), fy = e.y + (uy / ul) * Math.max(BARREL, ul);
         const vx = fx - ex, vy = fy - ey, vv = vx * vx + vy * vy || 1;
         for (let i = 1; i < N - 1; i++) {
           if (o === c && (i <= 1 || i >= N - 2)) continue;   // a cord's own plug
@@ -163,7 +165,10 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           const p = c.pts[i];
           if (p.z > e.z + POST_H) continue;                  // riding over the connector
 
-          const t = Math.max(0, Math.min(1, ((p.x - ex) * vx + (p.y - ey) * vy) / vv));
+          let t = Math.max(0, Math.min(1, ((p.x - ex) * vx + (p.y - ey) * vy) / vv));
+          // a cord caught on this plug doesn't slide off along it toward the
+          // cable (collar flare, friction): it may slip back toward the jack, not on
+          if (catchAt && catchAt.post && catchAt.o === o && catchAt.end === name && catchAt.i === i) t = Math.min(t, catchAt.t);
           const gx = ex + vx * t, gy = ey + vy * t;
           const dx = p.x - gx, dy = p.y - gy, d = Math.hypot(dx, dy);
           if (d < R && d > 1e-6) {
@@ -174,7 +179,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             // a TUG is tension, not a brush: the cord pressing into the post
             // while pulled straight on both sides of it. A loose wrap that
             // merely passes by is slack somewhere.
-            if (drag && drag.cable === c && o !== c && d < R - c.r * 0.5 && wrapped(c, i)) o[name === "a" ? "pressA" : "pressB"] = true;
+            if (drag && drag.cable === c && o !== c && d < R - c.r * 0.5 && wrapped(c, i)) { caught(c, i, o, name, true); if (catchAt.t === undefined) catchAt.t = t; }
             p.x = gx + (dx / d) * R; p.y = gy + (dy / d) * R;
           }
         }
@@ -204,6 +209,21 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     const ax = h.x - p.x, ay = h.y - p.y, bx = f.x - p.x, by = f.y - p.y;
     return (ax * bx + ay * by) / ((Math.hypot(ax, ay) || 1) * (Math.hypot(bx, by) || 1)) > -0.5;
   }
+  // the dragged cord is hooked at point i: remember where, and how much cord
+  // is left between there and the hand, so the hand can be held to it
+  let catchAt = null, catchSeen = false;   // { x, y, rem }: carried frame to frame while the catch keeps being felt
+  function caught(c, i, o, end, post) {
+    catchSeen = true;
+    if (catchAt && catchAt.o === o && catchAt.end === end) return;   // already caught here: hold that, don't re-measure
+    const ci = cables.indexOf(c), oi = cables.indexOf(o), key = Math.min(ci, oi) + "," + Math.max(ci, oi);
+    // what's left is the cord's true length minus the (taut) run from the far
+    // end to the catch — never the hand-side arc, which is whatever the hand
+    // has already stretched it to
+    const fi = drag.end === "a" ? N - 1 : 0;
+    let arc = 0;
+    for (let k = Math.min(fi, i); k < Math.max(fi, i); k++) arc += Math.hypot(c.pts[k + 1].x - c.pts[k].x, c.pts[k + 1].y - c.pts[k].y);
+    catchAt = { x: c.pts[i].x, y: c.pts[i].y, rem: Math.max(0, c.len - arc), key, order: stick.get(key), o, end, post, i };
+  }
   function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
 
   function step() {
@@ -230,6 +250,12 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           const rx = mx - far.x, ry = my - far.y, rd = Math.hypot(rx, ry);
           // (a loose far end is no anchor — it is carried along, so no clamp)
           if (!loose(c, name === "a" ? "b" : "a") && rd > maxR && rd > 1e-6) { mx = far.x + (rx / rd) * maxR; my = far.y + (ry / rd) * maxR; }
+          // CAUGHT on something: the hand is held to the cord left past the
+          // catch (a hair over, so it keeps pulling and the tug keeps counting)
+          if (catchAt) {
+            const cx = mx - catchAt.x, cy = my - catchAt.y, cd = Math.hypot(cx, cy), lim = catchAt.rem + 3 * dpr;
+            if (cd > lim && cd > 1e-6) { mx = catchAt.x + (cx / cd) * lim; my = catchAt.y + (cy / cd) * lim; }
+          }
           const fr = from[name] || { x: mx, y: my, z: LIFT_Z };
           p.x = fr.x + (mx - fr.x) * f; p.y = fr.y + (my - fr.y) * f; p.z = LIFT_Z;
         } else if (loose(c, name)) {
@@ -299,7 +325,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           if (wrapped(B, i)) {
             const h = A.pts[bj];
             const dA = Math.hypot(h.x - A.pts[0].x, h.y - A.pts[0].y), dB = Math.hypot(h.x - A.pts[N - 1].x, h.y - A.pts[N - 1].y);
-            A[dA < dB ? "pressA" : "pressB"] = true;
+            caught(B, i, A, dA < dB ? "a" : "b");
           }
         }
       }
@@ -313,15 +339,33 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       for (const c of cables) offPosts(c);
       drape();
       collide3(ropes, 2, stick);
+      // a caught pair stays engaged: the hooked cord is held a radius off the
+      // other, which the release band would otherwise read as "apart"
+      if (catchAt && catchAt.order) stick.set(catchAt.key, catchAt.order);
       pin(s / SUB);
       if (snap) wall(snap);
     }
     // taut pressure on a connector pulls its plug out
+    // The catch persists while the hand keeps pulling past it and the catch
+    // point is still against the other cord — it does not need a fresh hit
+    // every frame (once the hand is held, nothing tries to cross any more).
+    // Each such frame is a frame of tug on that cord's end.
+    if (catchAt && drag) {
+      const o = catchAt.o, pulling = Math.hypot(mouse.x - catchAt.x, mouse.y - catchAt.y) > catchAt.rem;
+      let near = Infinity;
+      // against a connector: still at that plug's stub (jack to first point)? against a cord: still at its body?
+      const j0 = catchAt.post ? (catchAt.end === "a" ? 0 : N - 2) : 0, j1 = catchAt.post ? j0 + 1 : N - 1;
+      for (let j = j0; j < j1; j++) { const q0 = o.pts[j], q1 = o.pts[j + 1]; const vx = q1.x - q0.x, vy = q1.y - q0.y, vv = vx * vx + vy * vy || 1;
+        const t = Math.max(0, Math.min(1, ((catchAt.x - q0.x) * vx + (catchAt.y - q0.y) * vy) / vv)); near = Math.min(near, Math.hypot(catchAt.x - q0.x - vx * t, catchAt.y - q0.y - vy * t)); }
+      if (pulling && near < 6 * drag.cable.r) { catchSeen = true; o[catchAt.end === "a" ? "pressA" : "pressB"] = true; }
+    }
     for (const c of cables) for (const name of ["a", "b"]) {
       const k = name === "a" ? "pressA" : "pressB", t = name === "a" ? "tugA" : "tugB";
-      c[t] = c[k] ? (c[t] || 0) + 1 : 0; c[k] = false;
-      if (c[t] > 0 && !loose(c, name)) unplug(c, name);
+      c[t] = c[k] ? (c[t] || 0) + 1 : Math.max(0, (c[t] || 0) - 2); c[k] = false;
+      // held caught for ~0.4s of steady pull, then the plug lets go
+      if (c[t] > 25 && !loose(c, name)) { unplug(c, name); c[t] = 0; if (catchAt && catchAt.o === c) { catchAt = null; catchSeen = false; } }   // it gave: the hand lets go
     }
+    if (!catchSeen) catchAt = null; catchSeen = false;
     for (const c of cables) if (c.move < 1) { c.move = Math.min(1, c.move + (c.moveSpeed || 0.05)); if (c.move >= 1) { c.a = c.na; c.b = c.nb; } }
   }
 
