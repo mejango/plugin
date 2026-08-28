@@ -13,8 +13,7 @@
     "typecheck": "tsc --noEmit --incremental false",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm run test",
-    "gen:abi": "node scripts/gen-abi.mjs",
-    "test:patchbay": "node scripts/patchbay/run-all.mjs"
+    "gen:abi": "node scripts/gen-abi.mjs"
   },
   "dependencies": {
     "@bananapus/nana-sdk-core": "^2.0.0",

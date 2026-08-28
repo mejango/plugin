@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { PATCHBAY3D_VERSION, startPatchBay3D } from "@/lib/patchbay3d-engine";
 
-// The 2.5D bench: a blank board and two cords with real depth (z-based over/under)
-// and live swing. Press R to copy a recording. The frame counter (f N) matches it.
+// The 2.5D bench: a blank board and two cords, driven by the 3D solid-cord
+// solver. Press R to copy a recording. The frame counter (f N) matches it.
 export default function Lab3dPage() {
   const ref = useRef<HTMLCanvasElement>(null);
   const [copied, setCopied] = useState(false);

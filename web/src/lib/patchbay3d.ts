@@ -21,8 +21,6 @@ export type Rope3 = {
   rest: number;              // segment rest length
   heldA: boolean;            // end a (pts[0]) is in a hand / flying — lifted, in the air
   heldB: boolean;            // end b likewise
-  freeA?: boolean;           // end a is unplugged: a free point, not a pin
-  freeB?: boolean;           // end b likewise
 };
 
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -58,7 +56,7 @@ export function segClosest3(p0: P3, p1: P3, q0: P3, q1: P3) {
  * onto the board (toward z = 0). Pinned/held ends are integrated by the caller. */
 export function integrate3(r: Rope3, gy: number, gz: number, damp: number) {
   const n = r.pts.length;
-  for (let i = r.freeA ? 0 : 1; i < (r.freeB ? n : n - 1); i++) {
+  for (let i = 1; i < n - 1; i++) {
     const p = r.pts[i], q = r.prev[i];
     const vx = (p.x - q.x) * damp;
     const vy = (p.y - q.y) * damp + gy;
@@ -81,7 +79,7 @@ export function constrainLength3(r: Rope3, iters: number) {
       const p = r.pts[i], q = r.pts[i + 1];
       const dx = q.x - p.x, dy = q.y - p.y, dz = q.z - p.z;
       const dl = Math.hypot(dx, dy, dz) || 1e-6;
-      const pFree = i > 0 || !!r.freeA, qFree = i + 1 < n - 1 || !!r.freeB;
+      const pFree = i > 0, qFree = i + 1 < n - 1;
       const diff = (dl - r.rest) / dl / (pFree && qFree ? 2 : 1);
       const ox = dx * diff, oy = dy * diff, oz = dz * diff;
       if (pFree) { p.x += ox; p.y += oy; p.z += oz; }
@@ -109,16 +107,8 @@ export function lifted(r: Rope3, i: number) {
  * one rides up onto the other: that IS over/under, decided by geometry, not a
  * flag. A carried (lifted) stretch is skipped as the mover — it is above the
  * board and passes over — but it still shoves what is beneath it.
- *
- * `stick` remembers which cord is on top for each pair, and is the one bit of
- * physical state the rule keeps: two cords cannot swap who is over whom without
- * first pulling clear of each other. While a pair stays in contact the order is
- * held; only when they separate (closest approach past the contact band) is the
- * memory dropped, so the next time they touch the stack is decided fresh. Pass
- * a persistent Map to get this (the driver does); omit it and each call decides
- * from geometry alone (fine for one-shot settling, and what the unit tests use).
  */
-export function collide3(ropes: Rope3[], iters: number, stick: Map<string, number> = new Map()): boolean[] {
+export function collide3(ropes: Rope3[], iters: number): boolean[] {
   const moved = ropes.map(() => false);
   for (let it = 0; it < iters; it++) {
     for (let a = 0; a < ropes.length; a++) {
@@ -127,107 +117,40 @@ export function collide3(ropes: Rope3[], iters: number, stick: Map<string, numbe
         const self = a === b;
         const reach = A.r + B.r;
         const na = A.pts.length, nb = B.pts.length;
-        const hits: { i: number; j: number; t: number; s: number; dx: number; dy: number; dz: number; d: number }[] = [];
-        let minD = Infinity;
         for (let i = 0; i < na - 1; i++) {
           for (let j = self ? i + 2 : 0; j < nb - 1; j++) {
-            if (self && i === 0 && j === nb - 2) continue;
+            if (self && i === 0 && j === nb - 2) continue;   // a cord's two ends never meet
             const c = segClosest3(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1]);
-            // the memory releases on IN-PLANE separation: a hand lifted straight
-            // above the other cord is still over/under it, not clear of it
-            const dxy = Math.hypot(c.dx, c.dy);
-            if (dxy < minD) minD = dxy;
             if (c.d >= reach || c.d < 1e-6) continue;
-            hits.push({ i, j, t: c.t, s: c.s, dx: c.dx, dy: c.dy, dz: c.dz, d: c.d });
+            let nx = c.dx / c.d, ny = c.dy / c.d, nz = c.dz / c.d;
+            // two stretches lying flat and crossing separate along almost pure
+            // z with rounding for a sign: nudge them onto z so one rides over
+            // the other instead of jostling in the plane
+            if (Math.abs(nz) < 0.2) {
+              const s = nz >= 0 ? 1 : -1;
+              nz = 0.4 * s; const f = Math.hypot(nx, ny) || 1e-6;
+              const k = Math.sqrt(1 - nz * nz) / f; nx *= k; ny *= k;
+            }
+            const push = (reach - c.d) / 2;
+            const shove = (R: Rope3, k: number, t: number, sign: number) => {
+              if (lifted(R, k)) return;
+              const n = R.pts.length;
+              const g0 = k > 0 ? 1 - t : 0, g1 = k + 1 < n - 1 ? t : 0;
+              const spread = g0 * g0 + g1 * g1;
+              if (spread < 1e-6) return;
+              const m = (push * sign) / spread;
+              const p0 = R.pts[k], p1 = R.pts[k + 1], r0 = R.prev[k], r1 = R.prev[k + 1];
+              if (g0) { p0.x += nx * m * g0; p0.y += ny * m * g0; p0.z += nz * m * g0; if (p0.z < 0) p0.z = 0; r0.x += nx * m * g0; r0.y += ny * m * g0; r0.z += nz * m * g0; }
+              if (g1) { p1.x += nx * m * g1; p1.y += ny * m * g1; p1.z += nz * m * g1; if (p1.z < 0) p1.z = 0; r1.x += nx * m * g1; r1.y += ny * m * g1; r1.z += nz * m * g1; }
+            };
+            shove(A, i, c.t, 1); shove(B, j, c.s, -1);
+            moved[a] = true; moved[b] = true;
           }
-        }
-        // Once the cords are clearly apart (past the contact band) forget who
-        // was on top — a fresh touch is free to stack either way. The band
-        // spans the 1px grazing dips of a resting crossing so a settled stack
-        // is never counted as "separated".
-        const key = self ? "" : a + "," + b;
-        if (key && minD >= reach * 1.6) stick.delete(key);
-        if (!hits.length) continue;
-        // Phase 1: ONE stacking order for this pair of cords. If we already know
-        // who is on top from an unbroken contact, KEEP it — a cord lifted near
-        // its hand cannot climb over another it is still caught under; it must
-        // be pulled clear first. Only a first, memory-less contact reads the
-        // order from the net z difference across the overlap (edge pairs at the
-        // same level cannot out-vote the crossing, so it does not flicker).
-        let order = key ? stick.get(key) ?? 0 : 0;
-        if (!order) {
-          let netdz = 0;
-          for (const hh of hits) netdz += (reach - hh.d) * hh.dz;
-          order = netdz > 1e-6 ? 1 : netdz < -1e-6 ? -1 : (a < b ? -1 : 1);
-          if (key) stick.set(key, order);
-        }
-        // Phase 2: separate every colliding pair, mostly in z along that one
-        // order, a little in the plane so a stack is not perfectly colinear.
-        for (const hh of hits) {
-          // Separate along geometry in the plane — that is what stops a fast
-          // drag passing through — but the z-component's SIGN is the pair's one
-          // order (no flicker) and floored so a flat crossing lifts one cord
-          // over the other rather than shoving them apart sideways.
-          // Separate PURELY in z: at a crossing the two cords are meant to
-          // overlap in the plane — one simply rides over the other — so the
-          // push has no in-plane part to jostle the crossing sideways. A
-          // sideways part made two crossing cords wiggle forever at rest.
-          const nx = 0, ny = 0, nz = order;
-          const push = (reach - hh.d) / 2;
-          const shove = (R: Rope3, k: number, t: number, sgn: number) => {
-            if (lifted(R, k)) return;
-            const n = R.pts.length;
-            const g0 = k > 0 ? 1 - t : 0, g1 = k + 1 < n - 1 ? t : 0;
-            const spread = g0 * g0 + g1 * g1;
-            if (spread < 1e-6) return;
-            const m = (push * sgn) / spread;
-            const p0 = R.pts[k], p1 = R.pts[k + 1], r0 = R.prev[k], r1 = R.prev[k + 1];
-            if (g0) { p0.x += nx * m * g0; p0.y += ny * m * g0; p0.z += nz * m * g0; if (p0.z < 0) p0.z = 0; r0.x += nx * m * g0; r0.y += ny * m * g0; }
-            if (g1) { p1.x += nx * m * g1; p1.y += ny * m * g1; p1.z += nz * m * g1; if (p1.z < 0) p1.z = 0; r1.x += nx * m * g1; r1.y += ny * m * g1; }
-          };
-          shove(A, hh.i, hh.t, 1); shove(B, hh.j, hh.s, -1);
-          moved[a] = true; moved[b] = true;
         }
       }
     }
   }
   return moved;
-}
-
-/**
- * Minimum bend radius: a real cable resists folding flat. Where a point's two
- * arms have closed to nearly a hairpin, rotate them apart a little so the fold
- * opens into a rounded bight instead of a pinched crease that reads as the cord
- * "caught on itself". Works in the plane (z is tiny) and never moves a pinned
- * end. This is what a stiff rubber cord does; the solver has no other opinion
- * about how sharp a bend may be.
- */
-export function openFolds3(r: Rope3, minCos: number, relax: number) {
-  const n = r.pts.length;
-  for (let i = 1; i < n - 1; i++) {
-    const p = r.pts[i], pm = r.pts[i - 1], pp = r.pts[i + 1];
-    const ax = pm.x - p.x, ay = pm.y - p.y, la = Math.hypot(ax, ay) || 1e-6;
-    const bx = pp.x - p.x, by = pp.y - p.y, lb = Math.hypot(bx, by) || 1e-6;
-    const cos = (ax * bx + ay * by) / (la * lb);
-    if (cos < minCos) continue;                 // open enough, leave it
-    // rotate each free arm outward about p to widen the angle
-    const target = Math.acos(Math.max(-1, Math.min(1, minCos)));
-    const cur = Math.acos(Math.max(-1, Math.min(1, cos)));
-    const cross = ax * by - ay * bx;
-    const sgn = cross >= 0 ? 1 : -1;
-    const open = (target - cur) * relax;
-    const mFree = i - 1 > 0, pFree = i + 1 < n - 1;
-    const each = mFree && pFree ? open / 2 : open;
-    const swing = (q: P3, prev: P3, ang: number) => {
-      const ca = Math.cos(ang), sa = Math.sin(ang);
-      const dx = q.x - p.x, dy = q.y - p.y;
-      const nx = p.x + dx * ca - dy * sa, ny = p.y + dx * sa + dy * ca;
-      prev.x += nx - q.x; prev.y += ny - q.y;
-      q.x = nx; q.y = ny;
-    };
-    if (mFree) swing(pm, r.prev[i - 1], -sgn * each);
-    if (pFree) swing(pp, r.prev[i + 1], sgn * each);
-  }
 }
 
 /** Smallest 3D gap between any non-adjacent segment pair across two cords —
