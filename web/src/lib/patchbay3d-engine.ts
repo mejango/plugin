@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v28";
+export const PATCHBAY3D_VERSION = "3d-v29";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -174,7 +174,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             // a TUG is tension, not a brush: the cord pressing into the post
             // while pulled straight on both sides of it. A loose wrap that
             // merely passes by is slack somewhere.
-            if (drag && drag.cable === c && o !== c && d < R - c.r * 0.5 && taut(c, 0, i - 2) && taut(c, i + 2, N - 1)) o[name === "a" ? "pressA" : "pressB"] = true;
+            if (drag && drag.cable === c && o !== c && d < R - c.r * 0.5 && wrapped(c, i)) o[name === "a" ? "pressA" : "pressB"] = true;
             p.x = gx + (dx / d) * R; p.y = gy + (dy / d) * R;
           }
         }
@@ -190,6 +190,19 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     let arc = 0;
     for (let k = i0; k < i1; k++) arc += Math.hypot(c.pts[k + 1].x - c.pts[k].x, c.pts[k + 1].y - c.pts[k].y);
     return Math.hypot(c.pts[i1].x - c.pts[i0].x, c.pts[i1].y - c.pts[i0].y) > 0.85 * arc;
+  }
+  // is the dragged cord WRAPPED around whatever it touches at point i, and
+  // tugging? Not the hand itself walking into it (i near the hand), taut on
+  // both sides of the contact, and bent around it: the arms to the hand and to
+  // the far end pull away from the contact at less than 120 degrees apart.
+  function wrapped(c, i) {
+    const hi = drag.end === "a" ? 0 : N - 1, fi = N - 1 - hi;
+    if (Math.abs(i - hi) < 3 || Math.abs(i - fi) < 2) return false;
+    if (!taut(c, Math.min(hi, i) + (hi < i ? 0 : 2), Math.max(hi, i) - (hi < i ? 2 : 0))) return false;
+    if (!taut(c, Math.min(fi, i) + (fi < i ? 0 : 2), Math.max(fi, i) - (fi < i ? 2 : 0))) return false;
+    const p = c.pts[i], h = c.pts[hi], f = c.pts[fi];
+    const ax = h.x - p.x, ay = h.y - p.y, bx = f.x - p.x, by = f.y - p.y;
+    return (ax * bx + ay * by) / ((Math.hypot(ax, ay) || 1) * (Math.hypot(bx, by) || 1)) > -0.5;
   }
   function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
 
@@ -283,7 +296,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           // settling over-cord can't drift across a point parked right on it
           const back = best - reach / mlen;
           p.x = p0.x + (p.x - p0.x) * back; p.y = p0.y + (p.y - p0.y) * back;
-          if (taut(B, 0, i - 2) && taut(B, i + 2, N - 1)) {
+          if (wrapped(B, i)) {
             const h = A.pts[bj];
             const dA = Math.hypot(h.x - A.pts[0].x, h.y - A.pts[0].y), dB = Math.hypot(h.x - A.pts[N - 1].x, h.y - A.pts[N - 1].y);
             A[dA < dB ? "pressA" : "pressB"] = true;
