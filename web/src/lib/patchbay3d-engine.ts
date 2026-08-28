@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v26";
+export const PATCHBAY3D_VERSION = "3d-v27";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -135,11 +135,17 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // The post is only about a cord-diameter tall (a connector, not a wall), so a
   // cord that has climbed onto the plug's own cord clears its connector too;
   // only a cord flat on the board is stopped.
+  // is c stacked OVER o where they cross (the pair's held order in `stick`)?
+  function over(c, o) {
+    const ci = cables.indexOf(c), oi = cables.indexOf(o);
+    return ci < oi ? stick.get(ci + "," + oi) === 1 : stick.get(oi + "," + ci) === -1;
+  }
   function offPosts(c) {
     const BARREL = 15 * dpr, R = BARREL + c.r;
     const POST_H = c.r * 1.2;   // a connector ~a cord-diameter tall; a cord stacked one diameter up (z≈2·r) clears it
     const view = ropeView(c);
     for (const o of cables) {
+      if (o !== c && over(c, o)) continue;   // riding over that cord: nothing of it touches us, connectors included
       for (const name of ["a", "b"]) {
         if (heldEnd(o, name) || loose(o, name)) continue;
         // the post is a CAPSULE from the jack out to the collar, so a cord is
