@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v30";
+export const PATCHBAY3D_VERSION = "3d-v31";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -168,9 +168,18 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           let t = Math.max(0, Math.min(1, ((p.x - ex) * vx + (p.y - ey) * vy) / vv));
           // a cord caught on this plug doesn't slide off along it toward the
           // cable (collar flare, friction): it may slip back toward the jack, not on
-          if (catchAt && catchAt.post && catchAt.o === o && catchAt.end === name && catchAt.i === i) t = Math.min(t, catchAt.t);
+          const hookedHere = catchAt && catchAt.post && catchAt.o === o && catchAt.end === name && catchAt.i === i;
+          if (hookedHere) t = Math.min(t, catchAt.t);
           const gx = ex + vx * t, gy = ey + vy * t;
-          const dx = p.x - gx, dy = p.y - gy, d = Math.hypot(dx, dy);
+          let dx = p.x - gx, dy = p.y - gy;
+          // A plug you are hooked on is SOLID: you cannot swing around its jack
+          // end to the far side — that was the escape that let a cord wriggle
+          // free instead of ever pulling the plug out. Only retreat frees it.
+          if (hookedHere && Math.sign(vx * dy - vy * dx) !== catchAt.side) {
+            const vl = Math.hypot(vx, vy) || 1;
+            dx = (-vy / vl) * catchAt.side; dy = (vx / vl) * catchAt.side;
+          }
+          const d = Math.hypot(dx, dy);
           if (d < R && d > 1e-6) {
             // a cord wrapped around this connector and TUGGED (dragged so hard
             // it sinks a cord-radius into the post): rather than let it tunnel,
@@ -179,7 +188,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             // a TUG is tension, not a brush: the cord pressing into the post
             // while pulled straight on both sides of it. A loose wrap that
             // merely passes by is slack somewhere.
-            if (drag && drag.cable === c && o !== c && d < R - c.r * 0.5 && wrapped(c, i)) { caught(c, i, o, name, true); if (catchAt.t === undefined) catchAt.t = t; }
+            if (drag && drag.cable === c && o !== c && d < R - c.r * 0.5 && hooked(c, i)) { caught(c, i, o, name, true); if (catchAt.t === undefined) { catchAt.t = t; catchAt.side = Math.sign(vx * (p.y - gy) - vy * (p.x - gx)) || 1; }
+              if (straining(c)) o[name === "a" ? "pressA" : "pressB"] = true; }
             p.x = gx + (dx / d) * R; p.y = gy + (dy / d) * R;
           }
         }
@@ -196,33 +206,49 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     for (let k = i0; k < i1; k++) arc += Math.hypot(c.pts[k + 1].x - c.pts[k].x, c.pts[k + 1].y - c.pts[k].y);
     return Math.hypot(c.pts[i1].x - c.pts[i0].x, c.pts[i1].y - c.pts[i0].y) > 0.85 * arc;
   }
-  // is the dragged cord WRAPPED around whatever it touches at point i, and
-  // tugging? Not the hand itself walking into it (i near the hand), taut on
-  // both sides of the contact, and bent around it: the arms to the hand and to
-  // the far end pull away from the contact at less than 120 degrees apart.
-  function wrapped(c, i) {
+  // taut from the contact at i out to one end of the dragged cord (the two
+  // points either side of the contact are the bend itself, so they are skipped)
+  function tautTo(c, i) {
+    const e = drag.end === "a" ? 0 : N - 1;
+    return taut(c, Math.min(e, i) + (e < i ? 0 : 2), Math.max(e, i) - (e < i ? 2 : 0));
+  }
+  // is the dragged cord HOOKED on whatever it touches at point i? Not the hand
+  // itself walking into it (i near either end), the hand is pulling taut on its
+  // side, and the cord is bent around the contact — the arms to the hand and to
+  // the far end less than 120 degrees apart. This is what CATCHES: the hand is
+  // held, and the pull then takes up whatever slack is left down the far side.
+  function hooked(c, i) {
     const hi = drag.end === "a" ? 0 : N - 1, fi = N - 1 - hi;
     if (Math.abs(i - hi) < 3 || Math.abs(i - fi) < 2) return false;
-    if (!taut(c, Math.min(hi, i) + (hi < i ? 0 : 2), Math.max(hi, i) - (hi < i ? 2 : 0))) return false;
-    if (!taut(c, Math.min(fi, i) + (fi < i ? 0 : 2), Math.max(fi, i) - (fi < i ? 2 : 0))) return false;
+    if (!tautTo(c, i)) return false;
     const p = c.pts[i], h = c.pts[hi], f = c.pts[fi];
     const ax = h.x - p.x, ay = h.y - p.y, bx = f.x - p.x, by = f.y - p.y;
     return (ax * bx + ay * by) / ((Math.hypot(ax, ay) || 1) * (Math.hypot(bx, by) || 1)) > -0.5;
   }
+
   // the dragged cord is hooked at point i: remember where, and how much cord
   // is left between there and the hand, so the hand can be held to it
   let catchAt = null, catchSeen = false;   // { x, y, rem }: carried frame to frame while the catch keeps being felt
+  // How much cord is left between the catch and the hand: what a cord this taut
+  // has, minus the straight run from the far end to the catch. Straight, not the
+  // current arc — the far side is under tension and pulls straight; measuring its
+  // slack arc would clamp the hand too short to ever pull that slack out (a
+  // deadlock: no pull, no take-up, never taut, never a tug). Recomputed every
+  // frame, so the hand advances as the slack comes out and stops when it is gone.
+  // TAUT is 0.95, not 1: a real cord keeps a little give, and a wrap pulled to
+  // 95% of its length is straining hard — demanding 100% meant never tugging.
+  const TAUT = 0.95;
+  function catchRem(c) {
+    const f = c.pts[drag.end === "a" ? N - 1 : 0];
+    return Math.max(0, c.len * TAUT - Math.hypot(f.x - catchAt.x, f.y - catchAt.y));
+  }
+  // the mouse is asking for more cord than is left around the hook: that is the strain
+  function straining(c) { return catchAt && Math.hypot(mouse.x - catchAt.x, mouse.y - catchAt.y) > catchRem(c); }
   function caught(c, i, o, end, post) {
     catchSeen = true;
     if (catchAt && catchAt.o === o && catchAt.end === end) return;   // already caught here: hold that, don't re-measure
     const ci = cables.indexOf(c), oi = cables.indexOf(o), key = Math.min(ci, oi) + "," + Math.max(ci, oi);
-    // what's left is the cord's true length minus the (taut) run from the far
-    // end to the catch — never the hand-side arc, which is whatever the hand
-    // has already stretched it to
-    const fi = drag.end === "a" ? N - 1 : 0;
-    let arc = 0;
-    for (let k = Math.min(fi, i); k < Math.max(fi, i); k++) arc += Math.hypot(c.pts[k + 1].x - c.pts[k].x, c.pts[k + 1].y - c.pts[k].y);
-    catchAt = { x: c.pts[i].x, y: c.pts[i].y, rem: Math.max(0, c.len - arc), key, order: stick.get(key), o, end, post, i };
+    catchAt = { x: c.pts[i].x, y: c.pts[i].y, key, order: stick.get(key), o, end, post, i };
   }
   function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
 
@@ -253,7 +279,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           // CAUGHT on something: the hand is held to the cord left past the
           // catch (a hair over, so it keeps pulling and the tug keeps counting)
           if (catchAt) {
-            const cx = mx - catchAt.x, cy = my - catchAt.y, cd = Math.hypot(cx, cy), lim = catchAt.rem + 3 * dpr;
+            const cx = mx - catchAt.x, cy = my - catchAt.y, cd = Math.hypot(cx, cy), lim = catchRem(c) + 3 * dpr;
             if (cd > lim && cd > 1e-6) { mx = catchAt.x + (cx / cd) * lim; my = catchAt.y + (cy / cd) * lim; }
           }
           const fr = from[name] || { x: mx, y: my, z: LIFT_Z };
@@ -322,10 +348,12 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           // settling over-cord can't drift across a point parked right on it
           const back = best - reach / mlen;
           p.x = p0.x + (p.x - p0.x) * back; p.y = p0.y + (p.y - p0.y) * back;
-          if (wrapped(B, i)) {
+          if (hooked(B, i)) {
             const h = A.pts[bj];
             const dA = Math.hypot(h.x - A.pts[0].x, h.y - A.pts[0].y), dB = Math.hypot(h.x - A.pts[N - 1].x, h.y - A.pts[N - 1].y);
-            caught(B, i, A, dA < dB ? "a" : "b");
+            const end = dA < dB ? "a" : "b";
+            caught(B, i, A, end);
+            if (straining(B)) A[end === "a" ? "pressA" : "pressB"] = true;
           }
         }
       }
@@ -351,13 +379,27 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     // every frame (once the hand is held, nothing tries to cross any more).
     // Each such frame is a frame of tug on that cord's end.
     if (catchAt && drag) {
-      const o = catchAt.o, pulling = Math.hypot(mouse.x - catchAt.x, mouse.y - catchAt.y) > catchAt.rem;
-      let near = Infinity;
-      // against a connector: still at that plug's stub (jack to first point)? against a cord: still at its body?
+      const B = drag.cable, o = catchAt.o;
+      // Still hooked? Measure the cord where it actually IS now, never the
+      // frozen catch point — that point sits by the plug for ever, and reading
+      // it kept a catch alive (and tugging) long after the cord had slipped free.
       const j0 = catchAt.post ? (catchAt.end === "a" ? 0 : N - 2) : 0, j1 = catchAt.post ? j0 + 1 : N - 1;
-      for (let j = j0; j < j1; j++) { const q0 = o.pts[j], q1 = o.pts[j + 1]; const vx = q1.x - q0.x, vy = q1.y - q0.y, vv = vx * vx + vy * vy || 1;
-        const t = Math.max(0, Math.min(1, ((catchAt.x - q0.x) * vx + (catchAt.y - q0.y) * vy) / vv)); near = Math.min(near, Math.hypot(catchAt.x - q0.x - vx * t, catchAt.y - q0.y - vy * t)); }
-      if (pulling && near < 6 * drag.cable.r) { catchSeen = true; o[catchAt.end === "a" ? "pressA" : "pressB"] = true; }
+      let near = Infinity;
+      for (let i = Math.max(1, catchAt.i - 2); i <= Math.min(N - 2, catchAt.i + 2); i++) {
+        const p = B.pts[i];
+        for (let j = j0; j < j1; j++) { const q0 = o.pts[j], q1 = o.pts[j + 1]; const vx = q1.x - q0.x, vy = q1.y - q0.y, vv = vx * vx + vy * vy || 1;
+          const t = Math.max(0, Math.min(1, ((p.x - q0.x) * vx + (p.y - q0.y) * vy) / vv));
+          near = Math.min(near, Math.hypot(p.x - q0.x - vx * t, p.y - q0.y - vy * t)); }
+      }
+      // Still hooked: keep the catch (and so the hand clamp) alive, and count a
+      // frame of tug for every frame the hand is straining against it. Counting
+      // only on a fresh collision does not work — once the hand is clamped the
+      // cord is held just clear of the post, so contact recurs only now and then
+      // and the counter decays back down between hits.
+      if (near < (catchAt.post ? 15 * dpr : 0) + 3 * B.r) {
+        catchSeen = true;
+        if (straining(B)) o[catchAt.end === "a" ? "pressA" : "pressB"] = true;
+      }
     }
     for (const c of cables) for (const name of ["a", "b"]) {
       const k = name === "a" ? "pressA" : "pressB", t = name === "a" ? "tugA" : "tugB";
@@ -599,7 +641,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   });
   canvas.addEventListener("pointerup", () => { rec.events.push([rec.frames.length, "up", 0, 0]); if (drag) trySeat(); });
 
-  canvas.__pb3d = () => ({ cables, jacks, dpr, N, drag, rec, stick });
+  canvas.__pb3d = () => ({ cables, jacks, dpr, N, drag, rec, stick, catchAt });   // NOTE: drag/catchAt are captured BY VALUE — refetch each frame
   if (canvas.__lab == null) canvas.__lab = false;   // the lab page sets it true before us; don't clobber
   const onKey = (e) => { if (e.key === "r" || e.key === "R") navigator.clipboard?.writeText(JSON.stringify(rec)).then(() => canvas.dispatchEvent(new CustomEvent("patchbay:copied"))); };
   window.addEventListener("keydown", onKey);
