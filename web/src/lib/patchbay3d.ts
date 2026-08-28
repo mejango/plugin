@@ -90,6 +90,73 @@ export function constrainLength3(r: Rope3, iters: number) {
 
 /** Is segment i of this rope in the air near a held plug? The stretch out of a
  * hand is lifted, so it passes over what it is carried across. */
+/**
+ * Bending stiffness. A cord is not a chain: it resists being bent, and left
+ * alone it wants to straighten. Each interior point is drawn toward the midpoint
+ * of its neighbours — the discrete curvature — by `k`, and `prev` moves with it
+ * so the stiffness shapes the cord without inventing any speed. Pinned ends do
+ * not move. Run it BEFORE the length solve, which puts the spacing back.
+ */
+export function bend3(r: Rope3, k: number) {
+  const n = r.pts.length;
+  const dx = new Float64Array(n), dy = new Float64Array(n), dz = new Float64Array(n);
+  for (let i = 1; i < n - 1; i++) {
+    const p = r.pts[i], a = r.pts[i - 1], b = r.pts[i + 1];
+    let cx = ((a.x + b.x) / 2 - p.x) * k, cy = ((a.y + b.y) / 2 - p.y) * k, cz = ((a.z + b.z) / 2 - p.z) * k;
+    // Only the part ACROSS the cord: bending moves a point sideways, it does not
+    // reel cord in. Straight toward the midpoint shortens the curve every pass,
+    // which the length solve then has to undo — and under a fast drag it cannot
+    // keep up, so the cord visibly loses length.
+    const tx = b.x - a.x, ty = b.y - a.y, tz = b.z - a.z;
+    const tl = tx * tx + ty * ty + tz * tz;
+    if (tl > 1e-12) {
+      const d = (cx * tx + cy * ty + cz * tz) / tl;
+      cx -= tx * d; cy -= ty * d; cz -= tz * d;
+    }
+    dx[i] = cx; dy[i] = cy; dz[i] = cz;
+  }
+  for (let i = 1; i < n - 1; i++) {
+    const p = r.pts[i], q = r.prev[i];
+    p.x += dx[i]; p.y += dy[i]; p.z += dz[i];
+    q.x += dx[i]; q.y += dy[i]; q.z += dz[i];
+    if (p.z < 0) p.z = 0;
+  }
+}
+
+/**
+ * Minimum bend radius. A cable cannot be folded flat: past some angle it stops
+ * bending and bulges into a rounded bight instead. Where a point's two arms have
+ * closed tighter than `minDeg`, rotate them apart about it. Pinned ends stay put,
+ * and `prev` follows so no speed is invented. This is what stops a dragged cord
+ * collapsing into a hairpin — a bending spring alone is always overpowered by
+ * the hand, because the hand wins every argument.
+ */
+export function unkink3(r: Rope3, minDeg: number, relax: number) {
+  const n = r.pts.length;
+  const minCos = Math.cos((minDeg * Math.PI) / 180);
+  for (let i = 1; i < n - 1; i++) {
+    const p = r.pts[i], pm = r.pts[i - 1], pp = r.pts[i + 1];
+    const ax = pm.x - p.x, ay = pm.y - p.y, la = Math.hypot(ax, ay) || 1e-6;
+    const bx = pp.x - p.x, by = pp.y - p.y, lb = Math.hypot(bx, by) || 1e-6;
+    const cos = (ax * bx + ay * by) / (la * lb);
+    if (cos < minCos) continue;                       // open enough already
+    const target = Math.acos(Math.max(-1, Math.min(1, minCos)));
+    const cur = Math.acos(Math.max(-1, Math.min(1, cos)));
+    const sgn = ax * by - ay * bx >= 0 ? 1 : -1;
+    const mFree = i - 1 > 0, pFree = i + 1 < n - 1;
+    const each = ((target - cur) * relax) / (mFree && pFree ? 2 : 1);
+    const swing = (q: P3, prev: P3, ang: number) => {
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const dx = q.x - p.x, dy = q.y - p.y;
+      const nx = p.x + dx * ca - dy * sa, ny = p.y + dx * sa + dy * ca;
+      prev.x += nx - q.x; prev.y += ny - q.y;
+      q.x = nx; q.y = ny;
+    };
+    if (mFree) swing(pm, r.prev[i - 1], -sgn * each);
+    if (pFree) swing(pp, r.prev[i + 1], sgn * each);
+  }
+}
+
 export function lifted(r: Rope3, i: number) {
   if (r.heldA && r.heldB) return true;
   if (r.heldA && i <= 0) return true;
