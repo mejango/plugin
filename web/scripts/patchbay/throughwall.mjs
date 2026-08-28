@@ -9,7 +9,7 @@ const out = await pg.evaluate(async () => {
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
   const [G, O] = s.cables; const far = G.pts[N - 1], mid = O.pts[7];
   // lay G straight from its far end across O's body at pts[7], 150px beyond, UNDER O
-  const ax = Math.atan2(mid.y - far.y, mid.x - far.x), ux = Math.cos(ax), uy = Math.sin(ax), px = -uy, py = ux;
+  const ax = Math.atan2(mid.y - far.y, mid.x - far.x), ux = Math.cos(ax), uy = Math.sin(ax);
   const H0 = { x: mid.x + ux * 150, y: mid.y + uy * 150 };
   ev('pointerdown', G.pts[0].x, G.pts[0].y); await wait(30); ev('pointermove', H0.x, H0.y);
   for (let i = 0; i < N; i++) { const k = 1 - i / (N - 1); G.pts[i].x = far.x + (H0.x - far.x) * k; G.pts[i].y = far.y + (H0.y - far.y) * k; G.pts[i].z = 0; G.prev[i].x = G.pts[i].x; G.prev[i].y = G.pts[i].y; G.prev[i].z = 0; }
@@ -20,7 +20,7 @@ const out = await pg.evaluate(async () => {
   const sg = side(H0); // H0's side of O; push to the other side
   let H1 = { x: H0.x - nx * sg * 400, y: H0.y - ny * sg * 400 }; if (side(H1) === sg) H1 = { x: H0.x + nx * sg * 400, y: H0.y + ny * sg * 400 };
   const sideH1 = side(H1), sideFar = side(far);
-  let crossedFrames = 0, firedAt = -1; const log = []; const before = { a: !!O.looseA, b: !!O.looseB };
+  let firedAt = -1; const log = []; const before = { a: !!O.looseA, b: !!O.looseB };
   for (let k = 0; k <= 150; k++) { const u = Math.min(1, k / 100); ev('pointermove', H0.x + (H1.x - H0.x) * u, H0.y + (H1.y - H0.y) * u); await wait(16);
     if (firedAt < 0 && (O.looseA || O.looseB)) firedAt = k;
     const sd = (q, j) => Math.sign((q.x - O.pts[j].x) * (O.pts[j+1].y - O.pts[j].y) - (q.y - O.pts[j].y) * (O.pts[j+1].x - O.pts[j].x));
