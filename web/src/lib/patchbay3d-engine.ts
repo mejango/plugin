@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v31";
+export const PATCHBAY3D_VERSION = "3d-v32";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -117,6 +117,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
 
   // ── physics ──────────────────────────────────────────────────────────────
   const G = 1.6, GZ = 0.04, DAMP = 0.9, LIFT_Z = 26;
+  const MAX_STEP = 64;   // device px per frame: 8 per substep, under a cord radius
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
@@ -145,9 +146,15 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     const POST_H = c.r * 1.2;   // a connector ~a cord-diameter tall; a cord stacked one diameter up (z≈2·r) clears it
     const view = ropeView(c);
     for (const o of cables) {
-      if (o !== c && over(c, o)) continue;   // riding over that cord: nothing of it touches us, connectors included
+      const riding = o !== c && over(c, o);   // riding over that cord: nothing of it touches us...
       for (const name of ["a", "b"]) {
         if (heldEnd(o, name) || loose(o, name)) continue;
+        // ...but a cord WOUND AROUND a connector is around it whoever is on top.
+        // A plug is a post standing off the board: you cannot lift a loop off it
+        // by riding over the cord. Without this the stack order flipping mid-wrap
+        // made the plug vanish and the loop slipped straight over it in a frame.
+        const jack = o.pts[name === "a" ? 0 : N - 1];
+        if (riding && !(o[name === "a" ? "wrapA" : "wrapB"])) continue;
         // the post is a CAPSULE from the jack out to the collar, so a cord is
         // blocked everywhere around the connector — including the gap right at
         // the hole, which a single circle further out left open (a cord slipped
@@ -168,16 +175,27 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           let t = Math.max(0, Math.min(1, ((p.x - ex) * vx + (p.y - ey) * vy) / vv));
           // a cord caught on this plug doesn't slide off along it toward the
           // cable (collar flare, friction): it may slip back toward the jack, not on
-          const hookedHere = catchAt && catchAt.post && catchAt.o === o && catchAt.end === name && catchAt.i === i;
+          // hooked on THIS plug: the whole cord is confined to the side it
+          // caught on (one pinned point is not enough — its neighbours swing
+          // around the jack end and drag the cord through), and the caught
+          // point itself cannot slide off along the barrel toward the cable.
+          // ...the points that FORM the hook, not the whole cord: a distant
+          // stretch may legitimately lie on the far side of this plug, and
+          // slamming it across teleports the cord and breaks the hook.
+          const onThisPlug = catchAt && catchAt.post && catchAt.o === o && catchAt.end === name && Math.abs(i - catchAt.i) <= 3;
+          const hookedHere = onThisPlug && catchAt.i === i;
           if (hookedHere) t = Math.min(t, catchAt.t);
           const gx = ex + vx * t, gy = ey + vy * t;
           let dx = p.x - gx, dy = p.y - gy;
           // A plug you are hooked on is SOLID: you cannot swing around its jack
           // end to the far side — that was the escape that let a cord wriggle
           // free instead of ever pulling the plug out. Only retreat frees it.
-          if (hookedHere && Math.sign(vx * dy - vy * dx) !== catchAt.side) {
+          if (onThisPlug && Math.sign(vx * dy - vy * dx) !== catchAt.side) {
             const vl = Math.hypot(vx, vy) || 1;
             dx = (-vy / vl) * catchAt.side; dy = (vx / vl) * catchAt.side;
+            // it tried to go THROUGH the plug. That is the tug: the alternative
+            // to letting it tunnel is the plug coming out.
+            if (hooked(c, i)) o[name === "a" ? "pressA" : "pressB"] = true;
           }
           const d = Math.hypot(dx, dy);
           if (d < R && d > 1e-6) {
@@ -243,10 +261,37 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     return Math.max(0, c.len * TAUT - Math.hypot(f.x - catchAt.x, f.y - catchAt.y));
   }
   // the mouse is asking for more cord than is left around the hook: that is the strain
-  function straining(c) { return catchAt && Math.hypot(mouse.x - catchAt.x, mouse.y - catchAt.y) > catchRem(c); }
+  // Sticky, because the hook point slides a little every frame and the reach
+  // moves with it: without hysteresis the strain flickers on and off and the
+  // tug counter decays faster than it builds.
+  let strainOn = false;
+  function straining(c) {
+    if (!catchAt) return (strainOn = false);
+    const d = Math.hypot(mouse.x - catchAt.x, mouse.y - catchAt.y), rem = catchRem(c);
+    strainOn = strainOn ? d > rem - 6 * c.r : d > rem;
+    return strainOn;
+  }
+  // how far the dragged cord winds around a point, in radians — a cord merely
+  // passing by turns through very little, a hook about half a turn, a loop a
+  // whole one. This, not proximity, is what says a cord is still ON a plug: a
+  // wide loop is far from the plug and still very much around it.
+  function windAbout(c, e) {
+    let w = 0;
+    for (let i = 0; i < N - 1; i++) {
+      const a0 = Math.atan2(c.pts[i].y - e.y, c.pts[i].x - e.x);
+      let d = Math.atan2(c.pts[i + 1].y - e.y, c.pts[i + 1].x - e.x) - a0;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      w += d;
+    }
+    return Math.abs(w);
+  }
   function caught(c, i, o, end, post) {
     catchSeen = true;
-    if (catchAt && catchAt.o === o && catchAt.end === end) return;   // already caught here: hold that, don't re-measure
+    // Already caught here: keep the side and slide it caught with (those hold
+    // the hook), but let WHERE track the cord — a frozen point index goes stale
+    // as the cord slides around the plug, and then the catch drops and it slips.
+    if (catchAt && catchAt.o === o && catchAt.end === end) { catchAt.x = c.pts[i].x; catchAt.y = c.pts[i].y; catchAt.i = i; return; }
     const ci = cables.indexOf(c), oi = cables.indexOf(o), key = Math.min(ci, oi) + "," + Math.max(ci, oi);
     catchAt = { x: c.pts[i].x, y: c.pts[i].y, key, order: stick.get(key), o, end, post, i };
   }
@@ -282,7 +327,13 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             const cx = mx - catchAt.x, cy = my - catchAt.y, cd = Math.hypot(cx, cy), lim = catchRem(c) + 3 * dpr;
             if (cd > lim && cd > 1e-6) { mx = catchAt.x + (cx / cd) * lim; my = catchAt.y + (cy / cd) * lim; }
           }
+          // BOUNDED: the held plug advances at most MAX_STEP a frame, so each
+          // substep is under a cord radius. Otherwise a flick moves a point
+          // ~20px per substep and jumps clean over a plug's capsule — which is
+          // a position test, not a swept one — and the catch loses its grip.
           const fr = from[name] || { x: mx, y: my, z: LIFT_Z };
+          const sx = mx - fr.x, sy = my - fr.y, sd = Math.hypot(sx, sy);
+          if (sd > MAX_STEP) { mx = fr.x + (sx / sd) * MAX_STEP; my = fr.y + (sy / sd) * MAX_STEP; }
           p.x = fr.x + (mx - fr.x) * f; p.y = fr.y + (my - fr.y) * f; p.z = LIFT_Z;
         } else if (loose(c, name)) {
           // unplugged: a free point the solver owns (freeA/freeB); it drops and hangs
@@ -329,9 +380,57 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       const t = (wx * sy - wy * sx) / den, u = (wx * ry - wy * rx) / den;
       return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : -1;
     };
+    // every seated plug the dragged cord is wound around this frame
+    // Sticky: a wrap is declared at more than a wide half-turn and released
+    // only well below it. A loop that slides off the plug ALONG the cord is
+    // still linked — winding about the jack falls, but the cord is not free —
+    // so releasing on the same threshold let the loop leak away in one frame.
+    const wrapped = [];
+    for (const A of cables) for (const end of ["a", "b"]) {
+      const k = end === "a" ? "wrapA" : "wrapB";
+      if (!drag || A === drag.cable || heldEnd(A, end) || loose(A, end)) { A[k] = false; continue; }
+      const w = windAbout(drag.cable, A.pts[end === "a" ? 0 : N - 1]);
+      // A wrap is declared either by winding — above PI, always, since a cord
+      // running straight past a point subtends up to a half turn — or by a hook
+      // caught on this very plug (contact, taut, bent around it), which is how a
+      // shallow U round a post counts without a straight pass ever doing so.
+      const hookedOn = catchAt && catchAt.post && catchAt.o === A && catchAt.end === end;
+      A[k] = hookedOn || (A[k] ? w > 0.8 : w > 3.4);
+      if (A[k]) wrapped.push({ A, end });
+    }
     const wall = (snap) => {
       if (!drag) return;
       const B = drag.cable;
+      // A loop around a seated plug cannot slide off its tip — the plug is
+      // anchored in the board, so the loop comes off only when the plug does.
+      // The one way to unwind is across the ray running out of the jack away
+      // from the cord; bar it, and every attempt is a tug on that plug.
+      // Driven by the WINDING, not by a catch: a catch needs contact and a
+      // particular pose, and flickers, while a loop is a loop — a placed one
+      // used to unwind and slide off in a few frames with no pull at all.
+      for (const wp of wrapped) {
+        const A = wp.A, aEnd = wp.end === "a" ? 0 : N - 1, aNext = wp.end === "a" ? 1 : N - 2;
+        const e = A.pts[aEnd], nb = A.pts[aNext];
+        const ux = e.x - nb.x, uy = e.y - nb.y, ul = Math.hypot(ux, uy) || 1;
+        // The bar spans the whole plug: from far outside the jack (a loop
+        // cannot unwind off that tip at ANY distance) to just past the collar,
+        // the plug's other end. Crossing anywhere on it is passing through the
+        // plug — off the jack end, or off the collar end across the cord.
+        const out = 300 * dpr, into = 15 * dpr + 2 * B.r;
+        const q0 = { x: e.x + (ux / ul) * out, y: e.y + (uy / ul) * out };
+        const q1 = { x: e.x - (ux / ul) * into, y: e.y - (uy / ul) * into };
+        // every point, not just the hook: the cord unwinds from whichever side
+        // is free, and a window around the hook leaves the other side open
+        for (let i = 0; i < N; i++) {
+          const p = B.pts[i], p0 = snap[i];
+          const mlen = Math.hypot(p.x - p0.x, p.y - p0.y); if (mlen < 1e-6) continue;
+          const t = segT(p0, p, q0, q1);
+          if (t < 0) continue;
+          const back = Math.max(0, t - B.r / mlen);
+          p.x = p0.x + (p.x - p0.x) * back; p.y = p0.y + (p.y - p0.y) * back;
+          A[wp.end === "a" ? "pressA" : "pressB"] = true;
+        }
+      }
       for (const A of cables) {
         if (A === B || !over(A, B) || A.looseA || A.looseB) continue;
         const reach = B.r + A.r;
@@ -353,6 +452,9 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             const dA = Math.hypot(h.x - A.pts[0].x, h.y - A.pts[0].y), dB = Math.hypot(h.x - A.pts[N - 1].x, h.y - A.pts[N - 1].y);
             const end = dA < dB ? "a" : "b";
             caught(B, i, A, end);
+            // A blocked crossing alone is not a tug — a cord shoved sideways
+            // against another is blocked every frame and must not pull its plug.
+            // The hand has to be straining against the hook.
             if (straining(B)) A[end === "a" ? "pressA" : "pressB"] = true;
           }
         }
@@ -378,6 +480,12 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     // point is still against the other cord — it does not need a fresh hit
     // every frame (once the hand is held, nothing tries to cross any more).
     // Each such frame is a frame of tug on that cord's end.
+    if (drag && wrapped.length && !(catchAt && catchAt.post)) {
+      const B = drag.cable, w = wrapped[0], jack = w.A.pts[w.end === "a" ? 0 : N - 1];
+      let bi = 1, bd = Infinity;
+      for (let i = 1; i < N - 1; i++) { const d = Math.hypot(B.pts[i].x - jack.x, B.pts[i].y - jack.y); if (d < bd) { bd = d; bi = i; } }
+      caught(B, bi, w.A, w.end, true);
+    }
     if (catchAt && drag) {
       const B = drag.cable, o = catchAt.o;
       // Still hooked? Measure the cord where it actually IS now, never the
@@ -385,7 +493,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       // it kept a catch alive (and tugging) long after the cord had slipped free.
       const j0 = catchAt.post ? (catchAt.end === "a" ? 0 : N - 2) : 0, j1 = catchAt.post ? j0 + 1 : N - 1;
       let near = Infinity;
-      for (let i = Math.max(1, catchAt.i - 2); i <= Math.min(N - 2, catchAt.i + 2); i++) {
+      for (let i = Math.max(1, catchAt.i - 4); i <= Math.min(N - 2, catchAt.i + 4); i++) {
         const p = B.pts[i];
         for (let j = j0; j < j1; j++) { const q0 = o.pts[j], q1 = o.pts[j + 1]; const vx = q1.x - q0.x, vy = q1.y - q0.y, vv = vx * vx + vy * vy || 1;
           const t = Math.max(0, Math.min(1, ((p.x - q0.x) * vx + (p.y - q0.y) * vy) / vv));
@@ -396,9 +504,18 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       // only on a fresh collision does not work — once the hand is clamped the
       // cord is held just clear of the post, so contact recurs only now and then
       // and the counter decays back down between hits.
-      if (near < (catchAt.post ? 15 * dpr : 0) + 3 * B.r) {
+      const wound = catchAt.post && !!o[catchAt.end === "a" ? "wrapA" : "wrapB"];
+      if (wound || near < (catchAt.post ? 15 * dpr : 0) + 3 * B.r) {
         catchSeen = true;
-        if (straining(B)) o[catchAt.end === "a" ? "pressA" : "pressB"] = true;
+        // WRAPPED round the plug and the hand cannot get to the mouse: that IS
+        // the tug, and it is smooth — counting discrete resistance events
+        // instead is intermittent, and the counter decays between them faster
+        // than they arrive. Merely hooked (touching, bent) is not enough: a cord
+        // shoved sideways against another is blocked every frame too, and must
+        // not pull a plug. That one has to be a straining, taut pull.
+        const h = B.pts[drag.end === "a" ? 0 : N - 1];
+        const held = Math.hypot(h.x - mouse.x, h.y - mouse.y) > 4 * B.r;
+        if ((wound && held) || straining(B)) o[catchAt.end === "a" ? "pressA" : "pressB"] = true;
       }
     }
     for (const c of cables) for (const name of ["a", "b"]) {
