@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v32";
+export const PATCHBAY3D_VERSION = "3d-v33";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -137,7 +137,16 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // cord that has climbed onto the plug's own cord clears its connector too;
   // only a cord flat on the board is stopped.
   // is c stacked OVER o where they cross (the pair's held order in `stick`)?
+  // Cords the dragged one was NOT touching when it was picked up. You lifted it
+  // clear of them, so for this whole drag it rides OVER them: they never block
+  // it, and it can never pull their plugs. Only what it was already tangled with
+  // can catch it. (`stick` holds an entry exactly while a pair is in contact.)
+  let clearOf = new Set();
   function over(c, o) {
+    // both directions, or the other cord still walls the dragged one and pulls
+    // its plug out through the cord path
+    if (drag && drag.cable === c && clearOf.has(o)) return true;
+    if (drag && drag.cable === o && clearOf.has(c)) return false;
     const ci = cables.indexOf(c), oi = cables.indexOf(o);
     return ci < oi ? stick.get(ci + "," + oi) === 1 : stick.get(oi + "," + ci) === -1;
   }
@@ -295,6 +304,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     const ci = cables.indexOf(c), oi = cables.indexOf(o), key = Math.min(ci, oi) + "," + Math.max(ci, oi);
     catchAt = { x: c.pts[i].x, y: c.pts[i].y, key, order: stick.get(key), o, end, post, i };
   }
+  function endDrag() { drag = null; clearOf = new Set(); }
   function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
 
   function step() {
@@ -388,7 +398,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     const wrapped = [];
     for (const A of cables) for (const end of ["a", "b"]) {
       const k = end === "a" ? "wrapA" : "wrapB";
-      if (!drag || A === drag.cable || heldEnd(A, end) || loose(A, end)) { A[k] = false; continue; }
+      if (!drag || A === drag.cable || heldEnd(A, end) || loose(A, end) || clearOf.has(A)) { A[k] = false; continue; }
       const w = windAbout(drag.cable, A.pts[end === "a" ? 0 : N - 1]);
       // A wrap is declared either by winding — above PI, always, since a cord
       // running straight past a point subtends up to a half turn — or by a hook
@@ -447,7 +457,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           // settling over-cord can't drift across a point parked right on it
           const back = best - reach / mlen;
           p.x = p0.x + (p.x - p0.x) * back; p.y = p0.y + (p.y - p0.y) * back;
-          if (hooked(B, i)) {
+          if (hooked(B, i) && !clearOf.has(A)) {
             const h = A.pts[bj];
             const dA = Math.hypot(h.x - A.pts[0].x, h.y - A.pts[0].y), dB = Math.hypot(h.x - A.pts[N - 1].x, h.y - A.pts[N - 1].y);
             const end = dA < dB ? "a" : "b";
@@ -486,6 +496,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       for (let i = 1; i < N - 1; i++) { const d = Math.hypot(B.pts[i].x - jack.x, B.pts[i].y - jack.y); if (d < bd) { bd = d; bi = i; } }
       caught(B, bi, w.A, w.end, true);
     }
+    if (catchAt && drag && clearOf.has(catchAt.o)) { catchAt = null; catchSeen = false; }
     if (catchAt && drag) {
       const B = drag.cable, o = catchAt.o;
       // Still hooked? Measure the cord where it actually IS now, never the
@@ -744,7 +755,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     const here = { x: p.x, y: p.y };
     if (end === "a") { c.a = here; c.na = best; } else { c.b = here; c.nb = best; }
     c.moveSpeed = 0.1; c.move = 0;
-    drag = null; canvas.style.cursor = "default";
+    endDrag(); canvas.style.cursor = "default";
   }
 
   canvas.addEventListener("pointermove", (e) => { mouse.x = e.clientX * dpr; mouse.y = e.clientY * dpr; if (!drag) canvas.style.cursor = plugAt(mouse.x, mouse.y) ? "grab" : "default"; });
@@ -754,6 +765,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     if (drag) { trySeat(); return; }
     const hit = plugAt(x, y); if (!hit) return;
     liftEnd(hit.cable, hit.end); drag = { cable: hit.cable, end: hit.end };
+    clearOf = new Set(cables.filter((o) => {
+      if (o === hit.cable) return false;
+      const ci = cables.indexOf(hit.cable), oi = cables.indexOf(o);
+      return !stick.has(Math.min(ci, oi) + "," + Math.max(ci, oi));
+    }));
     mouse.x = x; mouse.y = y; canvas.style.cursor = "grabbing"; canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointerup", () => { rec.events.push([rec.frames.length, "up", 0, 0]); if (drag) trySeat(); });
