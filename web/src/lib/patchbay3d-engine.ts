@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v25";
+export const PATCHBAY3D_VERSION = "3d-v26";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -116,7 +116,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
 
   // ── physics ──────────────────────────────────────────────────────────────
-  const G = 1.0, GZ = 0.04, DAMP = 0.9, LIFT_Z = 26;
+  const G = 1.6, GZ = 0.04, DAMP = 0.9, LIFT_Z = 26;
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
@@ -208,7 +208,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           const maxR = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
           let mx = mouse.x, my = mouse.y;
           const rx = mx - far.x, ry = my - far.y, rd = Math.hypot(rx, ry);
-          if (rd > maxR && rd > 1e-6) { mx = far.x + (rx / rd) * maxR; my = far.y + (ry / rd) * maxR; }
+          // (a loose far end is no anchor — it is carried along, so no clamp)
+          if (!loose(c, name === "a" ? "b" : "a") && rd > maxR && rd > 1e-6) { mx = far.x + (rx / rd) * maxR; my = far.y + (ry / rd) * maxR; }
           const fr = from[name] || { x: mx, y: my, z: LIFT_Z };
           p.x = fr.x + (mx - fr.x) * f; p.y = fr.y + (my - fr.y) * f; p.z = LIFT_Z;
         } else if (loose(c, name)) {
@@ -243,10 +244,10 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       }
     };
     const SUB = 8;
-    const FOLD_COS = Math.cos((70 * Math.PI) / 180);   // no sharper than 70 degrees
+    const FOLD_COS = Math.cos((50 * Math.PI) / 180);   // a stiff cord: no sharper than 50 degrees
     for (let s = 1; s <= SUB; s++) {
       for (const c of cables) constrainLength3(ropeView(c), 16);
-      for (const c of cables) openFolds3(ropeView(c), FOLD_COS, 0.3);
+      for (const c of cables) openFolds3(ropeView(c), FOLD_COS, 0.5);
       pin(s / SUB);
       for (const c of cables) offPosts(c);
       drape();
