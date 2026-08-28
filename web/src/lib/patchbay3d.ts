@@ -133,7 +133,10 @@ export function collide3(ropes: Rope3[], iters: number, stick: Map<string, numbe
           for (let j = self ? i + 2 : 0; j < nb - 1; j++) {
             if (self && i === 0 && j === nb - 2) continue;
             const c = segClosest3(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1]);
-            if (c.d < minD) minD = c.d;
+            // the memory releases on IN-PLANE separation: a hand lifted straight
+            // above the other cord is still over/under it, not clear of it
+            const dxy = Math.hypot(c.dx, c.dy);
+            if (dxy < minD) minD = dxy;
             if (c.d >= reach || c.d < 1e-6) continue;
             hits.push({ i, j, t: c.t, s: c.s, dx: c.dx, dy: c.dy, dz: c.dz, d: c.d });
           }

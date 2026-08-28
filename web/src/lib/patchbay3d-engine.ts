@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v27";
+export const PATCHBAY3D_VERSION = "3d-v28";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -252,7 +252,48 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     };
     const SUB = 8;
     const FOLD_COS = Math.cos((50 * Math.PI) / 180);   // a stiff cord: no sharper than 50 degrees
+    // An under-cord cannot be slid THROUGH the body of a cord it is caught
+    // under: its travel this substep is swept against the over-cord's segments
+    // and stopped a radius short — it piles up against it like a wall, and
+    // comes free only around the over-cord's end. Pushed taut into that wall,
+    // it tugs the over-cord's nearest plug out (then the over-cord yields).
+    const segT = (p0, p1, q0, q1) => {
+      const rx = p1.x - p0.x, ry = p1.y - p0.y, sx = q1.x - q0.x, sy = q1.y - q0.y;
+      const den = rx * sy - ry * sx; if (Math.abs(den) < 1e-9) return -1;
+      const wx = q0.x - p0.x, wy = q0.y - p0.y;
+      const t = (wx * sy - wy * sx) / den, u = (wx * ry - wy * rx) / den;
+      return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : -1;
+    };
+    const wall = (snap) => {
+      if (!drag) return;
+      const B = drag.cable;
+      for (const A of cables) {
+        if (A === B || !over(A, B) || A.looseA || A.looseB) continue;
+        const reach = B.r + A.r;
+        for (let i = 0; i < N; i++) {
+          const p = B.pts[i], p0 = snap[i];
+          const mlen = Math.hypot(p.x - p0.x, p.y - p0.y); if (mlen < 1e-6) continue;
+          let best = -1, bj = -1;
+          for (let j = 0; j < N - 1; j++) {
+            const t = segT(p0, p, A.pts[j], A.pts[j + 1]);
+            if (t >= 0 && (best < 0 || t < best)) { best = t; bj = j; }
+          }
+          if (best < 0) continue;
+          // may go negative: the point RETREATS to a full radius off the line, so a
+          // settling over-cord can't drift across a point parked right on it
+          const back = best - reach / mlen;
+          p.x = p0.x + (p.x - p0.x) * back; p.y = p0.y + (p.y - p0.y) * back;
+          if (taut(B, 0, i - 2) && taut(B, i + 2, N - 1)) {
+            const h = A.pts[bj];
+            const dA = Math.hypot(h.x - A.pts[0].x, h.y - A.pts[0].y), dB = Math.hypot(h.x - A.pts[N - 1].x, h.y - A.pts[N - 1].y);
+            A[dA < dB ? "pressA" : "pressB"] = true;
+          }
+        }
+      }
+    };
     for (let s = 1; s <= SUB; s++) {
+      // snapshot BEFORE the solver: the length solve drags body points too
+      const snap = drag ? drag.cable.pts.map((q) => ({ x: q.x, y: q.y })) : null;
       for (const c of cables) constrainLength3(ropeView(c), 16);
       for (const c of cables) openFolds3(ropeView(c), FOLD_COS, 0.5);
       pin(s / SUB);
@@ -260,6 +301,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       drape();
       collide3(ropes, 2, stick);
       pin(s / SUB);
+      if (snap) wall(snap);
     }
     // taut pressure on a connector pulls its plug out
     for (const c of cables) for (const name of ["a", "b"]) {
