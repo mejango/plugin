@@ -6,7 +6,7 @@
 
 import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v24";
+export const PATCHBAY3D_VERSION = "3d-v25";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -116,7 +116,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
 
   // ── physics ──────────────────────────────────────────────────────────────
-  const G = 1.0, GZ = 0.04, DAMP = 0.992, LIFT_Z = 26;
+  const G = 1.0, GZ = 0.04, DAMP = 0.9, LIFT_Z = 26;
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
@@ -165,7 +165,10 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             // it sinks a cord-radius into the post): rather than let it tunnel,
             // the tug pulls the plug out of its hole. The unplugged end goes
             // loose and hangs from its other end until the user seats it again.
-            if (drag && drag.cable === c && o !== c && d < R - c.r) { unplug(o, name); break; }
+            // a TUG is tension, not a brush: the cord pressing into the post
+            // while pulled straight on both sides of it. A loose wrap that
+            // merely passes by is slack somewhere.
+            if (drag && drag.cable === c && o !== c && d < R - c.r * 0.5 && taut(c, 0, i - 2) && taut(c, i + 2, N - 1)) o[name === "a" ? "pressA" : "pressB"] = true;
             p.x = gx + (dx / d) * R; p.y = gy + (dy / d) * R;
           }
         }
@@ -173,6 +176,14 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     }
   }
 
+  // straight-line span over arc length between two points of a cord: 1 = taut
+  // (the caller skips a window around the wrap itself, which is a loop by nature)
+  function taut(c, i0, i1) {
+    i0 = Math.max(0, i0); i1 = Math.min(N - 1, i1);
+    let arc = 0;
+    for (let k = i0; k < i1; k++) arc += Math.hypot(c.pts[k + 1].x - c.pts[k].x, c.pts[k + 1].y - c.pts[k].y);
+    return Math.hypot(c.pts[i1].x - c.pts[i0].x, c.pts[i1].y - c.pts[i0].y) > 0.85 * arc;
+  }
   function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
 
   function step() {
@@ -201,10 +212,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           const fr = from[name] || { x: mx, y: my, z: LIFT_Z };
           p.x = fr.x + (mx - fr.x) * f; p.y = fr.y + (my - fr.y) * f; p.z = LIFT_Z;
         } else if (loose(c, name)) {
-          // unplugged: a free point the solver owns (freeA/freeB). It hangs,
-          // but the board has edges — it can't dangle off where no hand reaches.
-          const m = 30 * dpr;
-          p.x = Math.max(m, Math.min(w - m, p.x)); p.y = Math.max(m, Math.min(h - m, p.y)); p.z = 0;
+          // unplugged: a free point the solver owns (freeA/freeB); it drops and hangs
+          p.z = 0;
         } else if (c.move < 1) {
           const k = ease(c.move);
           const src = name === "a" ? c.a : c.b, dst = name === "a" ? c.na : c.nb;
@@ -243,6 +252,12 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       drape();
       collide3(ropes, 2, stick);
       pin(s / SUB);
+    }
+    // taut pressure on a connector pulls its plug out
+    for (const c of cables) for (const name of ["a", "b"]) {
+      const k = name === "a" ? "pressA" : "pressB", t = name === "a" ? "tugA" : "tugB";
+      c[t] = c[k] ? (c[t] || 0) + 1 : 0; c[k] = false;
+      if (c[t] > 0 && !loose(c, name)) unplug(c, name);
     }
     for (const c of cables) if (c.move < 1) { c.move = Math.min(1, c.move + (c.moveSpeed || 0.05)); if (c.move >= 1) { c.a = c.na; c.b = c.nb; } }
   }
@@ -443,6 +458,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
   function unplug(c, end) {
     liftEnd(c, end);
+    const i = end === "a" ? 0 : N - 1;   // it was pinned: no history, so no launch — it just drops
+    c.prev[i].x = c.pts[i].x; c.prev[i].y = c.pts[i].y; c.prev[i].z = c.pts[i].z;
     if (end === "a") c.looseA = true; else c.looseB = true;
   }
   function trySeat() {
