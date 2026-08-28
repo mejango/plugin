@@ -185,7 +185,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // straight-line span over arc length between two points of a cord: 1 = taut
   // (the caller skips a window around the wrap itself, which is a loop by nature)
   function taut(c, i0, i1) {
-    i0 = Math.max(0, i0); i1 = Math.min(N - 1, i1);
+    i0 = Math.max(0, Math.min(N - 1, i0)); i1 = Math.max(0, Math.min(N - 1, i1));
+    if (i1 <= i0) return true;   // nothing left to be slack
     let arc = 0;
     for (let k = i0; k < i1; k++) arc += Math.hypot(c.pts[k + 1].x - c.pts[k].x, c.pts[k + 1].y - c.pts[k].y);
     return Math.hypot(c.pts[i1].x - c.pts[i0].x, c.pts[i1].y - c.pts[i0].y) > 0.85 * arc;
