@@ -21,6 +21,8 @@ export type Rope3 = {
   rest: number;              // segment rest length
   heldA: boolean;            // end a (pts[0]) is in a hand / flying — lifted, in the air
   heldB: boolean;            // end b likewise
+  freeA?: boolean;           // end a is unplugged: a free point, not a pin
+  freeB?: boolean;           // end b likewise
 };
 
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -56,7 +58,7 @@ export function segClosest3(p0: P3, p1: P3, q0: P3, q1: P3) {
  * onto the board (toward z = 0). Pinned/held ends are integrated by the caller. */
 export function integrate3(r: Rope3, gy: number, gz: number, damp: number) {
   const n = r.pts.length;
-  for (let i = 1; i < n - 1; i++) {
+  for (let i = r.freeA ? 0 : 1; i < (r.freeB ? n : n - 1); i++) {
     const p = r.pts[i], q = r.prev[i];
     const vx = (p.x - q.x) * damp;
     const vy = (p.y - q.y) * damp + gy;
@@ -79,7 +81,7 @@ export function constrainLength3(r: Rope3, iters: number) {
       const p = r.pts[i], q = r.pts[i + 1];
       const dx = q.x - p.x, dy = q.y - p.y, dz = q.z - p.z;
       const dl = Math.hypot(dx, dy, dz) || 1e-6;
-      const pFree = i > 0, qFree = i + 1 < n - 1;
+      const pFree = i > 0 || !!r.freeA, qFree = i + 1 < n - 1 || !!r.freeB;
       const diff = (dl - r.rest) / dl / (pFree && qFree ? 2 : 1);
       const ox = dx * diff, oy = dy * diff, oz = dz * diff;
       if (pFree) { p.x += ox; p.y += oy; p.z += oz; }
@@ -159,24 +161,15 @@ export function collide3(ropes: Rope3[], iters: number, stick: Map<string, numbe
         // Phase 2: separate every colliding pair, mostly in z along that one
         // order, a little in the plane so a stack is not perfectly colinear.
         for (const hh of hits) {
-          // Separation direction, blended by how DEEP the overlap is:
-          //  • shallow (a resting crossing): purely in z along the pair's one
-          //    order. The two cords are meant to overlap in the plane — one
-          //    rides over the other — so a sideways shove would just jitter the
-          //    crossing (that made crossings wiggle forever at rest).
-          //  • deep (one cord driven INTO another by a fast drag): bring in the
-          //    real in-plane normal so they are pushed APART sideways and cannot
-          //    slide through each other. Pure z cannot stop a lateral pass —
-          //    nothing acts in the plane — so a cord whipped sideways tunnelled.
-          const deep = (reach - hh.d) / reach;              // 0 touching .. 1 coincident
-          const wIn = Math.max(0, deep - 0.08) / 0.92;      // in-plane as soon as they're pressed together, so an under-cord hits the other like a WALL (a resting crossing is z-separated, deep≈0, so it stays pure-z and never jitters)
-          let nx = 0, ny = 0, nz = order;
-          if (wIn > 1e-3) {
-            const dl = Math.hypot(hh.dx, hh.dy) || 1e-6;
-            nx = (hh.dx / dl) * wIn; ny = (hh.dy / dl) * wIn; nz = order * (1 - wIn);
-            const nl = Math.hypot(nx, ny, nz) || 1e-6;
-            nx /= nl; ny /= nl; nz /= nl;
-          }
+          // Separate along geometry in the plane — that is what stops a fast
+          // drag passing through — but the z-component's SIGN is the pair's one
+          // order (no flicker) and floored so a flat crossing lifts one cord
+          // over the other rather than shoving them apart sideways.
+          // Separate PURELY in z: at a crossing the two cords are meant to
+          // overlap in the plane — one simply rides over the other — so the
+          // push has no in-plane part to jostle the crossing sideways. A
+          // sideways part made two crossing cords wiggle forever at rest.
+          const nx = 0, ny = 0, nz = order;
           const push = (reach - hh.d) / 2;
           const shove = (R: Rope3, k: number, t: number, sgn: number) => {
             if (lifted(R, k)) return;

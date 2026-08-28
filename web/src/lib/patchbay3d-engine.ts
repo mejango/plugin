@@ -4,9 +4,9 @@
 // from the flat engine (the cord and plug look are unchanged); the physics is
 // the 3D solver in patchbay3d.ts.
 
-import { collide3, constrainLength3, integrate3, openFolds3, segClosest3 } from "./patchbay3d";
+import { collide3, constrainLength3, integrate3, lifted, openFolds3, segClosest3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "3d-v23";
+export const PATCHBAY3D_VERSION = "3d-v24";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -116,61 +116,58 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
 
   // ── physics ──────────────────────────────────────────────────────────────
-  const G = 1.0, GZ = 0.04, DAMP = 0.9, LIFT_Z = 26;
-  // Bounded drag: the held plug advances at most MAX_STEP per frame. With 8
-  // sub-steps that is ~8px per sub-step — under a cord's diameter — so the cord
-  // can never be driven through another faster than collision resolves it. A
-  // fast flick just lags the cursor and catches up, like a real cable.
-  const MAX_STEP = 64;
+  const G = 1.0, GZ = 0.04, DAMP = 0.992, LIFT_Z = 26;
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
-      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b") };
+      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b"), freeA: !!c.looseA, freeB: !!c.looseB };
   }
   function heldEnd(c, name) {
     return (drag && drag.cable === c && drag.end === name) || (c.move < 1 && (name === "a" ? c.a !== c.na : c.b !== c.nb));
   }
+  // an unplugged end: the plug lies loose on the board, hanging from the other
+  // end, until the user grabs it and seats it again
+  function loose(c, name) { return name === "a" ? c.looseA : c.looseB; }
 
-  // A seated plug is a short post standing off the board — a vertical cylinder
-  // at the jack (the cap is drawn centred there), radius R, height POST_H. A
-  // cord clears it in exactly ONE way: by going over its top. Whether it does is
-  // decided by two regimes that between them cover every case:
-  //   • the cords CROSS (in contact — `stick` has the pair): clearing the
-  //     connector means being OVER that cord, since the connector belongs to it.
-  //     Over → clears; under → stopped, with no height escape (you are pinned
-  //     under it, you cannot lift your end through its connector).
-  //   • the cords do NOT cross (no `stick` entry): the connector is just an
-  //     obstacle in space — a cord clears it only by being lifted above the post
-  //     (z > POST_H), e.g. an end carried over it.
-  // Anything else is pushed out of the footprint in the plane, so it drapes
-  // around the connector instead of through it.
-  const POST_H = LIFT_Z * 0.85;
+  // a seated plug is a post: a short vertical cylinder standing off the board.
+  // A cord cannot enter its footprint in xy — UNLESS it is riding higher than
+  // the post is tall, the same way a cord draped over another rides above it.
+  // The post is only about a cord-diameter tall (a connector, not a wall), so a
+  // cord that has climbed onto the plug's own cord clears its connector too;
+  // only a cord flat on the board is stopped.
   function offPosts(c) {
     const BARREL = 15 * dpr, R = BARREL + c.r;
-    const ci = cables.indexOf(c);
+    const POST_H = c.r * 1.2;   // a connector ~a cord-diameter tall; a cord stacked one diameter up (z≈2·r) clears it
+    const view = ropeView(c);
     for (const o of cables) {
-      const oi = cables.indexOf(o);
-      const order = o !== c ? stick.get(Math.min(ci, oi) + "," + Math.max(ci, oi)) : undefined;
-      const inContact = order !== undefined;
-      const cOverO = inContact && (ci < oi ? order > 0 : order < 0);
-      if (cOverO) continue;   // riding over this cord — its connector is cleared too
       for (const name of ["a", "b"]) {
-        if (heldEnd(o, name)) continue;
-        // Footprint is a CAPSULE from the jack out along the connector body, so a
-        // cord is blocked all around it — including the stretch where the cable
-        // exits, which a bare circle at the jack left open (cords slipped past).
+        if (heldEnd(o, name) || loose(o, name)) continue;
+        // the post is a CAPSULE from the jack out to the collar, so a cord is
+        // blocked everywhere around the connector — including the gap right at
+        // the hole, which a single circle further out left open (a cord slipped
+        // BETWEEN the endcap and the jack).
         const e = name === "a" ? o.pts[0] : o.pts[N - 1];
         const nx = name === "a" ? o.pts[1] : o.pts[N - 2];
         const ux = nx.x - e.x, uy = nx.y - e.y, ul = Math.hypot(ux, uy) || 1;
-        const vx = (ux / ul) * BARREL, vy = (uy / ul) * BARREL, vv = vx * vx + vy * vy || 1;
+        const ex = e.x, ey = e.y, fx = e.x + (ux / ul) * BARREL, fy = e.y + (uy / ul) * BARREL;
+        const vx = fx - ex, vy = fy - ey, vv = vx * vx + vy * vy || 1;
         for (let i = 1; i < N - 1; i++) {
           if (o === c && (i <= 1 || i >= N - 2)) continue;   // a cord's own plug
+          if (lifted(view, i)) continue;
           const p = c.pts[i];
-          if (!inContact && p.z > POST_H) continue;          // carried clear over an unrelated post
-          const t = Math.max(0, Math.min(1, ((p.x - e.x) * vx + (p.y - e.y) * vy) / vv));
-          const gx = e.x + vx * t, gy = e.y + vy * t;
+          if (p.z > e.z + POST_H) continue;                  // riding over the connector
+
+          const t = Math.max(0, Math.min(1, ((p.x - ex) * vx + (p.y - ey) * vy) / vv));
+          const gx = ex + vx * t, gy = ey + vy * t;
           const dx = p.x - gx, dy = p.y - gy, d = Math.hypot(dx, dy);
-          if (d < R && d > 1e-6) { p.x = gx + (dx / d) * R; p.y = gy + (dy / d) * R; }
+          if (d < R && d > 1e-6) {
+            // a cord wrapped around this connector and TUGGED (dragged so hard
+            // it sinks a cord-radius into the post): rather than let it tunnel,
+            // the tug pulls the plug out of its hole. The unplugged end goes
+            // loose and hangs from its other end until the user seats it again.
+            if (drag && drag.cable === c && o !== c && d < R - c.r) { unplug(o, name); break; }
+            p.x = gx + (dx / d) * R; p.y = gy + (dy / d) * R;
+          }
         }
       }
     }
@@ -197,17 +194,17 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           // held plug rides at LIFT_Z above the board, so the flat reach is the
           // leg of that right triangle.)
           const far = c.pts[name === "a" ? N - 1 : 0];
-          const fr = from[name] || { x: mouse.x, y: mouse.y, z: LIFT_Z };
           const maxR = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
           let mx = mouse.x, my = mouse.y;
           const rx = mx - far.x, ry = my - far.y, rd = Math.hypot(rx, ry);
           if (rd > maxR && rd > 1e-6) { mx = far.x + (rx / rd) * maxR; my = far.y + (ry / rd) * maxR; }
-          // bounded drag: cap the plug's advance this frame so no sub-step leaps
-          // far enough to punch the cord through another (kills tunnels AND the
-          // fast-drag buckle, since the cord is never compressed by a big jump)
-          const sx = mx - fr.x, sy = my - fr.y, sd = Math.hypot(sx, sy);
-          if (sd > MAX_STEP && sd > 1e-6) { mx = fr.x + (sx / sd) * MAX_STEP; my = fr.y + (sy / sd) * MAX_STEP; }
+          const fr = from[name] || { x: mx, y: my, z: LIFT_Z };
           p.x = fr.x + (mx - fr.x) * f; p.y = fr.y + (my - fr.y) * f; p.z = LIFT_Z;
+        } else if (loose(c, name)) {
+          // unplugged: a free point the solver owns (freeA/freeB). It hangs,
+          // but the board has edges — it can't dangle off where no hand reaches.
+          const m = 30 * dpr;
+          p.x = Math.max(m, Math.min(w - m, p.x)); p.y = Math.max(m, Math.min(h - m, p.y)); p.z = 0;
         } else if (c.move < 1) {
           const k = ease(c.move);
           const src = name === "a" ? c.a : c.b, dst = name === "a" ? c.na : c.nb;
@@ -236,59 +233,18 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         c.pts[k].z += (want - c.pts[k].z) * 0.25;
       }
     };
-    // Caught-crossing WALL. While the dragged cord is UNDER another cord, none of
-    // its points may cross that cord's line as they move: a point's travel this
-    // sub-step is tested against the over-cord's segments, and if it would cross,
-    // it is stopped just short — B piles up against A like a wall. Routing the
-    // end PAST the over-cord's tip works because there is no segment there to
-    // cross, so the only way to free a caught cord is around the end. (Over-cords
-    // are never walled — a cord riding on top slides freely.)
-    const segT = (p0, p1, q0, q1) => {
-      const rx = p1.x - p0.x, ry = p1.y - p0.y, sx = q1.x - q0.x, sy = q1.y - q0.y;
-      const den = rx * sy - ry * sx; if (Math.abs(den) < 1e-9) return -1;
-      const wx = q0.x - p0.x, wy = q0.y - p0.y;
-      const t = (wx * sy - wy * sx) / den, u = (wx * ry - wy * rx) / den;
-      return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : -1;
-    };
-    const wall = (snap) => {
-      if (!drag) return;
-      const B = drag.cable, bi = cables.indexOf(B);
-      for (const A of cables) {
-        if (A === B) continue;
-        const ai = cables.indexOf(A);
-        const order = stick.get(Math.min(bi, ai) + "," + Math.max(bi, ai));
-        if (order === undefined) continue;                       // not crossing → nothing to wall
-        if (!(bi < ai ? order < 0 : order > 0)) continue;         // B rides OVER A → no wall
-        const reach = B.r + A.r;
-        for (let i = 0; i < N; i++) {
-          const p = B.pts[i], p0 = snap[i];
-          const mlen = Math.hypot(p.x - p0.x, p.y - p0.y); if (mlen < 1e-6) continue;
-          let best = -1;
-          for (let j = 0; j < N - 1; j++) {
-            const t = segT(p0, p, A.pts[j], A.pts[j + 1]);
-            if (t >= 0 && (best < 0 || t < best)) best = t;
-          }
-          if (best >= 0) {
-            const back = Math.max(0, best - reach / mlen);        // keep a cord-radius clear of A's line
-            p.x = p0.x + (p.x - p0.x) * back; p.y = p0.y + (p.y - p0.y) * back;
-          }
-        }
-      }
-    };
     const SUB = 8;
     const FOLD_COS = Math.cos((70 * Math.PI) / 180);   // no sharper than 70 degrees
     for (let s = 1; s <= SUB; s++) {
-      const wsnap = drag ? drag.cable.pts.map((q) => ({ x: q.x, y: q.y })) : null;
       for (const c of cables) constrainLength3(ropeView(c), 16);
       for (const c of cables) openFolds3(ropeView(c), FOLD_COS, 0.3);
       pin(s / SUB);
       for (const c of cables) offPosts(c);
       drape();
-      collide3(ropes, 5, stick);
+      collide3(ropes, 2, stick);
       pin(s / SUB);
-      if (wsnap) wall(wsnap);
     }
-    for (const c of cables) if (c.move < 1) c.move = Math.min(1, c.move + (c.moveSpeed || 0.05));
+    for (const c of cables) if (c.move < 1) { c.move = Math.min(1, c.move + (c.moveSpeed || 0.05)); if (c.move >= 1) { c.a = c.na; c.b = c.nb; } }
   }
 
     // ── drawing (ported from the flat engine; reads x,y only) ─────────────────
@@ -353,21 +309,15 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     ctx.restore();
     ctx.setLineDash([]);
   }
-  // The plug is seated IN the hole: the connector cap sits centred on the jack,
-  // and a short strain-relief collar runs from it out along the cable. (It used
-  // to be drawn a whole barrel-length off to the side, so caps floated beside
-  // their holes.)
   function drawPlug(c, p0, p1) {
     const len = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
-    const ux = (p1.x - p0.x) / len, uy = (p1.y - p0.y) / len, collar = 16 * dpr;
-    // strain-relief collar: from the hole out toward the cable
-    ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p0.x + ux * collar, p0.y + uy * collar);
+    const ux = (p1.x - p0.x) / len, uy = (p1.y - p0.y) / len, barrel = 15 * dpr;
+    ctx.beginPath(); ctx.moveTo(p0.x + ux * barrel, p0.y + uy * barrel); ctx.lineTo(p0.x + ux * barrel * 1.8, p0.y + uy * barrel * 1.8);
     ctx.strokeStyle = tint(c, 0.8, 0.5); ctx.lineWidth = c.width * 1.8; ctx.stroke();
-    // connector cap, centred in the hole
-    ctx.beginPath(); ctx.arc(p0.x, p0.y, c.width * 1.35, 0, 7);
-    ctx.fillStyle = tint(c, 1.05, 0.4); ctx.fill();
-    ctx.beginPath(); ctx.arc(p0.x - ux * 2 * dpr, p0.y - uy * 2 * dpr, c.width * 0.7, 0, 7);
-    ctx.fillStyle = tint(c, 0.85, 0.5); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p0.x + ux * barrel, p0.y + uy * barrel);
+    ctx.strokeStyle = tint(c, 1.15, 0.35); ctx.lineWidth = c.width * 2.4; ctx.stroke();
+    ctx.beginPath(); ctx.arc(p0.x + ux * barrel, p0.y + uy * barrel, c.width * 1.05, 0, 7);
+    ctx.fillStyle = tint(c, 0.9, 0.45); ctx.fill();
   }
 
   // xy crossings between two cords this frame, and which is higher in z there —
@@ -417,32 +367,6 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         patch(top, x, y, top.width * 1.8, Math.max(0, ti - 2), Math.min(N - 1, ti + 3));
       }
     }
-    // A cord that rides OVER another cord rides over that cord's PLUG too. The
-    // crossing repaint above only handles cord-over-cord; seated plugs were
-    // painted on top of every cord, so a cord crossing over a connector still
-    // showed the cap on top. Repaint the over-cord onto the connector it covers,
-    // deciding "over" by the same stacking order the physics uses (stick).
-    const CAP = 15 * dpr;
-    cables.forEach((O, oi) => {
-      for (const nm of ["a", "b"]) {
-        if (heldEnd(O, nm)) continue;
-        const end = nm === "a" ? ends[oi][0] : ends[oi][1];
-        const e = end[0], nb = end[1];
-        const ul = Math.hypot(nb.x - e.x, nb.y - e.y) || 1;
-        const cx = e.x + ((nb.x - e.x) / ul) * CAP, cy = e.y + ((nb.y - e.y) / ul) * CAP;   // cap centre
-        const capR = CAP * 1.9;
-        for (let ci = 0; ci < cables.length; ci++) {
-          if (ci === oi) continue;
-          const order = stick.get(Math.min(ci, oi) + "," + Math.max(ci, oi));
-          if (order === undefined || (ci < oi ? order <= 0 : order >= 0)) continue;   // C not over O
-          const C = cables[ci];
-          let bi = -1, bd = Infinity;
-          for (let k = 0; k < N; k++) { const d = Math.hypot(C.pts[k].x - cx, C.pts[k].y - cy); if (d < bd) { bd = d; bi = k; } }
-          if (bd > capR + C.width) continue;
-          patch(C, cx, cy, capR, Math.max(0, bi - 2), Math.min(N - 1, bi + 3));
-        }
-      }
-    });
     // the held plug and its lifted cord, above everything
     cables.forEach((c, i) => {
       for (const name of ["a", "b"]) if (heldEnd(c, name)) {
@@ -514,8 +438,12 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   function liftEnd(c, end) {
     const i = end === "a" ? 0 : N - 1;
     const point = { x: c.pts[i].x, y: c.pts[i].y };
-    if (end === "a") { c.a = c.na = point; } else { c.b = c.nb = point; }
+    if (end === "a") { c.a = c.na = point; c.looseA = false; } else { c.b = c.nb = point; c.looseB = false; }
     c.move = 1;
+  }
+  function unplug(c, end) {
+    liftEnd(c, end);
+    if (end === "a") c.looseA = true; else c.looseB = true;
   }
   function trySeat() {
     const c = drag.cable, end = drag.end, p = end === "a" ? c.pts[0] : c.pts[N - 1];
@@ -526,11 +454,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       if (Math.hypot(j.x - far.x, j.y - far.y) > c.len) continue;   // hole is out of the cord's reach
       const d = Math.hypot(j.x - p.x, j.y - p.y); if (d < bd) { bd = d; best = j; }
     }
-    // Released with no free hole within reach → the cord springs back to the
-    // hole it came from, so an end is NEVER left dangling in space (a plug is
-    // always seated in some hole). Its home jack is c.na / c.nb, untouched
-    // during the drag.
-    if (!best) best = end === "a" ? c.na : c.nb;
+    if (!best) return;
     // Anchor the seat animation at where the plug IS right now, not where the
     // cord was first grabbed — otherwise the plug snaps back across the board
     // to the grab point and the cord explodes on release.
