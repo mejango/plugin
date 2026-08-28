@@ -18,11 +18,13 @@ const CASES = [
   ["freecord.mjs", ["22"], (r) => r.clearBefore && r.maxWind > 3.5 && r.othersPlugsIntact, "a cord grabbed CLEAR of another rides over it: wrapping its plug pops nothing"],
   ["freecord.mjs", ["11"], (r) => r.clearBefore && r.maxWind > 3.5 && r.othersPlugsIntact, "...and again on another board"],
   ["carry.mjs", [], (r) => r.atTop[1] <= 45 && r.held[1] <= 45, "a cord with one end loose can be carried to the top of the board"],
-  ["overpost.mjs", [], (r) => r.overD > r.underD, "a cord riding OVER another is not pushed out by its connector; an under-cord is"],
-  // hook.mjs (a shallow U round a post, pulled sideways) is here too but not
-  // asserted: it sits right on the edge of popping, and a cord hooked on a post
-  // from one side can legitimately slide off it.
 ];
+// Also here, deliberately unasserted: hook.mjs — a shallow U round a post pulled
+// sideways. It sits right on the edge of popping, and a cord hooked on a post
+// from one side can legitimately slide off it, so either outcome is defensible.
+// "a cord riding OVER another ignores its connector" has no scenario of its own:
+// laying a cord across a plug and settling measures the length solve as much as
+// the connector and does not repeat. freecord covers the property end to end.
 
 let bad = 0;
 for (const [file, args, ok, why] of CASES) {
