@@ -14,7 +14,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   const N = 30;   // enough segments that a dragged cord curls instead of kinking
   let w, h, dpr, jacks = [], cables = [], panel, JR = 0, rafId = 0;
   const mouse = { x: -1e9, y: -1e9 };
-  let drag = null;                    // { cable, end: "a"|"b", home }
+  let drag = null;                    // { cable, end: "a"|"b" }
   const crossOrder = new Map();       // who is over whom, per crossing pair, while they cross
   const rec = { seed: 0, w: innerWidth, h: innerHeight, dpr: 0, frames: [], events: [] };
 
@@ -274,9 +274,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             const p = c.pts[idx];
             p.x = fr.x + (mx - fr.x) * f; p.y = fr.y + (my - fr.y) * f; p.z = LIFT_Z;
           } else if (c[name === "a" ? "looseA" : "looseB"]) {
-            // loose: it lies where it fell — on the board, which has edges
-            const p = c.pts[idx];
-            p.x = Math.max(JR, Math.min(w - JR, p.x)); p.y = Math.max(JR, Math.min(h - JR, p.y));
+            // loose: it lies where it fell — on the board, which has edges;
+            // a plug resting on the bottom edge does not skate along it
+            const p = c.pts[idx], q = c.prev[idx];
+            p.x = Math.max(JR, Math.min(w - JR, p.x));
+            if (p.y > h - JR) { p.y = h - JR; q.x = p.x; q.y = p.y; } else p.y = Math.max(JR, p.y);
           } else if (c.move < 1) {
             const k = ease(c.move);
             const from = name === "a" ? c.a : c.b, to = name === "a" ? c.na : c.nb;
@@ -606,12 +608,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
   function trySeat() {
     const c = drag.cable, end = drag.end, p = end === "a" ? c.pts[0] : c.pts[N - 1];
-    // nothing in range: it goes back to the hole it came from, so a plug is
-    // never left floating in the middle of the board
-    const best = socketNear(c, end, p.x, p.y)?.j || drag.home;
+    const best = socketNear(c, end, p.x, p.y)?.j;
     const here = { x: p.x, y: p.y };
     if (!best) {
-      // an unplugged end let go clear of any hole drops where it is
+      // let go clear of any hole, the plug drops where it is and the cord
+      // falls: nothing holds an end that is not in a hole or a hand
       if (end === "a") { c.a = c.na = here; c.looseA = true; } else { c.b = c.nb = here; c.looseB = true; }
       c.prev[end === "a" ? 0 : N - 1] = { x: p.x, y: p.y, z: p.z };
       drag = null; canvas.style.cursor = "default"; return;
@@ -629,9 +630,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     rec.events.push([rec.frames.length, "down", e.clientX, e.clientY]);
     if (drag) { trySeat(); return; }
     const hit = plugAt(x, y); if (!hit) return;
-    const home = hit.cable[hit.end === "a" ? "looseA" : "looseB"] ? null : hit.end === "a" ? hit.cable.na : hit.cable.nb;
     hit.cable.hookKey = null;
-    liftEnd(hit.cable, hit.end); drag = { cable: hit.cable, end: hit.end, home };
+    liftEnd(hit.cable, hit.end); drag = { cable: hit.cable, end: hit.end };
     mouse.x = x; mouse.y = y; canvas.style.cursor = "grabbing"; canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointerup", () => { rec.events.push([rec.frames.length, "up", 0, 0]); if (drag) trySeat(); });
