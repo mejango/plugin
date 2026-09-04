@@ -100,7 +100,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
 
   function ropeInit(c) {
-    c.pts = []; c.prev = []; c.onPost = new Uint8Array(N); c.floorX = new Float64Array(N).fill(NaN);
+    c.pts = []; c.prev = []; c.onPost = new Uint8Array(N);
     for (let i = 0; i < N; i++) {
       const k = i / (N - 1);
       const x = c.a.x + (c.b.x - c.a.x) * k;
@@ -162,7 +162,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       for (let i = 0; i < N; i++) {
         const p = o.pts[i];
         const t = Math.max(0, Math.min(1, ((p.x - post.x0) * dx + (p.y - post.y0) * dy) / ll));
-        if (Math.hypot(p.x - post.x0 - dx * t, p.y - post.y0 - dy * t) < post.r + o.r) o.onPost[i] = 1;
+        if (Math.hypot(p.x - post.x0 - dx * t, p.y - post.y0 - dy * t) < post.r + o.r) { o.onPost[i] = 1; wake(o); }
       }
     }
   }
@@ -189,7 +189,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
-      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b"), freeA: !!c.looseA, freeB: !!c.looseB, onPost: c.onPost };
+      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b"), freeA: !!c.looseA, freeB: !!c.looseB, onPost: c.onPost, frozen: !!c.asleep };
   }
   function heldEnd(c, name) {
     return (drag && drag.cable === c && drag.end === name) || (c.move < 1 && (name === "a" ? c.a !== c.na : c.b !== c.nb));
@@ -230,7 +230,9 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       } else o[key] = Math.max(0, (o[key] || 0) - 2);
     } });
   }
+  function wake(c) { c.asleep = false; c.stillFrames = 0; }
   function unplug(c, name) {
+    wake(c);
     const i = name === "a" ? 0 : N - 1;
     const p = c.pts[i], point = { x: p.x, y: p.y };
     if (name === "a") { c.a = c.na = point; c.looseA = true; } else { c.b = c.nb = point; c.looseB = true; }
@@ -240,14 +242,12 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
 
   function step() {
-    for (const c of cables) {
-      integrate3(ropeView(c), G * dpr, GZ, DAMP);
-      // The seated plug turns in its jack toward where the cord leaves it,
-      // slowly, and only while a hand is on the board: read straight off the
-      // first free point each pass it fed back through its own post and
-      // jittered, and left turning at rest it chased a hairpin round and
-      // round. A plug nobody is touching stays put.
-    }
+    // A cord nobody is touching that has been all but still for half a
+    // second goes to sleep: frozen where it is until a hand, a plug, or a
+    // moving cord disturbs it. Position-based solvers with several rules in
+    // contact settle to a shimmer of a pixel or so, never to zero; sleep is
+    // how physics engines make "still" mean still.
+    for (const c of cables) if (!c.asleep) integrate3(ropeView(c), G * dpr, GZ, DAMP);
     // Where each held plug starts this frame, so it can be walked to the mouse
     // across the substeps. A hand that teleports a hundred pixels in one frame
     // yanks the first segment to many times its rest length, and the length
@@ -257,19 +257,15 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       if (drag && drag.cable === c && drag.end === name) from[name] = { x: c.pts[idx].x, y: c.pts[idx].y };
     // pin ends: seated plugs sit at their jack (z 0), the held plug rides the hand
     const pin = (f = 1) => {
-      // The bottom of the board is a solid shelf: no cord goes through it.
-      // What lands on it stays where it landed — a cord keeps the curl it hit
-      // the shelf with instead of straightening out along it — unless it is
-      // pulled hard enough to slide (static friction: 10px in one pass, which
-      // only a hand does; a landing or the bend solve never moves that much).
+      // The bottom of the board is a solid shelf: no cord goes through it,
+      // and what lands on it stops dead. Friction is the sleep rule: a cord
+      // that has settled freezes and keeps the curl it landed with. (Pinning
+      // floor points sideways made a limit cycle somewhere in every variant.)
       for (const c of cables) for (let i = 0; i < N; i++) {
         const loose = (i === 0 && c.looseA) || (i === N - 1 && c.looseB);
         const floor = h - (loose ? JR : c.r);
         const p = c.pts[i], q = c.prev[i];
-        if (p.y >= floor - 0.5) {
-          if (Number.isNaN(c.floorX[i]) || Math.abs(p.x - c.floorX[i]) > 10 * dpr) c.floorX[i] = p.x;
-          p.x = c.floorX[i]; p.y = floor; q.x = p.x; q.y = p.y;
-        } else c.floorX[i] = NaN;
+        if (p.y > floor) { p.y = floor; p.z = Math.min(p.z, 2 * c.r); q.x = p.x; q.y = p.y; q.z = Math.min(q.z, p.z); }
       }
       for (const c of cables) {
         for (const [name, idx] of [["a", 0], ["b", N - 1]]) {
@@ -320,7 +316,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     // Each substep: bend, then length, then contact, then a light length pass.
     for (let s = 1; s <= SUB; s++) {
       const f = s / SUB;
-      for (const c of cables) {
+      for (const c of cables) if (!c.asleep) {
         const v = ropeView(c);
         bend3(v, STIFF);
         unkink3(v, MIN_BEND, UNKINK);
@@ -330,21 +326,42 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       // and once a stretch is deep inside a rounded post end there is no
       // telling which side it came from. A few px at a time, there is.
       for (let k = 0; k < LEN / 6; k++) {
-        for (const c of cables) constrainLength3(ropeView(c), 6);
+        for (const c of cables) if (!c.asleep) constrainLength3(ropeView(c), 6);
         pin(f);
-        for (const c of cables) offPosts(c);
+        for (const c of cables) if (!c.asleep) offPosts(c);
       }
       // cord against cord (over/under, and a cord against itself), a light
       // length pass for the few px of stretch it leaves, then the posts have
       // the last word: a caught cord stays caught
+      // a sleeping cord is a static obstacle here (frozen): woken by a hand,
+      // a plug seating or popping, never by a push
       collide3(cables.map(ropeView), 2, crossOrder);
       pin(f);
-      for (const c of cables) constrainLength3(ropeView(c), 4);
+      for (const c of cables) if (!c.asleep) constrainLength3(ropeView(c), 4);
       pin(f);
-      for (const c of cables) offPosts(c);
+      for (const c of cables) if (!c.asleep) offPosts(c);
       yieldHand();
     }
     tug();
+    // still enough for long enough → sleep; the dragged cord never does
+    for (const c of cables) {
+      const last = c.lastPts || (c.lastPts = new Float64Array(2 * N));
+      let moved = 0;
+      for (let i = 0; i < N; i++) {
+        const p = c.pts[i];
+        // Floor friction against creep: a folded cord on the shelf slid along
+        // it a few px a frame under its own stiffness, for ever. With no hand
+        // on the board, a shelf point keeps only a tenth of a frame's slide,
+        // so the creep falls under the sleep threshold and the cord freezes.
+        // (Pinning shelf points outright made a limit cycle every time.)
+        const loose = (i === 0 && c.looseA) || (i === N - 1 && c.looseB);
+        if (!drag && !c.asleep && p.y >= h - (loose ? JR : c.r) - 0.5 && last[2 * i]) { p.x = last[2 * i] + (p.x - last[2 * i]) * 0.1; c.prev[i].x = p.x; }
+        moved = Math.max(moved, Math.abs(p.x - last[2 * i]), Math.abs(p.y - last[2 * i + 1])); last[2 * i] = p.x; last[2 * i + 1] = p.y;
+      }
+      const busy = drag && drag.cable === c;
+      c.stillFrames = moved < 1.2 * dpr && !busy ? (c.stillFrames || 0) + 1 : 0;
+      if (c.stillFrames >= 30 && !c.asleep) { c.asleep = true; for (let i = 0; i < N; i++) { c.prev[i].x = c.pts[i].x; c.prev[i].y = c.pts[i].y; c.prev[i].z = c.pts[i].z; } }
+    }
     for (const c of cables) if (c.move < 1) {
       c.move = Math.min(1, c.move + (c.moveSpeed || 0.05));
       if (c.move >= 1) {   // the seat is done: the plug lives in the hole now
@@ -603,6 +620,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     return null;
   }
   function liftEnd(c, end) {
+    wake(c);
     const i = end === "a" ? 0 : N - 1;
     const point = { x: c.pts[i].x, y: c.pts[i].y };
     if (end === "a") { c.a = c.na = point; c.looseA = false; } else { c.b = c.nb = point; c.looseB = false; }

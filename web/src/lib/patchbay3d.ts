@@ -24,6 +24,7 @@ export type Rope3 = {
   freeA?: boolean;           // end a is loose: unplugged, lying on the board, nothing holds it
   freeB?: boolean;
   onPost?: Uint8Array;       // per point: resting on top of a seated plug (set here, cleared by the caller when it leaves)
+  frozen?: boolean;          // asleep: a static obstacle in contact, never a mover
 };
 
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -65,7 +66,11 @@ export function integrate3(r: Rope3, gy: number, gz: number, damp: number) {
     const vy = (p.y - q.y) * damp + gy;
     // z is a spring toward the board, not a free fall: a cord settles flat and
     // rests ON another at one diameter up, it does not pile up or sink through.
-    const vz = (p.z - q.z) * damp - p.z * gz;
+    // z is overdamped: height is a thing a cord is pushed to, not a thing it
+    // moves through — any z velocity the constraint passes invent (the bend
+    // pass moves prev, the length solve does not) must die within a frame,
+    // or a point over-constrained in the plane pogoes to 200px high
+    const vz = (p.z - q.z) * 0.3 - p.z * gz;
     q.x = p.x; q.y = p.y; q.z = p.z;
     p.x += vx; p.y += vy; p.z += vz;
     if (p.z < 0) p.z = 0;                 // the board is solid
@@ -202,6 +207,8 @@ export function collide3(ropes: Rope3[], iters: number, order?: CrossOrder): boo
       for (let b = a; b < ropes.length; b++) {
         const A = ropes[a], B = ropes[b];
         const self = a === b;
+        if (self && A.frozen) continue;   // a sleeping cord's own fold pushed it awake every frame
+        if (A.frozen && B.frozen) continue;
         const reach = A.r + B.r;
         const na = A.pts.length, nb = B.pts.length;
         for (let i = 0; i < na - 1; i++) {
@@ -249,7 +256,7 @@ export function collide3(ropes: Rope3[], iters: number, order?: CrossOrder): boo
               fA = nz > 0 ? 1 - lowerRoom : lowerRoom;
             }
             const shove = (R: Rope3, k: number, t: number, sign: number, push: number) => {
-              if (lifted(R, k)) return;
+              if (lifted(R, k) || R.frozen) return;
               const n = R.pts.length;
               const g0 = k > 0 ? 1 - t : 0, g1 = k + 1 < n - 1 ? t : 0;
               const spread = g0 * g0 + g1 * g1;
