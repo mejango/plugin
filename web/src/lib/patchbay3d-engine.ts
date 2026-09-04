@@ -78,6 +78,12 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
 
   function jackTaken(j) { return cables.some((c) => c.a === j || c.b === j || c.na === j || c.nb === j); }
+  // A hole another cord lies across is not open: a plug cannot go in through
+  // a cord. The cord being carried does not count — its own body hovers over
+  // the hole it is heading for.
+  function covered(j, except) {
+    return cables.some((o) => o !== except && o.pts.some((p) => Math.hypot(p.x - j.x, p.y - j.y) < JR + o.r));
+  }
   function pickPair() {
     const free = jacks.filter((j) => !jackTaken(j));
     const a = free[(rand() * free.length) | 0];
@@ -125,8 +131,21 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       c.r = c.width * 0.5;
       cables.push(c);
     }
-    for (const c of cables) { restOn(c, "a"); restOn(c, "b"); }
     for (let i = 0; i < 200; i++) step();
+    // a plug the deal put in under another cord is re-dealt; the hang of a
+    // settled cord is not the straight line it was dealt on, so check after
+    for (let round = 0; round < 8; round++) {
+      const bad = cables.find((c) => covered(c.a, c) || covered(c.b, c));
+      if (!bad) break;
+      cables.splice(cables.indexOf(bad), 1);
+      const [a, b] = pickPair();
+      if (!a || !b) break;
+      bad.a = bad.na = a; bad.b = bad.nb = b;
+      bad.len = Math.hypot(b.x - a.x, b.y - a.y) * bad.slack; bad.rest = bad.len / (N - 1);
+      ropeInit(bad); cables.push(bad);
+      for (let i = 0; i < 200; i++) step();
+    }
+    for (const c of cables) { restOn(c, "a"); restOn(c, "b"); }   // ponytail: only matters if a round ran out
   }
   // A plug seated UNDER a resting cord lifts it onto its back — that is where
   // the cord is from then on (the deal lays cords across plugs the same way).
@@ -357,7 +376,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     const reach = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
     let best = null, bd = SNAP();
     for (const j of jacks) {
-      if (jackTaken(j) || Math.hypot(j.x - far.x, j.y - far.y) > reach) continue;
+      if (jackTaken(j) || covered(j, c) || Math.hypot(j.x - far.x, j.y - far.y) > reach) continue;
       const d = Math.hypot(j.x - x, j.y - y);
       if (d < bd) { bd = d; best = j; }
     }

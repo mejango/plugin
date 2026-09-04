@@ -340,7 +340,9 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
       return (ux * vx + uy * vy) / ((Math.hypot(ux, uy) || 1) * (Math.hypot(vx, vy) || 1));
     };
     const turn = Math.min(i > 0 ? bendAt(rope.pts[i - 1], p, q) : 1, i + 2 < n ? bendAt(p, q, rope.pts[i + 2]) : 1);
-    const stick = turn < 0.87 ? 1 : Math.min(1, (R - c.d) / (0.25 * R));   // > ~30° round it: hooked
+    // > ~18° round it: hooked. A wrap spreads over two or three segments, so
+    // no single point turns much; at 30° a 45° wrap slid off by luck of timing.
+    const stick = turn < 0.95 ? 1 : Math.min(1, (R - c.d) / (0.25 * R));
     const hold = (v: P3, w: P3, g: number) => {
       v.x += mx * g / spread; v.y += my * g / spread;
       const slid = (v.x - w.x) * tx + (v.y - w.y) * ty;
