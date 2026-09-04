@@ -267,6 +267,21 @@ const scenarios = {
     await t.page.mouse.up();
   }],
 
+  // Jango's recording: held still for seconds, the cord kept moving ("endless motion")
+  "held still, the cord comes to rest (594964621)": [HI, 594964621, async (t) => {
+    const rec = REC(594964621);
+    // per-frame max point motion of the dragged cord and where it is, sampled through the hold
+    const probe = () => { const s = document.querySelector("canvas").__pb3d(); const d = s.drag; if (!d) return null; const c = d.cable; const last = window.__lastPts; const cur = c.pts.map((q) => [q.x, q.y, q.z]); let m = 0, mi = -1; if (last) cur.forEach((q, i) => { const v = Math.hypot(q[0] - last[i][0], q[1] - last[i][1]); if (v > m) { m = v; mi = i; } }); window.__lastPts = cur;
+      return { m: +(m / s.dpr).toFixed(1), mi, at: mi >= 0 ? cur[mi].map((v) => Math.round(v / s.dpr)) : null, pins: Array.from(c.stuck || []).filter(Boolean).length, pressing: (c.pressing || []).map((q) => q.name), stretch: +((() => { let a = 0; for (let i = 0; i < s.N - 1; i++) a += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y, c.pts[i + 1].z - c.pts[i].z); return a / c.len; })()).toFixed(3), mouse: s.rec.frames.at(-1) }; };
+    const log = await replay(t, rec, { from: 180, every: 12, watch: () => t.page.evaluate(probe) });
+    await t.still("after replay");
+    if (process.env.PB_VERBOSE) console.log(log.map(([f, r]) => `${f}: move ${r.m}@${r.mi} ${r.at} pins ${r.pins} press ${r.pressing} stretch ${r.stretch} mouse ${r.mouse}`).join("\n"));
+    // the mouse is still from frame ~200 to ~410: the cord must be still by 300
+    const late = log.filter(([f]) => f >= 300 && f <= 400);
+    const worst = Math.max(...late.map(([, r]) => r.m));
+    ok(worst < 0.5, `cord still moving ${worst}px/frame while held still`);
+  }],
+
   // a hole another cord lies across is not open
   "covered hole refuses a plug": [LO, 704995189, async (t) => {
     const s = await t.state();

@@ -213,10 +213,12 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     const over = arc(c) - c.len;
     // The cord is taut from the hand to whatever holds it: if that is a
     // shelf point, the pull peels it off — the nearest to the hand, one a
-    // pass. A REAL pull: the solver's normal half-percent residual is a few
-    // px of excess on a long cord, and at that bar every pin let go the
-    // frame a settled cord was gripped, and it lost its shape unmoved.
-    if (over > Math.max(8 * dpr, 0.02 * c.len)) { const dir = drag.end === "a" ? 1 : -1; for (let k = i; k >= 0 && k < N; k += dir) if (c.stuck[k]) { c.stuck[k] = 0; break; } }
+    // pass (eight a frame: a heap lets go within a frame or two of a real
+    // pull; at 2% and one a frame the shelf section felt glued down). A REAL
+    // pull: the solver's half-percent residual is a few px of excess on a
+    // long cord, and at that bar every pin let go the frame a settled cord
+    // was gripped, and it lost its shape unmoved.
+    if (over > Math.max(4 * dpr, 0.01 * c.len)) { const dir = drag.end === "a" ? 1 : -1; for (let k = i; k >= 0 && k < N; k += dir) if (c.stuck[k]) { c.stuck[k] = 0; break; } }
     const excess = over - STRETCH * c.len;
     // and only held back by something it is pressed against: a fast drag's
     // unconverged solve, or a lift onto a plug's back mid-cord, is excess
@@ -406,10 +408,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         const pileZone = p.y >= h - 40 * dpr;
         const sp = c.stillPt || (c.stillPt = new Uint8Array(N));
         sp[i] = !busy && m < 1.5 * dpr && relaxed ? Math.min(255, sp[i] + 1) : 0;
-        // A carried cord's shelf section SLIDES along: a cord dragged across
-        // a table does not stick to it. Pinned, the cord stretched 2% against
-        // its own pins and peeled them one at a time (Jango: "sticky").
-        if (!pileZone || pulled(i - 1) || pulled(i) || carried(c)) c.stuck[i] = 0;
+        // (a carried cord keeps its shelf pins too: released outright, the
+        // frictionless heap on the floor was reshaped by the bend and length
+        // passes for ever — 100px a frame with the hand held still. The
+        // yield peels them fast instead, so the section slides when pulled.)
+        if (!pileZone || pulled(i - 1) || pulled(i)) c.stuck[i] = 0;
         else if (sp[i] >= 10) { c.stuck[i] = 1; c.prev[i].x = p.x; c.prev[i].y = p.y; c.prev[i].z = p.z; }
         moved = Math.max(moved, m); net = Math.max(net, Math.abs(p.x - ago[2 * i]), Math.abs(p.y - ago[2 * i + 1])); last[2 * i] = p.x; last[2 * i + 1] = p.y;
       }
