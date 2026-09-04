@@ -6,7 +6,7 @@
 
 import { bend3, collide3, constrainLength3, integrate3, offPost3, unkink3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "bare-v2";
+export const PATCHBAY3D_VERSION = "bare-v3";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -130,8 +130,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // Gravity and damping only: a hanging cord swings like a pendulum and settles
   // like one. STIFF is the cord's resistance to bending, LEN the iterations that
   // hold its length — a cord's length is the one thing that must never give.
-  const G = 2.0, GZ = 0.06, DAMP = 0.985, LIFT_Z = 26;
-  const STIFF = 0.25, LEN = 24, SUB = 8, MIN_BEND = 65, UNKINK = 0.35;
+  const G = 2.5, GZ = 0.06, DAMP = 0.975, LIFT_Z = 26;
+  const STIFF = 0.34, LEN = 24, SUB = 8, MIN_BEND = 72, UNKINK = 0.35;
   // A hand moves at a hand's speed. Without this a flick asks the plug to cross
   // most of the cord's length in one frame, and no solver can absorb that while
   // holding the length — the cord stretches for a frame. 64px a frame is 8 per
@@ -231,7 +231,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     const out = [];
     for (const c of cables) {
       if (c.move < 1 || (drag && drag.cable === c)) continue;
-      for (const [name, i0, i1] of [["a", 0, 1], ["b", N - 1, N - 2]]) {
+      for (const [name, i0, i1] of [["a", 0, 2], ["b", N - 1, N - 3]]) {
         const p0 = c.pts[i0], p1 = c.pts[i1];
         const l = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
         out.push({ c, name, x0: p0.x, y0: p0.y, x1: p0.x + ((p1.x - p0.x) / l) * BARREL(), y1: p0.y + ((p1.y - p0.y) / l) * BARREL(), r: c.width * 1.2 });
@@ -327,9 +327,16 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     ctx.restore();
     ctx.setLineDash([]);
   }
-  function drawPlug(c, p0, p1) {
-    const len = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
-    const ux = (p1.x - p0.x) / len, uy = (p1.y - p0.y) / len, barrel = 15 * dpr;
+  // The barrel is rigid, so it points where the cord's first stretch goes,
+  // not where the first 17px segment happens to whip; and it turns with a
+  // little inertia, as a plug in a hand does, instead of flipping in a frame.
+  function drawPlug(c, name, p0, p1) {
+    const want = Math.atan2(p1.y - p0.y, p1.x - p0.x);
+    const key = "ang" + name;
+    let ang = c[key] ?? want;
+    let d = want - ang; d -= Math.round(d / (2 * Math.PI)) * 2 * Math.PI;
+    ang += d * 0.2; c[key] = ang;
+    const ux = Math.cos(ang), uy = Math.sin(ang), barrel = 15 * dpr;
     ctx.beginPath(); ctx.moveTo(p0.x + ux * barrel, p0.y + uy * barrel); ctx.lineTo(p0.x + ux * barrel * 1.8, p0.y + uy * barrel * 1.8);
     ctx.strokeStyle = tint(c, 0.8, 0.5); ctx.lineWidth = c.width * 1.8; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p0.x + ux * barrel, p0.y + uy * barrel);
@@ -358,12 +365,12 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     ctx.drawImage(panel, 0, 0);
     ctx.lineCap = "round"; ctx.lineJoin = "round";
 
-    const ends = cables.map((c) => [[c.pts[0], c.pts[1]], [c.pts[N - 1], c.pts[N - 2]]]);
+    const ends = cables.map((c) => [[c.pts[0], c.pts[2]], [c.pts[N - 1], c.pts[N - 3]]]);
     // cords first (deal order), then seated plugs
     cables.forEach((c) => drawCable(c, c.pts, true, 0));
     cables.forEach((c, i) => {
-      if (!heldEnd(c, "a")) drawPlug(c, ends[i][0][0], ends[i][0][1]);
-      if (!heldEnd(c, "b")) drawPlug(c, ends[i][1][0], ends[i][1][1]);
+      if (!heldEnd(c, "a")) drawPlug(c, "a", ends[i][0][0], ends[i][0][1]);
+      if (!heldEnd(c, "b")) drawPlug(c, "b", ends[i][1][0], ends[i][1][1]);
     });
     // at every xy crossing, repaint whichever cord is HIGHER in z there, on top
     const patch = (c, x, y, r, i0, i1) => {
@@ -389,7 +396,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     cables.forEach((c, i) => {
       for (const name of ["a", "b"]) if (heldEnd(c, name)) {
         const e = name === "a" ? ends[i][0] : ends[i][1];
-        drawPlug(c, e[0], e[1]);
+        drawPlug(c, name, e[0], e[1]);
       }
     });
     // the hole the held plug will drop into
