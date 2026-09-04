@@ -201,9 +201,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   function yieldHand() {
     if (!drag) return;
     const c = drag.cable, i = drag.end === "a" ? 0 : N - 1, j = drag.end === "a" ? 1 : N - 2;
-    // less the solver's own residual: retreating the hand by every px of
-    // that trailed the cursor by a few px through every drag
-    const excess = arc(c) - c.len - 0.005 * c.len;
+    // The hand stays at the cursor: a caught cord STRETCHES a little (up to
+    // STRETCH of its length) before the plug is held back — retreating the
+    // hand by every px of excess parted it from the cursor the moment the
+    // cord touched anything, and by the solver's own residual on every drag.
+    const excess = arc(c) - c.len - STRETCH * c.len;
     if (excess <= 0) return;
     // The cord is taut from the hand to whatever holds it: if that is a
     // shelf point, the pull peels it off — the nearest to the hand, one a
@@ -218,14 +220,16 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // The strain of a caught cord goes into whatever it is caught on. When the
   // hand cannot reach the cursor and the dragged cord is pressed against a
   // seated plug's post, that plug is being tugged; enough of it and it gives.
-  const TUG_GAP = () => 20 * dpr, TUG_FRAMES = 25;
+  const STRETCH = 0.06, TUG_FRAMES = 25;
   function tug() {
     const strained = new Set();
     if (drag) {
       const c = drag.cable, p = c.pts[drag.end === "a" ? 0 : N - 1];
       const far = c.pts[drag.end === "a" ? N - 1 : 0];
       const maxR = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
-      const short = Math.hypot(mouse.x - p.x, mouse.y - p.y) > TUG_GAP();
+      // strained: the cord is stretched past its length (the hand is at the
+      // cursor; a caught cord stretches) or held back from the cursor
+      const short = arc(c) > c.len * (1 + STRETCH / 3) || Math.hypot(mouse.x - p.x, mouse.y - p.y) > 20 * dpr;
       const farLoose = c[drag.end === "a" ? "looseB" : "looseA"];
       const straight = !farLoose && Math.hypot(mouse.x - far.x, mouse.y - far.y) >= maxR;   // simply out of cord: nothing to tug
       if (short && !straight) for (const post of c.pressing || []) if (post.c !== c) strained.add(cables.indexOf(post.c) + post.name);
@@ -242,7 +246,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // until the pull reaches each point (yieldHand peels them off in turn)
   function wake(c) { c.asleep = false; c.stillFrames = 0; }
   function unplug(c, name) {
-    for (const o of cables) wake(o);   // whatever leaned on this plug or cord wakes too
+    for (const o of cables) { wake(o); if (o.hookKey === cables.indexOf(c) + name) o.hookKey = null; }   // whatever leaned on, or hung on, this plug wakes and lets go
     const i = name === "a" ? 0 : N - 1;
     const p = c.pts[i], point = { x: p.x, y: p.y };
     if (name === "a") { c.a = c.na = point; c.looseA = true; } else { c.b = c.nb = point; c.looseB = true; }
@@ -301,10 +305,9 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             // (no magnet on the hand: blending its aim toward a hole within
             // SNAP drew the plug 15px off the cursor every time it passed one.
             // The ring marks the hole; the release seats it.)
-            // hooked under another cord's plug, the hand stays on its side
-            // of that plug's bar: fed through from the pinned end, the cord
-            // went through the bar segment by segment
-            [mx, my] = wallClamp(c, c.pts[idx], mx, my);
+            // (the hand is never walled off from the cursor: the cord's first
+            // free point is what the bar holds, swept, in offPost3 — a wall
+            // at the hand parted it from the cursor by 250px while caught)
             // The plug is in the hand: it is at the cursor at the end of every
             // frame, however fast. A 64px-a-frame cap kept the first segment
             // from stretching on a flick and trailed a brisk drag by 280px.
@@ -437,17 +440,6 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       }
     }
     return out;
-  }
-  function wallClamp(c, hand, mx, my) {
-    if (!c.hookKey) return [mx, my];
-    const post = posts().find((q) => cables.indexOf(q.c) + q.name === c.hookKey);
-    if (!post) return [mx, my];
-    const { ux, uy, jx, jy } = post, pnx = -uy, pny = ux;
-    if ((mx - jx) * ux + (my - jy) * uy > BARREL() + post.r) return [mx, my];   // past the barrel tip: free
-    const side = Math.sign((hand.x - jx) * pnx + (hand.y - jy) * pny) || 1;
-    const perp = (mx - jx) * pnx + (my - jy) * pny, want = side * (post.r + c.r);
-    if (side * perp >= post.r + c.r) return [mx, my];
-    return [mx + pnx * (want - perp), my + pny * (want - perp)];
   }
   // any point of c within two cord widths of the post capsule itself
   function nearPost(c, post) {

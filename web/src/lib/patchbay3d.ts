@@ -335,6 +335,28 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
   const al = Math.hypot(a1.x - a0.x, a1.y - a0.y) || 1;
   const pnx = -(a1.y - a0.y) / al, pny = (a1.x - a0.x) / al;   // across the post
   let moved = 0;
+  // Swept: a point that was on one side of the barrel when the frame began
+  // and is on the other now went THROUGH it, however far it got. The
+  // contact test below only sees what is within R of the axis: a taut cord
+  // fed through the bar one point at a time, each pulled across by the
+  // length solve, pushed back while within R, and free the substep it
+  // jumped further than that.
+  const fs = rope.frameStart;
+  if (fs && mode <= 0) for (let i = 0; i < n; i++) {
+    if (i >= skipFrom && i <= skipTo) continue;
+    if (i === 0 ? !rope.freeA : i === n - 1 ? !rope.freeB : false) continue;
+    if (rope.pinned?.[i]) continue;
+    const p = rope.pts[i];
+    if (mode === 0 && (p.z > maxZ || rope.onPost?.[i])) continue;
+    const sx = a1.x - a0.x, sy = a1.y - a0.y, ll = sx * sx + sy * sy || 1;
+    const s0 = ((fs[2 * i] - a0.x) * sx + (fs[2 * i + 1] - a0.y) * sy) / ll, s1 = ((p.x - a0.x) * sx + (p.y - a0.y) * sy) / ll;
+    if (s0 <= 0 || s0 >= 1 || s1 <= 0 || s1 >= 1) continue;
+    const w0 = (fs[2 * i] - a0.x) * pnx + (fs[2 * i + 1] - a0.y) * pny, w1 = (p.x - a0.x) * pnx + (p.y - a0.y) * pny;
+    if (Math.abs(w0) < 1e-6 || Math.sign(w0) === Math.sign(w1)) continue;
+    const back = Math.sign(w0) * R - w1;
+    p.x += pnx * back; p.y += pny * back;
+    moved++;
+  }
   for (let i = 0; i < n - 1; i++) {
     if (i >= skipFrom && i + 1 <= skipTo) continue;
     const p = rope.pts[i], q = rope.pts[i + 1];
@@ -346,7 +368,6 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
     // "Where it came from" is the frame start, not `prev`: bend and unkink
     // move `prev` with the point, and at a sharp hook that reference crossed
     // the post line with it, so the push-out threw the cord to the far side.
-    const fs = rope.frameStart;
     const pp = fs ? { x: fs[2 * i], y: fs[2 * i + 1], z: 0 } : rope.prev[i], pq = fs ? { x: fs[2 * i + 2], y: fs[2 * i + 3], z: 0 } : rope.prev[i + 1];
     // The post is a solid with a top. A stretch lying across it — a plug
     // seated under a resting cord, or a deal that laid one there — is nearer

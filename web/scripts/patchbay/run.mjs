@@ -47,14 +47,14 @@ async function open(browser, opts, seed) {
 }
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
 // replay a recording (R on /lab3d) frame by frame: `frames` from `offset`, with its down/up events; `watch(f)` runs every 12th frame from `from`
-async function replay(t, rec, { from = 0, watch } = {}) {
+async function replay(t, rec, { from = 0, watch, every = 12 } = {}) {
   const events = new Map(rec.events.map((e) => [e[0], e]));
   const last = rec.events.at(-1)[0];
   const out = [];
   for (let f = rec.offset; f <= last; f++) {
     const [x, y] = rec.frames[f - rec.offset]; if (x > -1e8) await t.page.mouse.move(x, y);
     const ev = events.get(f); if (ev) { if (ev[1] === "down") await t.page.mouse.down(); else await t.page.mouse.up(); }
-    if (watch && f >= from && f % 12 === 0) { const r = await watch(f); if (r) out.push([f, r]); }
+    if (watch && f >= from && f % every === 0) { const r = await watch(f); if (r) out.push([f, r]); }
     await t.page.waitForTimeout(16);
   }
   return out;
@@ -65,7 +65,7 @@ const inPost = () => { const s = document.querySelector("canvas").__pb3d(); cons
   const posts = []; for (const [name, i0, i1] of [["a", 0, 2], ["b", s.N - 1, s.N - 3]]) { if (o[name === "a" ? "looseA" : "looseB"]) continue; const p0 = o.pts[i0], p1 = o.pts[i1]; const l = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1, ux = (p1.x - p0.x) / l, uy = (p1.y - p0.y) / l; posts.push({ name, x0: p0.x - ux * 19 * s.dpr, y0: p0.y - uy * 19 * s.dpr, x1: p0.x + ux * 27 * s.dpr, y1: p0.y + uy * 27 * s.dpr, R: o.width * 1.2 + c.r }); }
   let worst = null; for (const q of posts) { const dx = q.x1 - q.x0, dy = q.y1 - q.y0, ll = dx * dx + dy * dy || 1; c.pts.forEach((pt, i) => { const tt = Math.max(0, Math.min(1, ((pt.x - q.x0) * dx + (pt.y - q.y0) * dy) / ll)); const dd = Math.hypot(pt.x - q.x0 - dx * tt, pt.y - q.y0 - dy * tt); const depth = (q.R - dd) / s.dpr; if (!worst || depth > worst.depth) worst = { post: q.name, i, depth: +depth.toFixed(0), z: +(pt.z / s.dpr).toFixed(0) }; }); }
   const sign = s.crossOrder.get("0:1");
-  return { ci, end: d.end, dragUnder: sign === undefined ? null : ci === 0 ? sign < 0 : sign > 0, hook: c.hookKey, pressing: (c.pressing || []).map((q) => q.name), tug: [o.tuga || 0, o.tugb || 0], loose: [!!o.looseA, !!o.looseB], worst, hand: [Math.round(c.pts[d.end === "a" ? 0 : s.N - 1].x / s.dpr), Math.round(c.pts[d.end === "a" ? 0 : s.N - 1].y / s.dpr)] }; };
+  return { ci, end: d.end, dragUnder: sign === undefined ? null : ci === 0 ? sign < 0 : sign > 0, hook: c.hookKey, pressing: (c.pressing || []).map((q) => q.name), tug: [o.tuga || 0, o.tugb || 0], loose: [!!o.looseA, !!o.looseB], worst, hand: [Math.round(c.pts[d.end === "a" ? 0 : s.N - 1].x / s.dpr), Math.round(c.pts[d.end === "a" ? 0 : s.N - 1].y / s.dpr)], mouse: s.rec.frames.at(-1) }; };
 
 // ── scenarios ──────────────────────────────────────────────────────────────
 const scenarios = {
@@ -165,6 +165,19 @@ const scenarios = {
     const deepest = Math.max(...log.map(([, r]) => (r.worst && r.worst.z < 22 ? r.worst.depth : -99)));
     const popped = s.cables.some((k) => k.looseA || k.looseB);
     if (process.env.PB_VERBOSE) console.log(JSON.stringify(log.map(([f, r]) => [f, r.dragUnder, r.hook, r.pressing, r.tug, r.worst, r.hand])));
+    ok(deepest < 6, `dragged cord sank ${deepest}px into the other cord's post`);
+    ok(popped, "the over cord's plug did not pop");
+  }],
+
+  // Jango's recording: an under cord dragged against the over cord's insert must catch and pop it, not tunnel
+  "under cord against an insert pops it (1596066957)": [HI, 1596066957, async (t) => {
+    const rec = REC(1596066957);
+    const log = await replay(t, rec, { from: 93, watch: () => t.page.evaluate(inPost) });
+    await t.page.waitForTimeout(1500);
+    const s = await t.state();
+    const deepest = Math.max(...log.map(([, r]) => (r.worst && r.worst.z < 22 ? r.worst.depth : -99)));
+    const popped = s.cables.some((k) => k.looseA || k.looseB);
+    if (process.env.PB_VERBOSE) console.log(JSON.stringify(log.map(([f, r]) => [f, r.dragUnder, r.hook, r.pressing, r.tug, r.worst, r.hand])), `hand off the cursor: ${log.map(([f, r]) => f + ":" + Math.hypot(r.hand[0] - r.mouse[0], r.hand[1] - r.mouse[1]).toFixed(0)).join(" ")}`);
     ok(deepest < 6, `dragged cord sank ${deepest}px into the other cord's post`);
     ok(popped, "the over cord's plug did not pop");
   }],
