@@ -719,7 +719,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
 
   canvas.__pb3d = () => ({ cables, jacks, dpr, N, drag, rec, crossOrder });
   canvas.__lab = false;
-  const onKey = (e) => { if (e.key === "r" || e.key === "R") navigator.clipboard?.writeText(JSON.stringify(rec)).then(() => canvas.dispatchEvent(new CustomEvent("patchbay:copied"))); };
+  // R copies a recording on the bench only: on a page it would hijack the key
+  const onKey = (e) => { if (canvas.__lab && (e.key === "r" || e.key === "R")) navigator.clipboard?.writeText(JSON.stringify(rec)).then(() => canvas.dispatchEvent(new CustomEvent("patchbay:copied"))); };
   window.addEventListener("keydown", onKey);
   window.addEventListener("resize", size);
   size();

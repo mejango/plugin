@@ -7,7 +7,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 export default function HomePage() {
   return (
     <main className="relative flex min-h-[100svh] flex-col items-center justify-center px-[6vw] text-center">
-      <PatchBay />
+      <PatchBay solid />
 
       {/* Floating, not in flow: the hero is centred on the viewport, and a bar
           taking part in that centring would push it down by its own height. */}
