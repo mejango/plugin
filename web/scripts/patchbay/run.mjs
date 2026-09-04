@@ -169,6 +169,30 @@ const scenarios = {
     ok(popped, "the over cord's plug did not pop");
   }],
 
+  // Jango's recording: the top cord must not be drawn underneath the moment both cords fall asleep
+  "over cord stays over after both sleep (667126059)": [HI, 667126059, async (t) => {
+    await replay(t, REC(667126059)); await t.still("after replay");
+    const r = await t.page.evaluate(() => { const s = document.querySelector("canvas").__pb3d(); const A = s.cables[0], B = s.cables[1];
+      const hit = (p0, p1, q0, q1) => { const ux = p1.x - p0.x, uy = p1.y - p0.y, vx = q1.x - q0.x, vy = q1.y - q0.y; const den = ux * vy - uy * vx; if (Math.abs(den) < 1e-12) return null; const wx = q0.x - p0.x, wy = q0.y - p0.y; const t = (wx * vy - wy * vx) / den, u = (wx * uy - wy * ux) / den; if (t < 0 || t >= 1 || u < 0 || u >= 1) return null; return { t, u }; };
+      let dz = null; for (let i = 0; i < s.N - 1; i++) for (let j = 0; j < s.N - 1; j++) { const h = hit(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1]); if (h) dz = (A.pts[i].z + (A.pts[i + 1].z - A.pts[i].z) * h.t) - (B.pts[j].z + (B.pts[j + 1].z - B.pts[j].z) * h.u); }
+      return { dz, order: s.crossOrder.get("0:1") ?? null, asleep: s.cables.map((k) => !!k.asleep) }; });
+    ok(r.dz !== null, "the cords no longer cross; scenario needs a crossing");
+    ok(r.order !== null, "the crossing pair's order was pruned (draw order would flip)");
+    ok(Math.sign(r.dz) === r.order, `drawn order ${r.order} disagrees with heights (dz ${r.dz.toFixed(1)})`);
+  }],
+
+  // a cord whose other end is loose drags freely: the loose end follows, the hand reaches the cursor
+  "free drag with the other end loose": [LO, 704995189, async (t) => {
+    const s = await t.state(); const c = s.cables[1]; ok(c.a.join() === "1020,540", `deal changed: ${JSON.stringify(s.cables)}`);
+    // drop end a mid-board so it goes loose, then take end b far across the board — well past the cord's length from where a lies
+    await t.page.mouse.move(1020, 540); await t.page.mouse.down(); await t.glide(1020, 540, 1080, 470, 20); await t.page.mouse.up(); await t.still("after drop");
+    ok((await t.state()).cables[1].looseA, "end a did not go loose");
+    await t.page.mouse.move(c.b[0], c.b[1]); await t.page.mouse.down(); await t.glide(c.b[0], c.b[1], 120, 120, 80); await t.page.waitForTimeout(600);
+    const st = await t.state(); const hand = st.cables[1].pts[st.N - 1];
+    ok(Math.hypot(hand[0] - st.mouse[0], hand[1] - st.mouse[1]) < 20, `hand stalled: ${hand.map(Math.round)} vs ${st.mouse}`);
+    await t.page.mouse.up();
+  }],
+
   // a hole another cord lies across is not open
   "covered hole refuses a plug": [LO, 704995189, async (t) => {
     const s = await t.state();

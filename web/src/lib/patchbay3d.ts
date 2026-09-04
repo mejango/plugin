@@ -147,6 +147,10 @@ export function unkink3(r: Rope3, minDeg: number, relax: number) {
   const n = r.pts.length;
   const minCos = Math.cos((minDeg * Math.PI) / 180);
   for (let i = 1; i < n - 1; i++) {
+    // not about a pinned point: it swung the free neighbour of a shelf pin
+    // out every substep and the length solve pulled it back — a free span
+    // between two pins vibrated for ever
+    if (r.pinned?.[i]) continue;
     const p = r.pts[i], pm = r.pts[i - 1], pp = r.pts[i + 1];
     const ax = pm.x - p.x, ay = pm.y - p.y, la = Math.hypot(ax, ay) || 1e-6;
     const bx = pp.x - p.x, by = pp.y - p.y, lb = Math.hypot(bx, by) || 1e-6;
@@ -212,7 +216,10 @@ export function collide3(ropes: Rope3[], iters: number, order?: CrossOrder): boo
         const A = ropes[a], B = ropes[b];
         const self = a === b;
         if (self && A.frozen) continue;   // a sleeping cord's own fold pushed it awake every frame
-        if (A.frozen && B.frozen) continue;
+        // two sleepers keep their order: skipped without being "seen", the
+        // pair's over/under was pruned the frame both slept, and the draw
+        // order flipped the top cord underneath while nothing had moved
+        if (A.frozen && B.frozen) { const key = a + ":" + b; if (order?.has(key)) seen.add(key); continue; }
         const reach = A.r + B.r;
         const na = A.pts.length, nb = B.pts.length;
         for (let i = 0; i < na - 1; i++) {
@@ -265,7 +272,11 @@ export function collide3(ropes: Rope3[], iters: number, order?: CrossOrder): boo
               const g0 = k > 0 && !R.pinned?.[k] ? 1 - t : 0, g1 = k + 1 < n - 1 && !R.pinned?.[k + 1] ? t : 0;
               const spread = g0 * g0 + g1 * g1;
               if (spread < 1e-6) return;
-              const m = (push * sign) / spread;
+              // No endpoint moves further than the gap itself. Weighted by
+              // lever arm, a segment with its other end pinned (a shelf pin,
+              // a plug) got push / (1 - t)² — a hundred times the gap near
+              // the pin — and a piled cord took 12px kicks at rest.
+              const m = (push * sign) / spread * Math.min(1, spread / Math.max(g0, g1));
               const p0 = R.pts[k], p1 = R.pts[k + 1], r0 = R.prev[k], r1 = R.prev[k + 1];
               // The board is solid: a push through it stops at z = 0 — and
               // `prev` stops with it. Clamping only `pts` left `prev` far
@@ -365,8 +376,9 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
       mx = pnx * (side * R - along); my = pny * (side * R - along);
     }
     const g0 = (i > 0 || rope.freeA) && !rope.pinned?.[i] ? 1 - c.t : 0, g1 = (i + 1 < n - 1 || rope.freeB) && !rope.pinned?.[i + 1] ? c.t : 0;
-    const spread = g0 * g0 + g1 * g1;
+    let spread = g0 * g0 + g1 * g1;
     if (spread < 1e-6) continue;
+    spread = Math.max(spread, Math.max(g0, g1));   // no endpoint moves further than the gap (see collide3)
     // Friction. Frictionless, a hooked cord slides round any round post to
     // its straight line. A cord that BENDS round the post (capstan: the wrap
     // angle is what holds) does not slide at all; one merely pressed against

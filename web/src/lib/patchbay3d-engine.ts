@@ -229,7 +229,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       const far = c.pts[drag.end === "a" ? N - 1 : 0];
       const maxR = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
       const short = Math.hypot(mouse.x - p.x, mouse.y - p.y) > TUG_GAP();
-      const straight = Math.hypot(mouse.x - far.x, mouse.y - far.y) >= maxR;   // simply out of cord: nothing to tug
+      const farLoose = c[drag.end === "a" ? "looseB" : "looseA"];
+      const straight = !farLoose && Math.hypot(mouse.x - far.x, mouse.y - far.y) >= maxR;   // simply out of cord: nothing to tug
       if (short && !straight) for (const post of c.pressing || []) if (post.c !== c) strained.add(cables.indexOf(post.c) + post.name);
     }
     cables.forEach((o, oi) => { for (const name of ["a", "b"]) {
@@ -282,6 +283,9 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         const floor = h - (loose ? c.width * 1.2 : c.r);
         const p = c.pts[i], q = c.prev[i];
         if (p.y > floor) { p.y = floor; p.z = Math.min(p.z, 2 * c.r); q.x = p.x; q.y = p.y; q.z = Math.min(q.z, p.z); }
+        // and side walls: a loose plug came to rest at x = -33, off the board
+        const side = loose ? c.width * 1.2 : c.r;
+        if (p.x < side) { p.x = side; q.x = p.x; } else if (p.x > w - side) { p.x = w - side; q.x = p.x; }
       }
       for (const c of cables) {
         for (const [name, idx] of [["a", 0], ["b", N - 1]]) {
@@ -293,7 +297,10 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             const maxR = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
             let mx = mouse.x, my = mouse.y;
             const rx = mx - far.x, ry = my - far.y, rd = Math.hypot(rx, ry);
-            if (rd > maxR && rd > 1e-6) { mx = far.x + (rx / rd) * maxR; my = far.y + (ry / rd) * maxR; }
+            // a loose far end is no anchor: the cord follows the hand and
+            // drags that end along (the reach circle stalled the hand)
+            const farLoose = c[name === "a" ? "looseB" : "looseA"];
+            if (!farLoose && rd > maxR && rd > 1e-6) { mx = far.x + (rx / rd) * maxR; my = far.y + (ry / rd) * maxR; }
             // near an open hole the plug finds it: the hand's aim is blended
             // toward the hole, fully there at its centre, untouched at SNAP
             const s = socketNear(c, name, mx, my);
@@ -377,18 +384,22 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       const busy = drag && drag.cable === c;
       for (let i = 0; i < N; i++) {
         const p = c.pts[i], m = Math.max(Math.abs(p.x - last[2 * i]), Math.abs(p.y - last[2 * i + 1]));
-        // Shelf friction: a point on the shelf that has all but stopped is
-        // held there (a pinned point in every pass) until its cord is grabbed
-        // or a neighbouring stretch is pulled hard enough to mean a real pull.
-        const loose = (i === 0 && c.looseA) || (i === N - 1 && c.looseB);
-        const onShelf = p.y >= h - (loose ? c.width * 1.2 : c.r) - 0.5;
+        // Shelf friction: a point in the pile zone — on the shelf, or resting
+        // on the pile within a plug's width of it — that has been still for
+        // ten frames is held there (a pinned point in every pass) until a
+        // pull peels it off or a neighbouring stretch is pulled past 15%.
+        // Points on top of the pile never pinned before, and shimmered
+        // between their pinned neighbours for ever.
         const seg = (k) => k >= 0 && k < N - 1 ? Math.hypot(c.pts[k + 1].x - c.pts[k].x, c.pts[k + 1].y - c.pts[k].y, c.pts[k + 1].z - c.pts[k].z) / c.rest : 1;
         const pulled = (k) => seg(k) > 1.15;
         // pin only at rest spacing: pinned in a stretch, the free run between
         // two pins could never satisfy its lengths and vibrated for ever
         const relaxed = Math.abs(seg(i - 1) - 1) < 0.05 && Math.abs(seg(i) - 1) < 0.05;
-        if (!onShelf || pulled(i - 1) || pulled(i)) c.stuck[i] = 0;
-        else if (m < 1.5 * dpr && relaxed) { c.stuck[i] = 1; c.prev[i].x = p.x; c.prev[i].y = p.y; c.prev[i].z = p.z; }
+        const pileZone = p.y >= h - 40 * dpr;
+        const sp = c.stillPt || (c.stillPt = new Uint8Array(N));
+        sp[i] = !busy && m < 1.5 * dpr && relaxed ? Math.min(255, sp[i] + 1) : 0;
+        if (!pileZone || pulled(i - 1) || pulled(i)) c.stuck[i] = 0;
+        else if (sp[i] >= 10) { c.stuck[i] = 1; c.prev[i].x = p.x; c.prev[i].y = p.y; c.prev[i].z = p.z; }
         moved = Math.max(moved, m); net = Math.max(net, Math.abs(p.x - ago[2 * i]), Math.abs(p.y - ago[2 * i + 1])); last[2 * i] = p.x; last[2 * i + 1] = p.y;
       }
       // A shimmer of a pixel or so with no net travel is put to sleep (a
@@ -514,7 +525,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // other end — a cord cannot be stretched to a hole
   function socketNear(c, end, x, y) {
     const far = c.pts[end === "a" ? N - 1 : 0];
-    const reach = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
+    const reach = c[end === "a" ? "looseB" : "looseA"] ? Infinity : Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
     let best = null, bd = SNAP();
     for (const j of jacks) {
       if (jackTaken(j) || covered(j, c) || Math.hypot(j.x - far.x, j.y - far.y) > reach) continue;
