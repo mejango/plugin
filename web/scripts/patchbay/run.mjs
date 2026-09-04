@@ -37,10 +37,10 @@ async function open(browser, opts, seed) {
   await page.waitForTimeout(1500);
   const glide = async (x0, y0, x1, y1, n = 30) => { for (let i = 1; i <= n; i++) { await page.mouse.move(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n); await page.waitForTimeout(16); } };
   const state = () => page.evaluate(inPage.state);
-  // every cord asleep and motionless, waiting up to 8s for it
+  // every cord asleep and motionless, waiting up to 12s for it
   const still = async (label) => {
     let m;
-    for (let k = 0; k < 16; k++) { m = await page.evaluate(inPage.motion, 20); if (m.asleep.every(Boolean) && m.move.every((v) => v === 0)) return; await page.waitForTimeout(500); }
+    for (let k = 0; k < 24; k++) { m = await page.evaluate(inPage.motion, 20); if (m.asleep.every(Boolean) && m.move.every((v) => v === 0)) return; await page.waitForTimeout(500); }
     throw new Error(`${label}: cords not still: move ${JSON.stringify(m.move)} asleep ${JSON.stringify(m.asleep)}`);
   };
   return { page, ctx, glide, state, still, close: () => ctx.close() };
@@ -111,6 +111,18 @@ const scenarios = {
     ok((await t.state()).drag === "a", "grab by the plug body did not attach");
     await t.glide(body[0], body[1], a[0] - 8, a[1] + 8, 50); await t.page.mouse.up(); await t.page.waitForTimeout(1200);
     s = await t.state(); ok(!s.cables[i].looseA && s.cables[i].a.join() === a.join(), `did not seat back in ${a}: ${JSON.stringify(s.cables[i].a)}`);
+  }],
+
+  // Jango's recording: reseat a plug one hole over, let go — the slack loop hangs to the shelf; no jitter after release, still within 3s
+  "release settles without jitter (585591263)": [HI, 585591263, async (t) => {
+    const path = [[899,184],[898,184],[895,184],[893,184],[890,184],[887,184],[884,184],[882,184],[880,184],[878,184],[876,185],[874,185],[871,186],[867,186],[865,187],[863,187],[861,188],[859,188],[857,189],[855,189],[853,189],[851,190],[849,190],[847,190],[844,190],[838,190],[830,187],[820,184],[813,181],[807,180],[803,179],[799,178],[795,178],[792,177],[790,177]];
+    await t.page.mouse.move(899.5, 184.3); await t.page.mouse.down(); await t.page.waitForTimeout(50);
+    ok((await t.state()).drag === "b", "did not grab the plug at (900,180)");
+    for (const [x, y] of path) { await t.page.mouse.move(x, y); await t.page.waitForTimeout(16); }
+    await t.page.waitForTimeout(500); await t.page.mouse.up(); await t.page.waitForTimeout(3000);
+    const m = await t.page.evaluate(inPage.motion, 30);
+    ok(m.move.every((v) => v < 0.5), `still moving 3s after release: ${JSON.stringify(m.move)}`);
+    const s = await t.state(); ok(s.cables[0].b.join() === "780,180", `did not seat at (780,180): ${JSON.stringify(s.cables[0].b)}`);
   }],
 
   // a hole another cord lies across is not open

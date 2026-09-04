@@ -100,7 +100,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
 
   function ropeInit(c) {
-    c.pts = []; c.prev = []; c.onPost = new Uint8Array(N);
+    c.pts = []; c.prev = []; c.onPost = new Uint8Array(N); c.stuck = new Uint8Array(N);
     for (let i = 0; i < N; i++) {
       const k = i / (N - 1);
       const x = c.a.x + (c.b.x - c.a.x) * k;
@@ -189,7 +189,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
-      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b"), freeA: !!c.looseA, freeB: !!c.looseB, onPost: c.onPost, frozen: !!c.asleep };
+      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b"), freeA: !!c.looseA, freeB: !!c.looseB, onPost: c.onPost, frozen: !!c.asleep, pinned: c.stuck };
   }
   function heldEnd(c, name) {
     return (drag && drag.cable === c && drag.end === name) || (c.move < 1 && (name === "a" ? c.a !== c.na : c.b !== c.nb));
@@ -230,7 +230,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       } else o[key] = Math.max(0, (o[key] || 0) - 2);
     } });
   }
-  function wake(c) { c.asleep = false; c.stillFrames = 0; }
+  function wake(c) { c.asleep = false; c.stillFrames = 0; c.stuck.fill(0); }
   function unplug(c, name) {
     wake(c);
     const i = name === "a" ? 0 : N - 1;
@@ -258,9 +258,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     // pin ends: seated plugs sit at their jack (z 0), the held plug rides the hand
     const pin = (f = 1) => {
       // The bottom of the board is a solid shelf: no cord goes through it,
-      // and what lands on it stops dead. Friction is the sleep rule: a cord
-      // that has settled freezes and keeps the curl it landed with. (Pinning
-      // floor points sideways made a limit cycle somewhere in every variant.)
+      // and what lands on it stops dead. Shelf friction is `stuck` (below):
+      // a point that has all but stopped on the shelf becomes a pinned point
+      // in every solver pass, so nothing fights it. (Snapping shelf points
+      // back after the solve — per frame, per substep, with hysteresis —
+      // always made a limit cycle or fed a swing that grew.)
       for (const c of cables) for (let i = 0; i < N; i++) {
         const loose = (i === 0 && c.looseA) || (i === N - 1 && c.looseB);
         const floor = h - (loose ? JR : c.r);
@@ -343,24 +345,33 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       yieldHand();
     }
     tug();
-    // still enough for long enough → sleep; the dragged cord never does
+    // Sleep: nothing moving more than a couple of px a frame for 30 frames,
+    // AND nowhere it was not 30 frames ago. A shimmer — the solver's rules
+    // trading a pixel back and forth — has next to no net travel and is put
+    // to sleep; a swing carries the cord tens of px in 30 frames and is left
+    // to run down. The dragged cord never sleeps.
     for (const c of cables) {
       const last = c.lastPts || (c.lastPts = new Float64Array(2 * N));
-      let moved = 0;
-      for (let i = 0; i < N; i++) {
-        const p = c.pts[i];
-        // Floor friction against creep: a folded cord on the shelf slid along
-        // it a few px a frame under its own stiffness, for ever. With no hand
-        // on the board, a shelf point keeps only a tenth of a frame's slide,
-        // so the creep falls under the sleep threshold and the cord freezes.
-        // (Pinning shelf points outright made a limit cycle every time.)
-        const loose = (i === 0 && c.looseA) || (i === N - 1 && c.looseB);
-        if (!drag && !c.asleep && p.y >= h - (loose ? JR : c.r) - 0.5 && last[2 * i]) { p.x = last[2 * i] + (p.x - last[2 * i]) * 0.1; c.prev[i].x = p.x; }
-        moved = Math.max(moved, Math.abs(p.x - last[2 * i]), Math.abs(p.y - last[2 * i + 1])); last[2 * i] = p.x; last[2 * i + 1] = p.y;
-      }
+      const ago = c.agoPts || (c.agoPts = new Float64Array(2 * N).fill(NaN));
+      let moved = 0, net = 0;
       const busy = drag && drag.cable === c;
-      c.stillFrames = moved < 1.2 * dpr && !busy ? (c.stillFrames || 0) + 1 : 0;
-      if (c.stillFrames >= 30 && !c.asleep) { c.asleep = true; for (let i = 0; i < N; i++) { c.prev[i].x = c.pts[i].x; c.prev[i].y = c.pts[i].y; c.prev[i].z = c.pts[i].z; } }
+      for (let i = 0; i < N; i++) {
+        const p = c.pts[i], m = Math.max(Math.abs(p.x - last[2 * i]), Math.abs(p.y - last[2 * i + 1]));
+        // Shelf friction: a point on the shelf that has all but stopped is
+        // held there (a pinned point in every pass) until its cord is grabbed
+        // or a neighbouring stretch is pulled hard enough to mean a real pull.
+        const loose = (i === 0 && c.looseA) || (i === N - 1 && c.looseB);
+        const onShelf = p.y >= h - (loose ? JR : c.r) - 0.5;
+        const pulled = (k) => k >= 0 && k < N - 1 && Math.hypot(c.pts[k + 1].x - c.pts[k].x, c.pts[k + 1].y - c.pts[k].y, c.pts[k + 1].z - c.pts[k].z) > 1.15 * c.rest;
+        if (busy || !onShelf || pulled(i - 1) || pulled(i)) c.stuck[i] = 0;
+        else if (m < 1.5 * dpr) { c.stuck[i] = 1; c.prev[i].x = p.x; c.prev[i].y = p.y; c.prev[i].z = p.z; }
+        moved = Math.max(moved, m); net = Math.max(net, Math.abs(p.x - ago[2 * i]), Math.abs(p.y - ago[2 * i + 1])); last[2 * i] = p.x; last[2 * i + 1] = p.y;
+      }
+      c.stillFrames = moved < 2.5 * dpr && !busy ? (c.stillFrames || 0) + 1 : 0;
+      if (c.stillFrames % 30 === 0) {
+        if (c.stillFrames >= 30 && net < 1.5 * dpr && !c.asleep) { c.asleep = true; for (let i = 0; i < N; i++) { c.prev[i].x = c.pts[i].x; c.prev[i].y = c.pts[i].y; c.prev[i].z = c.pts[i].z; } }
+        for (let i = 0; i < N; i++) { ago[2 * i] = c.pts[i].x; ago[2 * i + 1] = c.pts[i].y; }
+      }
     }
     for (const c of cables) if (c.move < 1) {
       c.move = Math.min(1, c.move + (c.moveSpeed || 0.05));

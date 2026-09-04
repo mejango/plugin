@@ -25,6 +25,7 @@ export type Rope3 = {
   freeB?: boolean;
   onPost?: Uint8Array;       // per point: resting on top of a seated plug (set here, cleared by the caller when it leaves)
   frozen?: boolean;          // asleep: a static obstacle in contact, never a mover
+  pinned?: Uint8Array;       // per point: held still by the board (shelf friction); no pass moves it
 };
 
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -61,6 +62,7 @@ export function segClosest3(p0: P3, p1: P3, q0: P3, q1: P3) {
 export function integrate3(r: Rope3, gy: number, gz: number, damp: number) {
   const n = r.pts.length;
   for (let i = r.freeA ? 0 : 1; i < (r.freeB ? n : n - 1); i++) {
+    if (r.pinned?.[i]) continue;
     const p = r.pts[i], q = r.prev[i];
     const vx = (p.x - q.x) * damp;
     const vy = (p.y - q.y) * damp + gy;
@@ -87,7 +89,7 @@ export function constrainLength3(r: Rope3, iters: number) {
       const p = r.pts[i], q = r.pts[i + 1];
       const dx = q.x - p.x, dy = q.y - p.y, dz = q.z - p.z;
       const dl = Math.hypot(dx, dy, dz) || 1e-6;
-      const pFree = i > 0 || !!r.freeA, qFree = i + 1 < n - 1 || !!r.freeB;
+      const pFree = (i > 0 || !!r.freeA) && !r.pinned?.[i], qFree = (i + 1 < n - 1 || !!r.freeB) && !r.pinned?.[i + 1];
       const diff = (dl - r.rest) / dl / (pFree && qFree ? 2 : 1);
       const ox = dx * diff, oy = dy * diff, oz = dz * diff;
       if (pFree) { p.x += ox; p.y += oy; p.z += oz; }
@@ -124,6 +126,7 @@ export function bend3(r: Rope3, k: number) {
     dx[i] = cx; dy[i] = cy; dz[i] = cz;
   }
   for (let i = 1; i < n - 1; i++) {
+    if (r.pinned?.[i]) continue;
     const p = r.pts[i], q = r.prev[i];
     p.x += dx[i]; p.y += dy[i]; p.z += dz[i];
     q.x += dx[i]; q.y += dy[i]; q.z += dz[i];
@@ -151,7 +154,7 @@ export function unkink3(r: Rope3, minDeg: number, relax: number) {
     const target = Math.acos(Math.max(-1, Math.min(1, minCos)));
     const cur = Math.acos(Math.max(-1, Math.min(1, cos)));
     const sgn = ax * by - ay * bx >= 0 ? 1 : -1;
-    const mFree = i - 1 > 0, pFree = i + 1 < n - 1;
+    const mFree = i - 1 > 0 && !r.pinned?.[i - 1], pFree = i + 1 < n - 1 && !r.pinned?.[i + 1];
     const each = ((target - cur) * relax) / (mFree && pFree ? 2 : 1);
     const swing = (q: P3, prev: P3, ang: number) => {
       const ca = Math.cos(ang), sa = Math.sin(ang);
@@ -258,7 +261,7 @@ export function collide3(ropes: Rope3[], iters: number, order?: CrossOrder): boo
             const shove = (R: Rope3, k: number, t: number, sign: number, push: number) => {
               if (lifted(R, k) || R.frozen) return;
               const n = R.pts.length;
-              const g0 = k > 0 ? 1 - t : 0, g1 = k + 1 < n - 1 ? t : 0;
+              const g0 = k > 0 && !R.pinned?.[k] ? 1 - t : 0, g1 = k + 1 < n - 1 && !R.pinned?.[k + 1] ? t : 0;
               const spread = g0 * g0 + g1 * g1;
               if (spread < 1e-6) return;
               const m = (push * sign) / spread;
@@ -356,7 +359,7 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
       const along = c.dx * pnx + c.dy * pny;
       mx = pnx * (side * R - along); my = pny * (side * R - along);
     }
-    const g0 = (i > 0 || rope.freeA) ? 1 - c.t : 0, g1 = (i + 1 < n - 1 || rope.freeB) ? c.t : 0;
+    const g0 = (i > 0 || rope.freeA) && !rope.pinned?.[i] ? 1 - c.t : 0, g1 = (i + 1 < n - 1 || rope.freeB) && !rope.pinned?.[i + 1] ? c.t : 0;
     const spread = g0 * g0 + g1 * g1;
     if (spread < 1e-6) continue;
     // Friction. Frictionless, a hooked cord slides round any round post to
