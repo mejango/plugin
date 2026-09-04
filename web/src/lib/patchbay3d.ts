@@ -364,7 +364,10 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
     const turn = Math.min(i > 0 ? bendAt(rope.pts[i - 1], p, q) : 1, i + 2 < n ? bendAt(p, q, rope.pts[i + 2]) : 1);
     // > ~18° round it: hooked. A wrap spreads over two or three segments, so
     // no single point turns much; at 30° a 45° wrap slid off by luck of timing.
-    const stick = turn < 0.95 ? 1 : Math.min(1, (R - c.d) / (0.25 * R));
+    // No friction against a rope's OWN plug (skipFrom >= 0): a cord doubling
+    // back beside its barrel held its tangent to a `prev` the bend pass kept
+    // moving, and the two settled into a steady 5px shimmer.
+    const stick = skipFrom >= 0 ? 0 : turn < 0.95 ? 1 : Math.min(1, (R - c.d) / (0.25 * R));
     const hold = (v: P3, w: P3, g: number) => {
       v.x += mx * g / spread; v.y += my * g / spread;
       const slid = (v.x - w.x) * tx + (v.y - w.y) * ty;
