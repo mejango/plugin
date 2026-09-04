@@ -6,7 +6,7 @@
 
 import { bend3, collide3, constrainLength3, integrate3, offPost3, unkink3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "bare-v3";
+export const PATCHBAY3D_VERSION = "bare-v4";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -14,7 +14,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   const N = 30;   // enough segments that a dragged cord curls instead of kinking
   let w, h, dpr, jacks = [], cables = [], panel, JR = 0, rafId = 0;
   const mouse = { x: -1e9, y: -1e9 };
-  let drag = null;                    // { cable, end: "a"|"b" }
+  let drag = null;                    // { cable, end: "a"|"b", home }
+  const crossOrder = new Map();       // who is over whom, per crossing pair, while they cross
   const rec = { seed: 0, w: innerWidth, h: innerHeight, dpr: 0, frames: [], events: [] };
 
   // window.__patchbaySeed pins the deal, so a board can be reproduced exactly
@@ -130,7 +131,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // Gravity and damping only: a hanging cord swings like a pendulum and settles
   // like one. STIFF is the cord's resistance to bending, LEN the iterations that
   // hold its length — a cord's length is the one thing that must never give.
-  const G = 2.5, GZ = 0.06, DAMP = 0.975, LIFT_Z = 26;
+  // GZ is how hard a lifted cord wants the board back: at 0.06 a hand at LIFT_Z
+  // held most of the cord in the air and it floated over plugs and cords it
+  // should have been dragging across; at 0.5 it is back on the board a few
+  // segments from the hand.
+  const G = 2.5, GZ = 0.5, DAMP = 0.975, LIFT_Z = 26;
   const STIFF = 0.34, LEN = 24, SUB = 8, MIN_BEND = 72, UNKINK = 0.35;
   // A hand moves at a hand's speed. Without this a flick asks the plug to cross
   // most of the cord's length in one frame, and no solver can absorb that while
@@ -140,22 +145,59 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
-      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b") };
+      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b"), freeA: !!c.looseA, freeB: !!c.looseB };
   }
   function heldEnd(c, name) {
     return (drag && drag.cable === c && drag.end === name) || (c.move < 1 && (name === "a" ? c.a !== c.na : c.b !== c.nb));
   }
 
+  // A cord cannot be stretched. If the hand asks for more cord than there is —
+  // the cord is caught on something between it and the far end — the plug
+  // stops short of the cursor, taut, by however much is missing.
+  function arc(c) { let a = 0; for (let i = 0; i < N - 1; i++) a += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y, c.pts[i + 1].z - c.pts[i].z); return a; }
+  function yieldHand() {
+    if (!drag) return;
+    const c = drag.cable, i = drag.end === "a" ? 0 : N - 1, j = drag.end === "a" ? 1 : N - 2;
+    const excess = arc(c) - c.len;
+    if (excess <= 0) return;
+    const p = c.pts[i], q = c.pts[j], d = Math.hypot(p.x - q.x, p.y - q.y) || 1e-6;
+    const back = Math.min(excess, d);
+    p.x -= ((p.x - q.x) / d) * back; p.y -= ((p.y - q.y) / d) * back;
+  }
+  // The strain of a caught cord goes into whatever it is caught on. When the
+  // hand cannot reach the cursor and the dragged cord is pressed against a
+  // seated plug's post, that plug is being tugged; enough of it and it gives.
+  const TUG_GAP = () => 20 * dpr, TUG_FRAMES = 25;
+  function tug() {
+    const strained = new Set();
+    if (drag) {
+      const c = drag.cable, p = c.pts[drag.end === "a" ? 0 : N - 1];
+      const far = c.pts[drag.end === "a" ? N - 1 : 0];
+      const maxR = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
+      const short = Math.hypot(mouse.x - p.x, mouse.y - p.y) > TUG_GAP();
+      const straight = Math.hypot(mouse.x - far.x, mouse.y - far.y) >= maxR;   // simply out of cord: nothing to tug
+      if (short && !straight) for (const post of c.pressing || []) if (post.c !== c) strained.add(cables.indexOf(post.c) + post.name);
+    }
+    cables.forEach((o, oi) => { for (const name of ["a", "b"]) {
+      const key = "tug" + name;
+      if (strained.has(oi + name)) {
+        o[key] = (o[key] || 0) + 1;
+        if (o[key] >= TUG_FRAMES) { unplug(o, name); o[key] = 0; }
+      } else o[key] = Math.max(0, (o[key] || 0) - 2);
+    } });
+  }
+  function unplug(c, name) {
+    const i = name === "a" ? 0 : N - 1;
+    const p = c.pts[i], point = { x: p.x, y: p.y };
+    if (name === "a") { c.a = c.na = point; c.looseA = true; } else { c.b = c.nb = point; c.looseB = true; }
+    c.prev[i].x = p.x; c.prev[i].y = p.y; c.prev[i].z = p.z;   // a pinned end has no history; without this it launches
+  }
+
   function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
 
   function step() {
-    // aim the held plug at the mouse, or animate a seating plug home
-    let held = null;
-    if (drag) held = { c: drag.cable, name: drag.end, to: { x: mouse.x, y: mouse.y, z: LIFT_Z } };
-
-    const ropes = cables.map(ropeView);
     for (const c of cables) {
-      integrate3({ pts: c.pts, prev: c.prev, r: c.r, rest: c.rest, heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b") }, G * dpr, GZ, DAMP);
+      integrate3(ropeView(c), G * dpr, GZ, DAMP);
     }
     // Where each held plug starts this frame, so it can be walked to the mouse
     // across the substeps. A hand that teleports a hundred pixels in one frame
@@ -186,6 +228,10 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             if (sd > MAX_STEP) { mx = fr.x + (sx / sd) * MAX_STEP; my = fr.y + (sy / sd) * MAX_STEP; }
             const p = c.pts[idx];
             p.x = fr.x + (mx - fr.x) * f; p.y = fr.y + (my - fr.y) * f; p.z = LIFT_Z;
+          } else if (c[name === "a" ? "looseA" : "looseB"]) {
+            // loose: it lies where it fell — on the board, which has edges
+            const p = c.pts[idx];
+            p.x = Math.max(JR, Math.min(w - JR, p.x)); p.y = Math.max(JR, Math.min(h - JR, p.y));
           } else if (c.move < 1) {
             const k = ease(c.move);
             const from = name === "a" ? c.a : c.b, to = name === "a" ? c.na : c.nb;
@@ -197,25 +243,34 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         }
       }
     };
-    // Each substep: bend, then length, then the cord against ITSELF (so a
-    // dragged cord curls over its own body), and the length again last — the
-    // length is the constraint that must hold, so it gets the final word.
+    // Each substep: bend, then length, then contact, then a light length pass.
     for (let s = 1; s <= SUB; s++) {
       const f = s / SUB;
       for (const c of cables) {
         const v = ropeView(c);
         bend3(v, STIFF);
         unkink3(v, MIN_BEND, UNKINK);
-        constrainLength3(v, LEN);
       }
+      // The length solve in slices, posts between them: a strained cord's
+      // solve cuts straight through a post if it runs to completion first,
+      // and once a stretch is deep inside a rounded post end there is no
+      // telling which side it came from. A few px at a time, there is.
+      for (let k = 0; k < LEN / 6; k++) {
+        for (const c of cables) constrainLength3(ropeView(c), 6);
+        pin(f);
+        for (const c of cables) offPosts(c);
+      }
+      // cord against cord (over/under, and a cord against itself), a light
+      // length pass for the few px of stretch it leaves, then the posts have
+      // the last word: a caught cord stays caught
+      collide3(cables.map(ropeView), 2, crossOrder);
       pin(f);
-      for (const r of ropes) collide3([r], 2);
+      for (const c of cables) constrainLength3(ropeView(c), 4);
       pin(f);
       for (const c of cables) offPosts(c);
-      pin(f);
-      for (const c of cables) constrainLength3(ropeView(c), LEN);
-      pin(f);
+      yieldHand();
     }
+    tug();
     for (const c of cables) if (c.move < 1) {
       c.move = Math.min(1, c.move + (c.moveSpeed || 0.05));
       if (c.move >= 1) { c.a = c.na; c.b = c.nb; }   // the seat is done: the plug lives in the hole now
@@ -232,22 +287,28 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     for (const c of cables) {
       if (c.move < 1 || (drag && drag.cable === c)) continue;
       for (const [name, i0, i1] of [["a", 0, 2], ["b", N - 1, N - 3]]) {
+        if (c[name === "a" ? "looseA" : "looseB"]) continue;
         const p0 = c.pts[i0], p1 = c.pts[i1];
-        const l = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
-        out.push({ c, name, x0: p0.x, y0: p0.y, x1: p0.x + ((p1.x - p0.x) / l) * BARREL(), y1: p0.y + ((p1.y - p0.y) / l) * BARREL(), r: c.width * 1.2 });
+        const l = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1, ux = (p1.x - p0.x) / l, uy = (p1.y - p0.y) / l;
+        // the post reaches back past the jack: the plug's cap sits in the
+        // socket's nut, and a cord cannot slip round that end either
+        out.push({ c, name, x0: p0.x - ux * JR, y0: p0.y - uy * JR, x1: p0.x + ux * BARREL(), y1: p0.y + uy * BARREL(), r: c.width * 1.2 });
       }
     }
     return out;
   }
   function offPosts(c) {
     const v = ropeView(c);
+    c.pressing = [];
     for (const post of posts()) {
       // its own cord's first stretch IS the barrel: skip what would lie inside
       // the capsule when the cord runs straight out of it
       const skip = post.c === c ? Math.ceil((BARREL() + post.r + c.r) / c.rest) : -1;
-      if (skip < 0) offPost3(v, post, POST_H);
-      else if (post.name === "a") offPost3(v, post, POST_H, 0, skip);
-      else offPost3(v, post, POST_H, N - 1 - skip, N - 1);
+      let moved;
+      if (skip < 0) moved = offPost3(v, post, POST_H);
+      else if (post.name === "a") moved = offPost3(v, post, POST_H, 0, skip);
+      else moved = offPost3(v, post, POST_H, N - 1 - skip, N - 1);
+      if (moved) c.pressing.push(post);
     }
   }
   const SNAP = () => 56 * dpr;
@@ -427,7 +488,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   function liftEnd(c, end) {
     const i = end === "a" ? 0 : N - 1;
     const point = { x: c.pts[i].x, y: c.pts[i].y };
-    if (end === "a") { c.a = c.na = point; } else { c.b = c.nb = point; }
+    if (end === "a") { c.a = c.na = point; c.looseA = false; } else { c.b = c.nb = point; c.looseB = false; }
     c.move = 1;
   }
   function trySeat() {
@@ -435,8 +496,14 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     // nothing in range: it goes back to the hole it came from, so a plug is
     // never left floating in the middle of the board
     const best = socketNear(c, end, p.x, p.y)?.j || drag.home;
-    // the seat starts where the plug is now, not where it was picked up
     const here = { x: p.x, y: p.y };
+    if (!best) {
+      // an unplugged end let go clear of any hole drops where it is
+      if (end === "a") { c.a = c.na = here; c.looseA = true; } else { c.b = c.nb = here; c.looseB = true; }
+      c.prev[end === "a" ? 0 : N - 1] = { x: p.x, y: p.y, z: p.z };
+      drag = null; canvas.style.cursor = "default"; return;
+    }
+    // the seat starts where the plug is now, not where it was picked up
     if (end === "a") { c.a = here; c.na = best; } else { c.b = here; c.nb = best; }
     c.moveSpeed = 1 / Math.max(6, Math.min(30, Math.hypot(best.x - p.x, best.y - p.y) / (12 * dpr)));
     c.move = 0;
@@ -449,13 +516,13 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     rec.events.push([rec.frames.length, "down", e.clientX, e.clientY]);
     if (drag) { trySeat(); return; }
     const hit = plugAt(x, y); if (!hit) return;
-    const home = hit.end === "a" ? hit.cable.na : hit.cable.nb;
+    const home = hit.cable[hit.end === "a" ? "looseA" : "looseB"] ? null : hit.end === "a" ? hit.cable.na : hit.cable.nb;
     liftEnd(hit.cable, hit.end); drag = { cable: hit.cable, end: hit.end, home };
     mouse.x = x; mouse.y = y; canvas.style.cursor = "grabbing"; canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointerup", () => { rec.events.push([rec.frames.length, "up", 0, 0]); if (drag) trySeat(); });
 
-  canvas.__pb3d = () => ({ cables, jacks, dpr, N, drag, rec });
+  canvas.__pb3d = () => ({ cables, jacks, dpr, N, drag, rec, crossOrder });
   canvas.__lab = false;
   const onKey = (e) => { if (e.key === "r" || e.key === "R") navigator.clipboard?.writeText(JSON.stringify(rec)).then(() => canvas.dispatchEvent(new CustomEvent("patchbay:copied"))); };
   window.addEventListener("keydown", onKey);

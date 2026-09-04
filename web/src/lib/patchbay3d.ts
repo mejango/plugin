@@ -21,6 +21,8 @@ export type Rope3 = {
   rest: number;              // segment rest length
   heldA: boolean;            // end a (pts[0]) is in a hand / flying — lifted, in the air
   heldB: boolean;            // end b likewise
+  freeA?: boolean;           // end a is loose: unplugged, lying on the board, nothing holds it
+  freeB?: boolean;
 };
 
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -56,7 +58,7 @@ export function segClosest3(p0: P3, p1: P3, q0: P3, q1: P3) {
  * onto the board (toward z = 0). Pinned/held ends are integrated by the caller. */
 export function integrate3(r: Rope3, gy: number, gz: number, damp: number) {
   const n = r.pts.length;
-  for (let i = 1; i < n - 1; i++) {
+  for (let i = r.freeA ? 0 : 1; i < (r.freeB ? n : n - 1); i++) {
     const p = r.pts[i], q = r.prev[i];
     const vx = (p.x - q.x) * damp;
     const vy = (p.y - q.y) * damp + gy;
@@ -79,7 +81,7 @@ export function constrainLength3(r: Rope3, iters: number) {
       const p = r.pts[i], q = r.pts[i + 1];
       const dx = q.x - p.x, dy = q.y - p.y, dz = q.z - p.z;
       const dl = Math.hypot(dx, dy, dz) || 1e-6;
-      const pFree = i > 0, qFree = i + 1 < n - 1;
+      const pFree = i > 0 || !!r.freeA, qFree = i + 1 < n - 1 || !!r.freeB;
       const diff = (dl - r.rest) / dl / (pFree && qFree ? 2 : 1);
       const ox = dx * diff, oy = dy * diff, oz = dz * diff;
       if (pFree) { p.x += ox; p.y += oy; p.z += oz; }
@@ -175,8 +177,25 @@ export function lifted(r: Rope3, i: number) {
  * flag. A carried (lifted) stretch is skipped as the mover — it is above the
  * board and passes over — but it still shoves what is beneath it.
  */
-export function collide3(ropes: Rope3[], iters: number): boolean[] {
+function crossXY(p0: P3, p1: P3, q0: P3, q1: P3): boolean {
+  const ux = p1.x - p0.x, uy = p1.y - p0.y, vx = q1.x - q0.x, vy = q1.y - q0.y;
+  const den = ux * vy - uy * vx;
+  if (Math.abs(den) < 1e-12) return false;
+  const wx = q0.x - p0.x, wy = q0.y - p0.y;
+  const t = (wx * vy - wy * vx) / den, u = (wx * uy - wy * ux) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+
+/** Which of a crossing pair is on top, remembered for as long as they cross:
+ * one cord cannot pass through the other, so the order can only change once
+ * they have come apart and crossed again. Keyed "a:b" by rope index, +1 for a
+ * over b. ponytail: one order per PAIR, so a cord weaving over then under the
+ * same cord shares it; key by crossing if weaving matters. */
+export type CrossOrder = Map<string, 1 | -1>;
+
+export function collide3(ropes: Rope3[], iters: number, order?: CrossOrder): boolean[] {
   const moved = ropes.map(() => false);
+  const seen = new Set<string>();
   for (let it = 0; it < iters; it++) {
     for (let a = 0; a < ropes.length; a++) {
       for (let b = a; b < ropes.length; b++) {
@@ -188,18 +207,39 @@ export function collide3(ropes: Rope3[], iters: number): boolean[] {
           for (let j = self ? i + 2 : 0; j < nb - 1; j++) {
             if (self && i === 0 && j === nb - 2) continue;   // a cord's two ends never meet
             const c = segClosest3(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1]);
-            if (c.d >= reach || c.d < 1e-6) continue;
             let nx = c.dx / c.d, ny = c.dy / c.d, nz = c.dz / c.d;
-            // two stretches lying flat and crossing separate along almost pure
-            // z with rounding for a sign: nudge them onto z so one rides over
-            // the other instead of jostling in the plane
-            if (Math.abs(nz) < 0.2) {
+            let gap = reach - c.d;
+            // Stretches that CROSS in the plane cannot be pushed apart in the
+            // plane: one lies over the other, so the contact is pure z, and
+            // whoever is over stays over. Dead level (two cords laid flat
+            // across each other) the earlier-dealt cord rides over.
+            if (!self && crossXY(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1])) {
+              const key = a + ":" + b;
+              let sign = order?.get(key);
+              if (!sign) { sign = c.dz < -1e-6 ? -1 : 1; order?.set(key, sign); }
+              seen.add(key);
+              const sep = sign * c.dz;          // how far the right one is above the other
+              if (sep >= reach) continue;
+              nx = 0; ny = 0; nz = sign; gap = reach - sep;
+            } else if (c.d >= reach || c.d < 1e-6) continue;
+            else if (Math.abs(nz) < 0.2) {
+              // a near miss lying flat: nudge onto z so one rides over the
+              // other instead of jostling in the plane
               const s = nz >= 0 ? 1 : -1;
               nz = 0.4 * s; const f = Math.hypot(nx, ny) || 1e-6;
               const k = Math.sqrt(1 - nz * nz) / f; nx *= k; ny *= k;
             }
-            const push = (reach - c.d) / 2;
-            const shove = (R: Rope3, k: number, t: number, sign: number) => {
+            // Crossing: the lower cord gives way DOWN first, as far as the
+            // board allows; only the rest lifts the upper one. An under cord
+            // whose end is picked up cannot rise through what lies over it.
+            let fA = 0.5;
+            if (Math.abs(nz) >= 0.4) {
+              const zA = A.pts[i].z + (A.pts[i + 1].z - A.pts[i].z) * c.t;
+              const zB = B.pts[j].z + (B.pts[j + 1].z - B.pts[j].z) * c.s;
+              const lowerRoom = Math.min(1, (nz > 0 ? zB : zA) / (gap * Math.abs(nz)));   // fraction the lower can take
+              fA = nz > 0 ? 1 - lowerRoom : lowerRoom;
+            }
+            const shove = (R: Rope3, k: number, t: number, sign: number, push: number) => {
               if (lifted(R, k)) return;
               const n = R.pts.length;
               const g0 = k > 0 ? 1 - t : 0, g1 = k + 1 < n - 1 ? t : 0;
@@ -210,13 +250,14 @@ export function collide3(ropes: Rope3[], iters: number): boolean[] {
               if (g0) { p0.x += nx * m * g0; p0.y += ny * m * g0; p0.z += nz * m * g0; if (p0.z < 0) p0.z = 0; r0.x += nx * m * g0; r0.y += ny * m * g0; r0.z += nz * m * g0; }
               if (g1) { p1.x += nx * m * g1; p1.y += ny * m * g1; p1.z += nz * m * g1; if (p1.z < 0) p1.z = 0; r1.x += nx * m * g1; r1.y += ny * m * g1; r1.z += nz * m * g1; }
             };
-            shove(A, i, c.t, 1); shove(B, j, c.s, -1);
+            shove(A, i, c.t, 1, gap * fA); shove(B, j, c.s, -1, gap * (1 - fA));
             moved[a] = true; moved[b] = true;
           }
         }
       }
     }
   }
+  if (order) for (const k of order.keys()) if (!seen.has(k)) order.delete(k);
   return moved;
 }
 
@@ -237,25 +278,60 @@ export type Post = { x0: number; y0: number; x1: number; y1: number; r: number }
 
 /**
  * A seated plug is a post standing off the board: a capsule x0,y0 -> x1,y1 of
- * radius r. Every point of the rope below maxZ, other than indices in
- * [skipFrom, skipTo], is pushed out of it to the nearest side. Returns how
- * many points moved.
+ * radius r. Every SEGMENT of the rope below maxZ, other than those wholly
+ * inside [skipFrom, skipTo], is pushed out of it — to the side it CAME from
+ * (its `prev`), not the nearer side: a taut cord's length solve drags it
+ * straight back through the post every substep, and the nearer side flips
+ * once it is past the axis. Segments, not points, because a cord's points
+ * straddle a rounded post end and the stretch between them cuts the corner.
+ * Returns how many segments moved.
  */
 export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, skipTo = -1): number {
-  const R = post.r + rope.r, dx = post.x1 - post.x0, dy = post.y1 - post.y0, ll = dx * dx + dy * dy || 1;
+  const R = post.r + rope.r, n = rope.pts.length;
+  const a0 = { x: post.x0, y: post.y0, z: 0 }, a1 = { x: post.x1, y: post.y1, z: 0 };
+  const al = Math.hypot(a1.x - a0.x, a1.y - a0.y) || 1;
+  const pnx = -(a1.y - a0.y) / al, pny = (a1.x - a0.x) / al;   // across the post
   let moved = 0;
-  for (let i = 0; i < rope.pts.length; i++) {
-    if (i >= skipFrom && i <= skipTo) continue;
-    const p = rope.pts[i];
-    if (p.z > maxZ) continue;
-    const t = clamp01(((p.x - post.x0) * dx + (p.y - post.y0) * dy) / ll);
-    const cx = post.x0 + dx * t, cy = post.y0 + dy * t;
-    let nx = p.x - cx, ny = p.y - cy, d = Math.hypot(nx, ny);
-    if (d >= R) continue;
-    // ponytail: nearest-side pushout; the engine's 8px substep keeps it honest.
-    // Swept test against prev if a flick ever tunnels a post.
-    if (d < 1e-6) { nx = -dy; ny = dx; d = Math.sqrt(ll); }
-    p.x = cx + (nx / d) * R; p.y = cy + (ny / d) * R;
+  for (let i = 0; i < n - 1; i++) {
+    if (i >= skipFrom && i + 1 <= skipTo) continue;
+    const p = rope.pts[i], q = rope.pts[i + 1];
+    if (Math.min(p.z, q.z) > maxZ) continue;
+    const c = segClosest3({ x: p.x, y: p.y, z: 0 }, { x: q.x, y: q.y, z: 0 }, a0, a1);   // dx,dy: post point -> rope point
+    if (c.d >= R) continue;
+    const cx = p.x + (q.x - p.x) * c.t - c.dx, cy = p.y + (q.y - p.y) * c.t - c.dy;    // the post point
+    const pp = rope.prev[i], pq = rope.prev[i + 1];
+    const wasX = pp.x + (pq.x - pp.x) * c.t - cx, wasY = pp.y + (pq.y - pp.y) * c.t - cy;
+    const side = Math.sign(wasX * pnx + wasY * pny) || Math.sign(c.dx * pnx + c.dy * pny) || 1;
+    let mx, my;
+    const onBarrel = c.s > 1e-6 && c.s < 1 - 1e-6;   // the round ends have no sides
+    if (c.d > 1e-6 && (!onBarrel || Math.sign(c.dx * pnx + c.dy * pny) === side)) {
+      mx = (c.dx / c.d) * (R - c.d); my = (c.dy / c.d) * (R - c.d);      // still on its side: straight out
+    } else {
+      // it has crossed the axis: back through to its own side
+      const along = c.dx * pnx + c.dy * pny;
+      mx = pnx * (side * R - along); my = pny * (side * R - along);
+    }
+    const g0 = (i > 0 || rope.freeA) ? 1 - c.t : 0, g1 = (i + 1 < n - 1 || rope.freeB) ? c.t : 0;
+    const spread = g0 * g0 + g1 * g1;
+    if (spread < 1e-6) continue;
+    // Friction. Frictionless, a hooked cord slides round any round post to
+    // its straight line. A cord that BENDS round the post (capstan: the wrap
+    // angle is what holds) does not slide at all; one merely pressed against
+    // it holds by how hard it presses — how far the solve sank it this pass.
+    const ml = Math.hypot(mx, my) || 1, tx = -my / ml, ty = mx / ml;
+    const bendAt = (a: P3, b: P3, d: P3) => {   // cos of the turn at b, from a to d
+      const ux = b.x - a.x, uy = b.y - a.y, vx = d.x - b.x, vy = d.y - b.y;
+      return (ux * vx + uy * vy) / ((Math.hypot(ux, uy) || 1) * (Math.hypot(vx, vy) || 1));
+    };
+    const turn = Math.min(i > 0 ? bendAt(rope.pts[i - 1], p, q) : 1, i + 2 < n ? bendAt(p, q, rope.pts[i + 2]) : 1);
+    const stick = turn < 0.87 ? 1 : Math.min(1, (R - c.d) / (0.25 * R));   // > ~30° round it: hooked
+    const hold = (v: P3, w: P3, g: number) => {
+      v.x += mx * g / spread; v.y += my * g / spread;
+      const slid = (v.x - w.x) * tx + (v.y - w.y) * ty;
+      v.x -= tx * slid * stick; v.y -= ty * slid * stick;
+    };
+    if (g0) hold(p, pp, g0);
+    if (g1) hold(q, pq, g1);
     moved++;
   }
   return moved;
