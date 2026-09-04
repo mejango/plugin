@@ -185,11 +185,6 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // higher than a cord
   let LIFT_Z = 26, POST_H = LIFT_Z * 0.85;
   const STIFF = 0.34, LEN = 24, SUB = 8, MIN_BEND = 72, UNKINK = 0.35;
-  // A hand moves at a hand's speed. Without this a flick asks the plug to cross
-  // most of the cord's length in one frame, and no solver can absorb that while
-  // holding the length — the cord stretches for a frame. 64px a frame is 8 per
-  // substep, under a cord's own thickness.
-  const MAX_STEP = 64;
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
@@ -206,7 +201,9 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   function yieldHand() {
     if (!drag) return;
     const c = drag.cable, i = drag.end === "a" ? 0 : N - 1, j = drag.end === "a" ? 1 : N - 2;
-    const excess = arc(c) - c.len;
+    // less the solver's own residual: retreating the hand by every px of
+    // that trailed the cursor by a few px through every drag
+    const excess = arc(c) - c.len - 0.005 * c.len;
     if (excess <= 0) return;
     // The cord is taut from the hand to whatever holds it: if that is a
     // shelf point, the pull peels it off — the nearest to the hand, one a
@@ -301,17 +298,17 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             // drags that end along (the reach circle stalled the hand)
             const farLoose = c[name === "a" ? "looseB" : "looseA"];
             if (!farLoose && rd > maxR && rd > 1e-6) { mx = far.x + (rx / rd) * maxR; my = far.y + (ry / rd) * maxR; }
-            // near an open hole the plug finds it: the hand's aim is blended
-            // toward the hole, fully there at its centre, untouched at SNAP
-            const s = socketNear(c, name, mx, my);
-            if (s) { const k = 1 - s.d / SNAP(); const e = k * k * (3 - 2 * k); mx += (s.j.x - mx) * e; my += (s.j.y - my) * e; }
+            // (no magnet on the hand: blending its aim toward a hole within
+            // SNAP drew the plug 15px off the cursor every time it passed one.
+            // The ring marks the hole; the release seats it.)
             // hooked under another cord's plug, the hand stays on its side
             // of that plug's bar: fed through from the pinned end, the cord
             // went through the bar segment by segment
             [mx, my] = wallClamp(c, c.pts[idx], mx, my);
+            // The plug is in the hand: it is at the cursor at the end of every
+            // frame, however fast. A 64px-a-frame cap kept the first segment
+            // from stretching on a flick and trailed a brisk drag by 280px.
             const fr = from[name] || { x: mx, y: my };
-            const sx = mx - fr.x, sy = my - fr.y, sd = Math.hypot(sx, sy);
-            if (sd > MAX_STEP) { mx = fr.x + (sx / sd) * MAX_STEP; my = fr.y + (sy / sd) * MAX_STEP; }
             const p = c.pts[idx];
             // The lift comes with the carry, not the grab: lifted to LIFT_Z
             // the instant it was gripped, the first segments tilted into z,

@@ -193,6 +193,24 @@ const scenarios = {
     await t.page.mouse.up();
   }],
 
+  // the plug is in the hand: it is where the cursor is, every frame, however fast
+  "hand follows the cursor at speed (dpr2)": [HI, 704995189, async (t) => {
+    const s = await t.state();
+    // a loose far end so reach never limits the hand
+    const i = s.cables.map((c, i) => [c.len, i]).sort((x, y) => y[0] - x[0])[0][1]; const c = s.cables[i];
+    await t.page.mouse.move(c.a[0], c.a[1]); await t.page.mouse.down(); await t.glide(c.a[0], c.a[1], c.a[0] + 40, c.a[1] - 50, 20); await t.page.mouse.up(); await t.still("after drop");
+    ok((await t.state()).cables[i].looseA, "end a did not go loose");
+    const b = (await t.state()).cables[i].b;
+    await t.page.mouse.move(b[0], b[1]); await t.page.mouse.down();
+    await t.page.evaluate((i) => { const s = document.querySelector("canvas").__pb3d(); window.__lag = []; const f = () => { const c = s.cables[i]; const h = c.pts[s.N - 1]; const m = s.rec.frames.at(-1); window.__lag.push(Math.hypot(h.x / s.dpr - m[0], h.y / s.dpr - m[1])); const q = c.pts[s.N - 2]; window.__str = Math.max(window.__str || 0, Math.hypot(h.x - q.x, h.y - q.y, h.z - q.z) / c.rest); if (window.__lag.length < 200) requestAnimationFrame(f); }; requestAnimationFrame(f); }, i);
+    // 70 CSS px a frame: a brisk swipe
+    await t.glide(b[0], b[1], 200, 140, 12); await t.glide(200, 140, 1200, 700, 14); await t.page.waitForTimeout(300);
+    const lag = await t.page.evaluate(() => window.__lag);
+    if (process.env.PB_VERBOSE) console.log(`    lag max ${Math.max(...lag).toFixed(1)}px; first segment stretch max ${(await t.page.evaluate(() => window.__str)).toFixed(2)}× rest`);
+    ok(Math.max(...lag) < 6, `hand trails the cursor: max ${Math.max(...lag).toFixed(1)}px, per frame ${lag.map((v) => v.toFixed(0)).join(" ")}`);
+    await t.page.mouse.up();
+  }],
+
   // a hole another cord lies across is not open
   "covered hole refuses a plug": [LO, 704995189, async (t) => {
     const s = await t.state();
