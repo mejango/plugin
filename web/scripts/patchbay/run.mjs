@@ -5,7 +5,7 @@
 // this machine (the app does not depend on one).
 //   npm run test:patchbay            all scenarios
 //   npm run test:patchbay -- tug     scenarios whose name contains "tug"
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 
 const CANDIDATES = [process.env.PLAYWRIGHT_CORE, `${homedir()}/.claude/skills/gstack/node_modules/playwright-core`, "/private/tmp/jbm-local-center/node_modules/playwright-core"].filter(Boolean);
@@ -46,6 +46,26 @@ async function open(browser, opts, seed) {
   return { page, ctx, glide, state, still, close: () => ctx.close() };
 }
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
+// replay a recording (R on /lab3d) frame by frame: `frames` from `offset`, with its down/up events; `watch(f)` runs every 12th frame from `from`
+async function replay(t, rec, { from = 0, watch } = {}) {
+  const events = new Map(rec.events.map((e) => [e[0], e]));
+  const last = rec.events.at(-1)[0];
+  const out = [];
+  for (let f = rec.offset; f <= last; f++) {
+    const [x, y] = rec.frames[f - rec.offset]; if (x > -1e8) await t.page.mouse.move(x, y);
+    const ev = events.get(f); if (ev) { if (ev[1] === "down") await t.page.mouse.down(); else await t.page.mouse.up(); }
+    if (watch && f >= from && f % 12 === 0) { const r = await watch(f); if (r) out.push([f, r]); }
+    await t.page.waitForTimeout(16);
+  }
+  return out;
+}
+const REC = (seed) => JSON.parse(readFileSync(new globalThis.URL(`./rec/${seed}.json`, import.meta.url), "utf8"));
+// how deep the dragged cord sits inside the other cord's posts (CSS px; positive = inside), and the tug state
+const inPost = () => { const s = document.querySelector("canvas").__pb3d(); const d = s.drag; if (!d) return null; const c = d.cable, ci = s.cables.indexOf(c), o = s.cables[1 - ci];
+  const posts = []; for (const [name, i0, i1] of [["a", 0, 2], ["b", s.N - 1, s.N - 3]]) { if (o[name === "a" ? "looseA" : "looseB"]) continue; const p0 = o.pts[i0], p1 = o.pts[i1]; const l = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1, ux = (p1.x - p0.x) / l, uy = (p1.y - p0.y) / l; posts.push({ name, x0: p0.x - ux * 19 * s.dpr, y0: p0.y - uy * 19 * s.dpr, x1: p0.x + ux * 27 * s.dpr, y1: p0.y + uy * 27 * s.dpr, R: o.width * 1.2 + c.r }); }
+  let worst = null; for (const q of posts) { const dx = q.x1 - q.x0, dy = q.y1 - q.y0, ll = dx * dx + dy * dy || 1; c.pts.forEach((pt, i) => { const tt = Math.max(0, Math.min(1, ((pt.x - q.x0) * dx + (pt.y - q.y0) * dy) / ll)); const dd = Math.hypot(pt.x - q.x0 - dx * tt, pt.y - q.y0 - dy * tt); const depth = (q.R - dd) / s.dpr; if (!worst || depth > worst.depth) worst = { post: q.name, i, depth: +depth.toFixed(0), z: +(pt.z / s.dpr).toFixed(0) }; }); }
+  const sign = s.crossOrder.get("0:1");
+  return { ci, end: d.end, dragUnder: sign === undefined ? null : ci === 0 ? sign < 0 : sign > 0, hook: c.hookKey, pressing: (c.pressing || []).map((q) => q.name), tug: [o.tuga || 0, o.tugb || 0], loose: [!!o.looseA, !!o.looseB], worst, hand: [Math.round(c.pts[d.end === "a" ? 0 : s.N - 1].x / s.dpr), Math.round(c.pts[d.end === "a" ? 0 : s.N - 1].y / s.dpr)] }; };
 
 // ── scenarios ──────────────────────────────────────────────────────────────
 const scenarios = {
@@ -134,6 +154,19 @@ const scenarios = {
     const far = r.moved.slice(6); const worst = Math.max(...far);
     ok(worst < 6, `cord lost its shape on grab: max move away from the hand ${worst.toFixed(0)}px`);
     await t.page.mouse.up();
+  }],
+
+  // Jango's recording: an under cord pulled through the over cord's insert must tug that plug out, not tunnel through it
+  "under cord pulled through an insert pops it (1469014391)": [HI, 1469014391, async (t) => {
+    const rec = REC(1469014391);
+    const log = await replay(t, rec, { from: 631, watch: () => t.page.evaluate(inPost) });
+    await t.page.waitForTimeout(1500);
+    const s = await t.state();
+    const deepest = Math.max(...log.map(([, r]) => (r.worst && r.worst.z < 22 ? r.worst.depth : -99)));
+    const popped = s.cables.some((k) => k.looseA || k.looseB);
+    if (process.env.PB_VERBOSE) console.log(JSON.stringify(log.map(([f, r]) => [f, r.dragUnder, r.hook, r.pressing, r.tug, r.worst, r.hand])));
+    ok(deepest < 6, `dragged cord sank ${deepest}px into the other cord's post`);
+    ok(popped, "the over cord's plug did not pop");
   }],
 
   // a hole another cord lies across is not open

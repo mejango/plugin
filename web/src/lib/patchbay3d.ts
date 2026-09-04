@@ -26,6 +26,7 @@ export type Rope3 = {
   onPost?: Uint8Array;       // per point: resting on top of a seated plug (set here, cleared by the caller when it leaves)
   frozen?: boolean;          // asleep: a static obstacle in contact, never a mover
   pinned?: Uint8Array;       // per point: held still by the board (shelf friction); no pass moves it
+  frameStart?: Float64Array; // x,y pairs: where every point was when this frame began (a fixed reference; `prev` drifts with the passes)
 };
 
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -331,7 +332,11 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
     if (mode >= 0 && Math.min(p.z, q.z) > maxZ) continue;
     const c = segClosest3({ x: p.x, y: p.y, z: 0 }, { x: q.x, y: q.y, z: 0 }, a0, a1);   // dx,dy: post point -> rope point
     if (c.d >= R) continue;
-    const pp = rope.prev[i], pq = rope.prev[i + 1];
+    // "Where it came from" is the frame start, not `prev`: bend and unkink
+    // move `prev` with the point, and at a sharp hook that reference crossed
+    // the post line with it, so the push-out threw the cord to the far side.
+    const fs = rope.frameStart;
+    const pp = fs ? { x: fs[2 * i], y: fs[2 * i + 1], z: 0 } : rope.prev[i], pq = fs ? { x: fs[2 * i + 2], y: fs[2 * i + 3], z: 0 } : rope.prev[i + 1];
     // The post is a solid with a top. A stretch lying across it — a plug
     // seated under a resting cord, or a deal that laid one there — is nearer
     // the top than a side: it rides up onto the plug's back and rests there,

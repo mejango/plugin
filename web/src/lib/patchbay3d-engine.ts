@@ -193,7 +193,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
-      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b"), freeA: !!c.looseA, freeB: !!c.looseB, onPost: c.onPost, frozen: !!c.asleep, pinned: c.stuck };
+      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b"), freeA: !!c.looseA, freeB: !!c.looseB, onPost: c.onPost, frozen: !!c.asleep, pinned: c.stuck, frameStart: c.lastPts };
   }
   function heldEnd(c, name) {
     return (drag && drag.cable === c && drag.end === name) || (c.move < 1 && (name === "a" ? c.a !== c.na : c.b !== c.nb));
@@ -391,9 +391,10 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         else if (m < 1.5 * dpr && relaxed) { c.stuck[i] = 1; c.prev[i].x = p.x; c.prev[i].y = p.y; c.prev[i].z = p.z; }
         moved = Math.max(moved, m); net = Math.max(net, Math.abs(p.x - ago[2 * i]), Math.abs(p.y - ago[2 * i + 1])); last[2 * i] = p.x; last[2 * i + 1] = p.y;
       }
-      // tight on both: frozen with a vibration still in it (2.5px a frame
-      // passed, as its net travel was nil), a cord snapped when woken
-      c.stillFrames = moved < 1.0 * dpr && !busy ? (c.stillFrames || 0) + 1 : 0;
+      // A shimmer of a pixel or so with no net travel is put to sleep (a
+      // frozen one that size wakes invisibly); 2.5px a frame was too loose —
+      // a real vibration froze and snapped on waking.
+      c.stillFrames = moved < 1.5 * dpr && !busy ? (c.stillFrames || 0) + 1 : 0;
       if (c.stillFrames % 30 === 0) {
         if (c.stillFrames >= 30 && net < 1.0 * dpr && !c.asleep) { c.asleep = true; for (let i = 0; i < N; i++) { c.prev[i].x = c.pts[i].x; c.prev[i].y = c.pts[i].y; c.prev[i].z = c.pts[i].z; } }
         for (let i = 0; i < N; i++) { ago[2 * i] = c.pts[i].x; ago[2 * i + 1] = c.pts[i].y; }
@@ -470,6 +471,12 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       // rides over the plug as it rides over the cord. The cord BENEATH is
       // always caught — it cannot get above the plug of a cord it is under,
       // however high the hand holds it. Unrelated cords: geometry decides.
+      // Hooked on this plug, the cord is in contact with the plug's cord as
+      // far as over/under goes: the pair's order is pruned when the cord
+      // BODIES touch nowhere, and with it went the post's block — the under
+      // cord slipped past the plug the moment it left the other cord's body.
+      const key = cables.indexOf(post.c) + post.name;
+      if (post.c !== c && c.hookKey === key) { const i = cables.indexOf(c), j = cables.indexOf(post.c); const pk = i < j ? i + ":" + j : j + ":" + i; if (!crossOrder.has(pk)) crossOrder.set(pk, i < j ? -1 : 1); }
       const rel = post.c === c ? 0 : over(c, post.c);
       const mode = rel === true ? 1 : rel === false ? -1 : 0;
       // For a DRAGGED cord beneath, hooked on this plug, the post reaches
@@ -479,7 +486,6 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       // cord is at the real post, holds while it keeps pressing the bar,
       // and is gone the moment the cord leaves it or the hand lets go — a
       // resting cord, or one dragged elsewhere, never meets it.
-      const key = cables.indexOf(post.c) + post.name;
       let bar = post;
       if (mode < 0 && drag && drag.cable === c) {
         const long = { ...post, x0: post.jx - post.ux * 4000, y0: post.jy - post.uy * 4000 };
