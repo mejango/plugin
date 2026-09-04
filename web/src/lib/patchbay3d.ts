@@ -232,3 +232,31 @@ export function minPairGap(A: Rope3, B: Rope3): number {
     }
   return m;
 }
+
+export type Post = { x0: number; y0: number; x1: number; y1: number; r: number };
+
+/**
+ * A seated plug is a post standing off the board: a capsule x0,y0 -> x1,y1 of
+ * radius r. Every point of the rope below maxZ, other than indices in
+ * [skipFrom, skipTo], is pushed out of it to the nearest side. Returns how
+ * many points moved.
+ */
+export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, skipTo = -1): number {
+  const R = post.r + rope.r, dx = post.x1 - post.x0, dy = post.y1 - post.y0, ll = dx * dx + dy * dy || 1;
+  let moved = 0;
+  for (let i = 0; i < rope.pts.length; i++) {
+    if (i >= skipFrom && i <= skipTo) continue;
+    const p = rope.pts[i];
+    if (p.z > maxZ) continue;
+    const t = clamp01(((p.x - post.x0) * dx + (p.y - post.y0) * dy) / ll);
+    const cx = post.x0 + dx * t, cy = post.y0 + dy * t;
+    let nx = p.x - cx, ny = p.y - cy, d = Math.hypot(nx, ny);
+    if (d >= R) continue;
+    // ponytail: nearest-side pushout; the engine's 8px substep keeps it honest.
+    // Swept test against prev if a flick ever tunnels a post.
+    if (d < 1e-6) { nx = -dy; ny = dx; d = Math.sqrt(ll); }
+    p.x = cx + (nx / d) * R; p.y = cy + (ny / d) * R;
+    moved++;
+  }
+  return moved;
+}

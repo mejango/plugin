@@ -4,9 +4,9 @@
 // from the flat engine (the cord and plug look are unchanged); the physics is
 // the 3D solver in patchbay3d.ts.
 
-import { bend3, collide3, constrainLength3, integrate3, unkink3 } from "./patchbay3d";
+import { bend3, collide3, constrainLength3, integrate3, offPost3, unkink3 } from "./patchbay3d";
 
-export const PATCHBAY3D_VERSION = "bare";
+export const PATCHBAY3D_VERSION = "bare-v2";
 
 export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: number } = {}): () => void {
   const ctx = canvas.getContext("2d");
@@ -61,7 +61,18 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       pctx.beginPath(); pctx.arc(gx, gy, JR * 0.44, 0, 7); pctx.fillStyle = ink(0.55); pctx.fill();
     }
     if (!cables.length) deal(gap);
-    else for (const c of cables) reproject(c);
+    else {
+      // the grid was rebuilt: every cord's jacks are objects from the old one
+      drag = null;
+      // each end takes the nearest hole still free, so a shrink that pushes
+      // several ends off the board cannot pile them into one hole
+      const nearest = (p) => jacks.filter((j) => !jackTaken(j)).reduce((m, j) => (Math.hypot(j.x - p.x, j.y - p.y) < Math.hypot(m.x - p.x, m.y - p.y) ? j : m));
+      for (const c of cables) {
+        c.a = c.na = nearest(c.na); c.b = c.nb = nearest(c.nb); c.move = 1;
+        c.len = Math.hypot(c.b.x - c.a.x, c.b.y - c.a.y) * c.slack; c.rest = c.len / (N - 1);
+        reproject(c);
+      }
+    }
   }
 
   function jackTaken(j) { return cables.some((c) => c.a === j || c.b === j || c.na === j || c.nb === j); }
@@ -166,6 +177,10 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             let mx = mouse.x, my = mouse.y;
             const rx = mx - far.x, ry = my - far.y, rd = Math.hypot(rx, ry);
             if (rd > maxR && rd > 1e-6) { mx = far.x + (rx / rd) * maxR; my = far.y + (ry / rd) * maxR; }
+            // near an open hole the plug finds it: the hand's aim is blended
+            // toward the hole, fully there at its centre, untouched at SNAP
+            const s = socketNear(c, name, mx, my);
+            if (s) { const k = 1 - s.d / SNAP(); const e = k * k * (3 - 2 * k); mx += (s.j.x - mx) * e; my += (s.j.y - my) * e; }
             const fr = from[name] || { x: mx, y: my };
             const sx = mx - fr.x, sy = my - fr.y, sd = Math.hypot(sx, sy);
             if (sd > MAX_STEP) { mx = fr.x + (sx / sd) * MAX_STEP; my = fr.y + (sy / sd) * MAX_STEP; }
@@ -196,6 +211,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       pin(f);
       for (const r of ropes) collide3([r], 2);
       pin(f);
+      for (const c of cables) offPosts(c);
+      pin(f);
       for (const c of cables) constrainLength3(ropeView(c), LEN);
       pin(f);
     }
@@ -203,6 +220,49 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       c.move = Math.min(1, c.move + (c.moveSpeed || 0.05));
       if (c.move >= 1) { c.a = c.na; c.b = c.nb; }   // the seat is done: the plug lives in the hole now
     }
+  }
+
+  // A seated plug is a post: a capsule from the jack along the barrel, as
+  // drawn, standing off the board. No cord at board height passes through
+  // one — not another cord, not its own cord folding back over its barrel.
+  // A held or still-seating plug is in the air and is no obstacle.
+  const POST_H = LIFT_Z * 0.85, BARREL = () => 15 * dpr * 1.8;
+  function posts() {
+    const out = [];
+    for (const c of cables) {
+      if (c.move < 1 || (drag && drag.cable === c)) continue;
+      for (const [name, i0, i1] of [["a", 0, 1], ["b", N - 1, N - 2]]) {
+        const p0 = c.pts[i0], p1 = c.pts[i1];
+        const l = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
+        out.push({ c, name, x0: p0.x, y0: p0.y, x1: p0.x + ((p1.x - p0.x) / l) * BARREL(), y1: p0.y + ((p1.y - p0.y) / l) * BARREL(), r: c.width * 1.2 });
+      }
+    }
+    return out;
+  }
+  function offPosts(c) {
+    const v = ropeView(c);
+    for (const post of posts()) {
+      // its own cord's first stretch IS the barrel: skip what would lie inside
+      // the capsule when the cord runs straight out of it
+      const skip = post.c === c ? Math.ceil((BARREL() + post.r + c.r) / c.rest) : -1;
+      if (skip < 0) offPost3(v, post, POST_H);
+      else if (post.name === "a") offPost3(v, post, POST_H, 0, skip);
+      else offPost3(v, post, POST_H, N - 1 - skip, N - 1);
+    }
+  }
+  const SNAP = () => 56 * dpr;
+  // nearest open hole within SNAP of (x,y) that the cord can reach from its
+  // other end — a cord cannot be stretched to a hole
+  function socketNear(c, end, x, y) {
+    const far = c.pts[end === "a" ? N - 1 : 0];
+    const reach = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
+    let best = null, bd = SNAP();
+    for (const j of jacks) {
+      if (jackTaken(j) || Math.hypot(j.x - far.x, j.y - far.y) > reach) continue;
+      const d = Math.hypot(j.x - x, j.y - y);
+      if (d < bd) { bd = d; best = j; }
+    }
+    return best && { j: best, d: bd };
   }
 
   // ── drawing (ported from the flat engine; reads x,y only) ─────────────────
@@ -332,6 +392,14 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         drawPlug(c, e[0], e[1]);
       }
     });
+    // the hole the held plug will drop into
+    if (drag) {
+      const c = drag.cable, p = c.pts[drag.end === "a" ? 0 : N - 1], s = socketNear(c, drag.end, p.x, p.y);
+      if (s) {
+        ctx.save(); ctx.beginPath(); ctx.arc(s.j.x, s.j.y, JR * 1.2, 0, 7);
+        ctx.strokeStyle = tint(c, 1); ctx.globalAlpha = 0.35 + 0.65 * (1 - s.d / SNAP()); ctx.lineWidth = 3 * dpr; ctx.stroke(); ctx.restore();
+      }
+    }
     // frame counter for lining up recordings
     if (canvas.__lab) {
       ctx.save(); ctx.font = "600 " + 11 * dpr + "px ui-monospace, Menlo, monospace";
@@ -357,13 +425,14 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
   function trySeat() {
     const c = drag.cable, end = drag.end, p = end === "a" ? c.pts[0] : c.pts[N - 1];
-    let best = null, bd = 44 * dpr;
-    for (const j of jacks) { if (jackTaken(j)) continue; const d = Math.hypot(j.x - p.x, j.y - p.y); if (d < bd) { bd = d; best = j; } }
     // nothing in range: it goes back to the hole it came from, so a plug is
     // never left floating in the middle of the board
-    if (!best) best = end === "a" ? c.na : c.nb;
-    if (end === "a") c.na = best; else c.nb = best;
-    c.moveSpeed = 0.1; c.move = 0;
+    const best = socketNear(c, end, p.x, p.y)?.j || drag.home;
+    // the seat starts where the plug is now, not where it was picked up
+    const here = { x: p.x, y: p.y };
+    if (end === "a") { c.a = here; c.na = best; } else { c.b = here; c.nb = best; }
+    c.moveSpeed = 1 / Math.max(6, Math.min(30, Math.hypot(best.x - p.x, best.y - p.y) / (12 * dpr)));
+    c.move = 0;
     drag = null; canvas.style.cursor = "default";
   }
 
@@ -373,7 +442,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     rec.events.push([rec.frames.length, "down", e.clientX, e.clientY]);
     if (drag) { trySeat(); return; }
     const hit = plugAt(x, y); if (!hit) return;
-    liftEnd(hit.cable, hit.end); drag = { cable: hit.cable, end: hit.end };
+    const home = hit.end === "a" ? hit.cable.na : hit.cable.nb;
+    liftEnd(hit.cable, hit.end); drag = { cable: hit.cable, end: hit.end, home };
     mouse.x = x; mouse.y = y; canvas.style.cursor = "grabbing"; canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointerup", () => { rec.events.push([rec.frames.length, "up", 0, 0]); if (drag) trySeat(); });
