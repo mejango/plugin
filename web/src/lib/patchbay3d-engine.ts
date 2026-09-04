@@ -38,6 +38,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
 
   function size() {
     dpr = Math.min(devicePixelRatio || 1, 2);
+    LIFT_Z = 26 * dpr; POST_H = LIFT_Z * 0.85;
     w = canvas.width = innerWidth * dpr;
     h = canvas.height = innerHeight * dpr;
     canvas.style.width = innerWidth + "px";
@@ -90,7 +91,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   }
 
   function ropeInit(c) {
-    c.pts = []; c.prev = [];
+    c.pts = []; c.prev = []; c.onPost = new Uint8Array(N);
     for (let i = 0; i < N; i++) {
       const k = i / (N - 1);
       const x = c.a.x + (c.b.x - c.a.x) * k;
@@ -124,7 +125,24 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       c.r = c.width * 0.5;
       cables.push(c);
     }
+    for (const c of cables) { restOn(c, "a"); restOn(c, "b"); }
     for (let i = 0; i < 200; i++) step();
+  }
+  // A plug seated UNDER a resting cord lifts it onto its back — that is where
+  // the cord is from then on (the deal lays cords across plugs the same way).
+  // A cord dragged into a post's side is blocked by it; this is the other case.
+  function restOn(c, name) {
+    const post = posts().find((q) => q.c === c && q.name === name);
+    if (!post) return;
+    const dx = post.x1 - post.x0, dy = post.y1 - post.y0, ll = dx * dx + dy * dy || 1;
+    for (const o of cables) {
+      if (o === c) continue;
+      for (let i = 0; i < N; i++) {
+        const p = o.pts[i];
+        const t = Math.max(0, Math.min(1, ((p.x - post.x0) * dx + (p.y - post.y0) * dy) / ll));
+        if (Math.hypot(p.x - post.x0 - dx * t, p.y - post.y0 - dy * t) < post.r + o.r) o.onPost[i] = 1;
+      }
+    }
   }
 
   // ── physics ──────────────────────────────────────────────────────────────
@@ -135,7 +153,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // held most of the cord in the air and it floated over plugs and cords it
   // should have been dragging across; at 0.5 it is back on the board a few
   // segments from the hand.
-  const G = 2.5, GZ = 0.5, DAMP = 0.975, LIFT_Z = 26;
+  const G = 2.5, GZ = 0.5, DAMP = 0.975;
+  // z is in the same units as x and y, so the hand's lift scales with dpr like
+  // everything else — unscaled, a post on a dpr-2 screen was barely a cord
+  // higher than a cord
+  let LIFT_Z = 26, POST_H = LIFT_Z * 0.85;
   const STIFF = 0.34, LEN = 24, SUB = 8, MIN_BEND = 72, UNKINK = 0.35;
   // A hand moves at a hand's speed. Without this a flick asks the plug to cross
   // most of the cord's length in one frame, and no solver can absorb that while
@@ -145,7 +167,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
 
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
-      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b"), freeA: !!c.looseA, freeB: !!c.looseB };
+      heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b"), freeA: !!c.looseA, freeB: !!c.looseB, onPost: c.onPost };
   }
   function heldEnd(c, name) {
     return (drag && drag.cable === c && drag.end === name) || (c.move < 1 && (name === "a" ? c.a !== c.na : c.b !== c.nb));
@@ -273,7 +295,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     tug();
     for (const c of cables) if (c.move < 1) {
       c.move = Math.min(1, c.move + (c.moveSpeed || 0.05));
-      if (c.move >= 1) { c.a = c.na; c.b = c.nb; }   // the seat is done: the plug lives in the hole now
+      if (c.move >= 1) {   // the seat is done: the plug lives in the hole now
+        const seated = c.a !== c.na ? "a" : c.b !== c.nb ? "b" : null;
+        c.a = c.na; c.b = c.nb;
+        if (seated) restOn(c, seated);
+      }
     }
   }
 
@@ -281,7 +307,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   // drawn, standing off the board. No cord at board height passes through
   // one — not another cord, not its own cord folding back over its barrel.
   // A held or still-seating plug is in the air and is no obstacle.
-  const POST_H = LIFT_Z * 0.85, BARREL = () => 15 * dpr * 1.8;
+  const BARREL = () => 15 * dpr * 1.8;
   function posts() {
     const out = [];
     for (const c of cables) {
@@ -300,7 +326,19 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   function offPosts(c) {
     const v = ropeView(c);
     c.pressing = [];
-    for (const post of posts()) {
+    const all = posts();
+    // a point that has left every post's footprint is no longer on one
+    for (let i = 0; i < N; i++) if (c.onPost[i]) {
+      const p = c.pts[i];
+      let near = false;
+      for (const post of all) {
+        const dx = post.x1 - post.x0, dy = post.y1 - post.y0, ll = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((p.x - post.x0) * dx + (p.y - post.y0) * dy) / ll));
+        if (Math.hypot(p.x - post.x0 - dx * t, p.y - post.y0 - dy * t) < post.r + c.r + 2) { near = true; break; }
+      }
+      if (!near) c.onPost[i] = 0;
+    }
+    for (const post of all) {
       // its own cord's first stretch IS the barrel: skip what would lie inside
       // the capsule when the cord runs straight out of it
       const skip = post.c === c ? Math.ceil((BARREL() + post.r + c.r) / c.rest) : -1;

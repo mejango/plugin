@@ -23,6 +23,7 @@ export type Rope3 = {
   heldB: boolean;            // end b likewise
   freeA?: boolean;           // end a is loose: unplugged, lying on the board, nothing holds it
   freeB?: boolean;
+  onPost?: Uint8Array;       // per point: resting on top of a seated plug (set here, cleared by the caller when it leaves)
 };
 
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -298,8 +299,23 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
     if (Math.min(p.z, q.z) > maxZ) continue;
     const c = segClosest3({ x: p.x, y: p.y, z: 0 }, { x: q.x, y: q.y, z: 0 }, a0, a1);   // dx,dy: post point -> rope point
     if (c.d >= R) continue;
-    const cx = p.x + (q.x - p.x) * c.t - c.dx, cy = p.y + (q.y - p.y) * c.t - c.dy;    // the post point
     const pp = rope.prev[i], pq = rope.prev[i + 1];
+    // The post is a solid with a top. A stretch lying across it — a plug
+    // seated under a resting cord, or a deal that laid one there — is nearer
+    // the top than a side: it rides up onto the plug's back and rests there,
+    // as a cord does on another cord. A stretch at board height pressed into
+    // a side is blocked by that side.
+    // Once up it stays up while it overlaps the post (the caller clears
+    // `onPost` when it leaves): decided afresh each frame, the z-spring
+    // halving its height made it flicker between lifted and shoved aside.
+    const zmid = p.z + (q.z - p.z) * c.t, on = rope.onPost;
+    if ((on && (on[i] || on[i + 1])) || maxZ - zmid < R - c.d) {
+      const up = (v: P3, w: P3, k: number) => { if (v.z < maxZ + 0.5) { v.z = maxZ + 0.5; w.z = v.z; } if (on) on[k] = 1; };   // prev follows: no invented speed
+      if (i > 0 || rope.freeA) up(p, pp, i);
+      if (i + 1 < n - 1 || rope.freeB) up(q, pq, i + 1);
+      continue;
+    }
+    const cx = p.x + (q.x - p.x) * c.t - c.dx, cy = p.y + (q.y - p.y) * c.t - c.dy;    // the post point
     const wasX = pp.x + (pq.x - pp.x) * c.t - cx, wasY = pp.y + (pq.y - pp.y) * c.t - cy;
     const side = Math.sign(wasX * pnx + wasY * pny) || Math.sign(c.dx * pnx + c.dy * pny) || 1;
     let mx, my;
