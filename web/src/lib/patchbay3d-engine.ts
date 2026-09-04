@@ -249,6 +249,14 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       if (drag && drag.cable === c && drag.end === name) from[name] = { x: c.pts[idx].x, y: c.pts[idx].y };
     // pin ends: seated plugs sit at their jack (z 0), the held plug rides the hand
     const pin = (f = 1) => {
+      // the bottom of the board is a solid shelf: no cord goes through it, and
+      // what lands on it stops dead (prev follows) instead of skating
+      for (const c of cables) for (let i = 0; i < N; i++) {
+        const loose = (i === 0 && c.looseA) || (i === N - 1 && c.looseB);
+        const floor = h - (loose ? JR : c.r);
+        const p = c.pts[i];
+        if (p.y > floor) { p.y = floor; c.prev[i].x = p.x; c.prev[i].y = p.y; }
+      }
       for (const c of cables) {
         for (const [name, idx] of [["a", 0], ["b", N - 1]]) {
           if (drag && drag.cable === c && drag.end === name) {
@@ -274,11 +282,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             const p = c.pts[idx];
             p.x = fr.x + (mx - fr.x) * f; p.y = fr.y + (my - fr.y) * f; p.z = LIFT_Z;
           } else if (c[name === "a" ? "looseA" : "looseB"]) {
-            // loose: it lies where it fell — on the board, which has edges;
-            // a plug resting on the bottom edge does not skate along it
-            const p = c.pts[idx], q = c.prev[idx];
-            p.x = Math.max(JR, Math.min(w - JR, p.x));
-            if (p.y > h - JR) { p.y = h - JR; q.x = p.x; q.y = p.y; } else p.y = Math.max(JR, p.y);
+            // loose: nothing holds it but the floor (below)
           } else if (c.move < 1) {
             const k = ease(c.move);
             const from = name === "a" ? c.a : c.b, to = name === "a" ? c.na : c.nb;
@@ -521,18 +525,6 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     ctx.fillStyle = tint(c, 0.9, 0.45); ctx.fill();
   }
 
-  // xy crossings between two cords this frame, and which is higher in z there —
-  // recomputed every frame from z, so it is always consistent (no bookkeeping)
-  function segHit(p0, p1, q0, q1) {
-    const ux = p1.x - p0.x, uy = p1.y - p0.y, vx = q1.x - q0.x, vy = q1.y - q0.y;
-    const den = ux * vy - uy * vx;
-    if (Math.abs(den) < 1e-12) return null;
-    const wx = q0.x - p0.x, wy = q0.y - p0.y;
-    const t = (wx * vy - wy * vx) / den, u = (wx * uy - wy * ux) / den;
-    if (t < 0 || t >= 1 || u < 0 || u >= 1) return null;
-    return { t, u };
-  }
-
   function draw() {
     step();
     rec.dpr = dpr;
@@ -542,31 +534,17 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     ctx.lineCap = "round"; ctx.lineJoin = "round";
 
     const ends = cables.map((c) => [[c.pts[0], c.pts[2]], [c.pts[N - 1], c.pts[N - 3]]]);
-    // cords first (deal order), then seated plugs
-    cables.forEach((c) => drawCable(c, c.pts, true, 0));
-    cables.forEach((c, i) => {
+    // Under cords first, then what lies over them, each cord with its own
+    // plugs: the pair's remembered order says who is on top, all along the
+    // overlap. Deciding per crossing from the height right there flipped
+    // along two cords lying together at a shallow angle — half and half.
+    const rank = cables.map((c) => cables.reduce((n, o) => n + (o === c ? 0 : over(c, o) === true ? 1 : over(c, o) === false ? -1 : 0), 0));
+    const order = cables.map((_, i) => i).sort((i, j) => rank[i] - rank[j]);
+    for (const i of order) {
+      const c = cables[i];
+      drawCable(c, c.pts, true, 0);
       if (!heldEnd(c, "a")) drawPlug(c, "a", ends[i][0][0], ends[i][0][1]);
       if (!heldEnd(c, "b")) drawPlug(c, "b", ends[i][1][0], ends[i][1][1]);
-    });
-    // at every xy crossing, repaint whichever cord is HIGHER in z there, on top
-    const patch = (c, x, y, r, i0, i1) => {
-      ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.clip();
-      let arcTo = 0; for (let k = 0; k < i0; k++) arcTo += Math.hypot(c.pts[k + 1].x - c.pts[k].x, c.pts[k + 1].y - c.pts[k].y);
-      drawCable(c, c.pts.slice(i0, i1 + 1), true, arcTo);
-      ctx.restore();
-    };
-    for (let a = 0; a < cables.length; a++) for (let b = a + 1; b < cables.length; b++) {
-      const A = cables[a], B = cables[b];
-      for (let i = 0; i < N - 1; i++) for (let j = 0; j < N - 1; j++) {
-        const hit = segHit(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1]);
-        if (!hit) continue;
-        const za = A.pts[i].z + (A.pts[i + 1].z - A.pts[i].z) * hit.t;
-        const zb = B.pts[j].z + (B.pts[j + 1].z - B.pts[j].z) * hit.u;
-        const top = za >= zb ? A : B, ti = za >= zb ? i : j;
-        const x = A.pts[i].x + (A.pts[i + 1].x - A.pts[i].x) * hit.t;
-        const y = A.pts[i].y + (A.pts[i + 1].y - A.pts[i].y) * hit.t;
-        patch(top, x, y, top.width * 1.8, Math.max(0, ti - 2), Math.min(N - 1, ti + 3));
-      }
     }
     // the held plug and its lifted cord, above everything
     cables.forEach((c, i) => {
