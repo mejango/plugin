@@ -264,6 +264,10 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
             // toward the hole, fully there at its centre, untouched at SNAP
             const s = socketNear(c, name, mx, my);
             if (s) { const k = 1 - s.d / SNAP(); const e = k * k * (3 - 2 * k); mx += (s.j.x - mx) * e; my += (s.j.y - my) * e; }
+            // hooked under another cord's plug, the hand stays on its side
+            // of that plug's bar: fed through from the pinned end, the cord
+            // went through the bar segment by segment
+            [mx, my] = wallClamp(c, c.pts[idx], mx, my);
             const fr = from[name] || { x: mx, y: my };
             const sx = mx - fr.x, sy = my - fr.y, sd = Math.hypot(sx, sy);
             if (sd > MAX_STEP) { mx = fr.x + (sx / sd) * MAX_STEP; my = fr.y + (sy / sd) * MAX_STEP; }
@@ -280,6 +284,14 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
           } else {
             const j = name === "a" ? c.a : c.b;
             const p = c.pts[idx]; p.x = j.x; p.y = j.y; p.z = 0;
+            // The plug is rigid and seated: the cord's first stretch IS its
+            // barrel, straight out of the jack on the board. Left free, a
+            // cord pressed against the barrel lifted its points, the cord
+            // bunched, and the unkink pass swung the whole barrel round —
+            // the post turned 75° under the cord caught on it and shed it.
+            const k = barrelPts(c), dir = name === "a" ? 1 : -1, tip = c.pts[idx + dir * k];
+            const l = Math.hypot(tip.x - j.x, tip.y - j.y) || 1, ux = (tip.x - j.x) / l, uy = (tip.y - j.y) / l;
+            for (let m = 1; m < k; m++) { const q = c.pts[idx + dir * m]; q.x = j.x + ux * m * c.rest; q.y = j.y + uy * m * c.rest; q.z = 0; }
           }
         }
       }
@@ -337,11 +349,29 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         const l = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1, ux = (p1.x - p0.x) / l, uy = (p1.y - p0.y) / l;
         // the post reaches back past the jack: the plug's cap sits in the
         // socket's nut, and a cord cannot slip round that end either
-        out.push({ c, name, x0: p0.x - ux * JR, y0: p0.y - uy * JR, x1: p0.x + ux * BARREL(), y1: p0.y + uy * BARREL(), r: c.width * 1.2 });
+        out.push({ c, name, ux, uy, jx: p0.x, jy: p0.y, x0: p0.x - ux * JR, y0: p0.y - uy * JR, x1: p0.x + ux * BARREL(), y1: p0.y + uy * BARREL(), r: c.width * 1.2 });
       }
     }
     return out;
   }
+  function wallClamp(c, hand, mx, my) {
+    if (!c.hookKey) return [mx, my];
+    const post = posts().find((q) => cables.indexOf(q.c) + q.name === c.hookKey);
+    if (!post) return [mx, my];
+    const { ux, uy, jx, jy } = post, pnx = -uy, pny = ux;
+    if ((mx - jx) * ux + (my - jy) * uy > BARREL() + post.r) return [mx, my];   // past the barrel tip: free
+    const side = Math.sign((hand.x - jx) * pnx + (hand.y - jy) * pny) || 1;
+    const perp = (mx - jx) * pnx + (my - jy) * pny, want = side * (post.r + c.r);
+    if (side * perp >= post.r + c.r) return [mx, my];
+    return [mx + pnx * (want - perp), my + pny * (want - perp)];
+  }
+  // any point of c within two cord widths of the post capsule itself
+  function nearPost(c, post) {
+    const dx = post.x1 - post.x0, dy = post.y1 - post.y0, ll = dx * dx + dy * dy || 1, R = post.r + c.r * 3;
+    return c.pts.some((p) => { const t = Math.max(0, Math.min(1, ((p.x - post.x0) * dx + (p.y - post.y0) * dy) / ll)); return Math.hypot(p.x - post.x0 - dx * t, p.y - post.y0 - dy * t) < R; });
+  }
+  // how many points from a seated end lie within the plug (barrel + its radius)
+  const barrelPts = (c) => Math.ceil((BARREL() + c.width * 1.2 + c.r) / c.rest);
   function offPosts(c) {
     const v = ropeView(c);
     c.pressing = [];
@@ -360,13 +390,39 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     for (const post of all) {
       // its own cord's first stretch IS the barrel: skip what would lie inside
       // the capsule when the cord runs straight out of it
-      const skip = post.c === c ? Math.ceil((BARREL() + post.r + c.r) / c.rest) : -1;
+      const skip = post.c === c ? barrelPts(c) : -1;
+      // a cord riding OVER another is never caught on that cord's plug: it
+      // rides over the plug as it rides over the cord. The cord BENEATH is
+      // always caught — it cannot get above the plug of a cord it is under,
+      // however high the hand holds it. Unrelated cords: geometry decides.
+      const rel = post.c === c ? 0 : over(c, post.c);
+      const mode = rel === true ? 1 : rel === false ? -1 : 0;
+      // For a DRAGGED cord beneath, hooked on this plug, the post reaches
+      // all the way back past the jack: a loose loop rounds any short end
+      // long before the pull makes it taut, and a cord cannot come off the
+      // plug of a cord it is under that way. The bar latches on when the
+      // cord is at the real post, holds while it keeps pressing the bar,
+      // and is gone the moment the cord leaves it or the hand lets go — a
+      // resting cord, or one dragged elsewhere, never meets it.
+      const key = cables.indexOf(post.c) + post.name;
+      let bar = post;
+      if (mode < 0 && drag && drag.cable === c) {
+        const long = { ...post, x0: post.jx - post.ux * 4000, y0: post.jy - post.uy * 4000 };
+        if (nearPost(c, c.hookKey === key ? long : post)) { bar = long; c.hookKey = key; }
+        else if (c.hookKey === key) c.hookKey = null;
+      }
       let moved;
-      if (skip < 0) moved = offPost3(v, post, POST_H);
+      if (skip < 0) moved = offPost3(v, bar, POST_H, -1, -1, mode);
       else if (post.name === "a") moved = offPost3(v, post, POST_H, 0, skip);
       else moved = offPost3(v, post, POST_H, N - 1 - skip, N - 1);
       if (moved) c.pressing.push(post);
     }
+  }
+  // is c over o? Only known while they cross (crossOrder); null otherwise
+  function over(c, o) {
+    const i = cables.indexOf(c), j = cables.indexOf(o);
+    const sign = crossOrder.get(i < j ? i + ":" + j : j + ":" + i);
+    return sign === undefined ? null : (i < j ? sign : -sign) > 0;
   }
   const SNAP = () => 56 * dpr;
   // nearest open hole within SNAP of (x,y) that the cord can reach from its
@@ -574,6 +630,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     if (drag) { trySeat(); return; }
     const hit = plugAt(x, y); if (!hit) return;
     const home = hit.cable[hit.end === "a" ? "looseA" : "looseB"] ? null : hit.end === "a" ? hit.cable.na : hit.cable.nb;
+    hit.cable.hookKey = null;
     liftEnd(hit.cable, hit.end); drag = { cable: hit.cable, end: hit.end, home };
     mouse.x = x; mouse.y = y; canvas.style.cursor = "grabbing"; canvas.setPointerCapture(e.pointerId);
   });

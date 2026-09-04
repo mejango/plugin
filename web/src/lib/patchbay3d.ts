@@ -210,19 +210,27 @@ export function collide3(ropes: Rope3[], iters: number, order?: CrossOrder): boo
             const c = segClosest3(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1]);
             let nx = c.dx / c.d, ny = c.dy / c.d, nz = c.dz / c.d;
             let gap = reach - c.d;
+            const key = a + ":" + b, known = self ? undefined : order?.get(key);
+            const crossing = !self && crossXY(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1]);
+            if (!crossing && c.d >= reach) continue;
             // Stretches that CROSS in the plane cannot be pushed apart in the
             // plane: one lies over the other, so the contact is pure z, and
             // whoever is over stays over. Dead level (two cords laid flat
-            // across each other) the earlier-dealt cord rides over.
-            if (!self && crossXY(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1])) {
-              const key = a + ":" + b;
-              let sign = order?.get(key);
+            // across each other) the earlier-dealt cord rides over. And once
+            // a pair is ordered, EVERY contact between them is pure z: a cord
+            // riding over another is never caught on it, it slides across.
+            if (crossing || known) {
+              let sign = known;
               if (!sign) { sign = c.dz < -1e-6 ? -1 : 1; order?.set(key, sign); }
+              // the order lives while the pair TOUCH anywhere, not only while
+              // they cross: a crossing point sliding past a joint uncrosses
+              // for a substep, and re-deciding from heights then put the under
+              // cord on top
               seen.add(key);
               const sep = sign * c.dz;          // how far the right one is above the other
               if (sep >= reach) continue;
               nx = 0; ny = 0; nz = sign; gap = reach - sep;
-            } else if (c.d >= reach || c.d < 1e-6) continue;
+            } else if (c.d < 1e-6) continue;
             else if (Math.abs(nz) < 0.2) {
               // a near miss lying flat: nudge onto z so one rides over the
               // other instead of jostling in the plane
@@ -248,8 +256,17 @@ export function collide3(ropes: Rope3[], iters: number, order?: CrossOrder): boo
               if (spread < 1e-6) return;
               const m = (push * sign) / spread;
               const p0 = R.pts[k], p1 = R.pts[k + 1], r0 = R.prev[k], r1 = R.prev[k + 1];
-              if (g0) { p0.x += nx * m * g0; p0.y += ny * m * g0; p0.z += nz * m * g0; if (p0.z < 0) p0.z = 0; r0.x += nx * m * g0; r0.y += ny * m * g0; r0.z += nz * m * g0; }
-              if (g1) { p1.x += nx * m * g1; p1.y += ny * m * g1; p1.z += nz * m * g1; if (p1.z < 0) p1.z = 0; r1.x += nx * m * g1; r1.y += ny * m * g1; r1.z += nz * m * g1; }
+              // The board is solid: a push through it stops at z = 0 — and
+              // `prev` stops with it. Clamping only `pts` left `prev` far
+              // below the board, which the integrator read as a huge upward
+              // velocity: the cord pogoed to 70px high, over every post.
+              const move = (p: P3, r: P3, g: number) => {
+                p.x += nx * m * g; p.y += ny * m * g; p.z += nz * m * g;
+                r.x += nx * m * g; r.y += ny * m * g; r.z += nz * m * g;
+                if (p.z < 0) { r.z -= p.z; p.z = 0; }
+              };
+              if (g0) move(p0, r0, g0);
+              if (g1) move(p1, r1, g1);
             };
             shove(A, i, c.t, 1, gap * fA); shove(B, j, c.s, -1, gap * (1 - fA));
             moved[a] = true; moved[b] = true;
@@ -287,7 +304,10 @@ export type Post = { x0: number; y0: number; x1: number; y1: number; r: number }
  * straddle a rounded post end and the stretch between them cuts the corner.
  * Returns how many segments moved.
  */
-export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, skipTo = -1): number {
+/** `mode`: 0 = geometry decides (side or top, whichever is nearer); 1 = the
+ * rope is OVER the post's owner and rides over the post; -1 = the rope is
+ * UNDER the post's owner and is blocked, with no height escape. */
+export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, skipTo = -1, mode = 0): number {
   const R = post.r + rope.r, n = rope.pts.length;
   const a0 = { x: post.x0, y: post.y0, z: 0 }, a1 = { x: post.x1, y: post.y1, z: 0 };
   const al = Math.hypot(a1.x - a0.x, a1.y - a0.y) || 1;
@@ -296,7 +316,9 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
   for (let i = 0; i < n - 1; i++) {
     if (i >= skipFrom && i + 1 <= skipTo) continue;
     const p = rope.pts[i], q = rope.pts[i + 1];
-    if (Math.min(p.z, q.z) > maxZ) continue;
+    // a cord under the post's owner has no height escape: however high the
+    // hand holds it, it does not get above that cord's plug
+    if (mode >= 0 && Math.min(p.z, q.z) > maxZ) continue;
     const c = segClosest3({ x: p.x, y: p.y, z: 0 }, { x: q.x, y: q.y, z: 0 }, a0, a1);   // dx,dy: post point -> rope point
     if (c.d >= R) continue;
     const pp = rope.prev[i], pq = rope.prev[i + 1];
@@ -309,7 +331,7 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
     // `onPost` when it leaves): decided afresh each frame, the z-spring
     // halving its height made it flicker between lifted and shoved aside.
     const zmid = p.z + (q.z - p.z) * c.t, on = rope.onPost;
-    if ((on && (on[i] || on[i + 1])) || maxZ - zmid < R - c.d) {
+    if (mode > 0 || (mode === 0 && ((on && (on[i] || on[i + 1])) || maxZ - zmid < R - c.d))) {
       const up = (v: P3, w: P3, k: number) => { if (v.z < maxZ + 0.5) { v.z = maxZ + 0.5; w.z = v.z; } if (on) on[k] = 1; };   // prev follows: no invented speed
       if (i > 0 || rope.freeA) up(p, pp, i);
       if (i + 1 < n - 1 || rope.freeB) up(q, pq, i + 1);
