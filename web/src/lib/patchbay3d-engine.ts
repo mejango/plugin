@@ -498,17 +498,16 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       // past (Jango: "if cords are separate, the one moved over the other
       // should go over").
       const mode = rel === true ? 1 : rel === false ? -1 : post.c !== c && carried(c) ? 1 : 0;
-      // For a DRAGGED cord beneath, hooked on this plug, the post reaches
-      // all the way back past the jack: a loose loop rounds any short end
-      // long before the pull makes it taut, and a cord cannot come off the
-      // plug of a cord it is under that way. The bar latches on when the
-      // cord is at the real post, holds while it keeps pressing the bar,
-      // and is gone the moment the cord leaves it or the hand lets go — a
-      // resting cord, or one dragged elsewhere, never meets it.
-      let bar = post;
+      // A dragged cord beneath this plug's cord that is at the plug is
+      // hooked on it (`hookKey`, which keeps the pair's order alive above).
+      // The post is the plug and its nut, nothing beyond: it once reached
+      // 4000px back past the socket so a slack loop could not round the
+      // socket end, and that was an invisible wall up the board from every
+      // plug (Jango: "an artificial barrier above it"). A cord that slides
+      // round the nut end is off the plug, as it would be.
+      const bar = post;
       if (mode < 0 && drag && drag.cable === c) {
-        const long = { ...post, x0: post.jx - post.ux * 4000, y0: post.jy - post.uy * 4000 };
-        if (nearPost(c, c.hookKey === key ? long : post)) { bar = long; c.hookKey = key; }
+        if (nearPost(c, post)) c.hookKey = key;
         else if (c.hookKey === key) c.hookKey = null;
       }
       // its own post only ever blocks: a cord leaving its plug cannot fold

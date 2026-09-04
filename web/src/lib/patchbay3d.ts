@@ -350,7 +350,12 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
     if (mode === 0 && (p.z > maxZ || rope.onPost?.[i])) continue;
     const sx = a1.x - a0.x, sy = a1.y - a0.y, ll = sx * sx + sy * sy || 1;
     const s0 = ((fs[2 * i] - a0.x) * sx + (fs[2 * i + 1] - a0.y) * sy) / ll, s1 = ((p.x - a0.x) * sx + (p.y - a0.y) * sy) / ll;
-    if (s0 <= 0 || s0 >= 1 || s1 <= 0 || s1 >= 1) continue;
+    // A cord BENEATH the post's cord cannot cross the barrel's line at the
+    // tip either: that is where the cord it is under enters the plug, and
+    // slipping round the tip took it from under that cord to beside it.
+    // The nut end (s < 0) is open: a cord slides round a socket.
+    const sMax = mode < 0 ? 1 + R / al : 1;
+    if (s0 <= 0 || s0 >= sMax || s1 <= 0 || s1 >= sMax) continue;
     const w0 = (fs[2 * i] - a0.x) * pnx + (fs[2 * i + 1] - a0.y) * pny, w1 = (p.x - a0.x) * pnx + (p.y - a0.y) * pny;
     if (Math.abs(w0) < 1e-6 || Math.sign(w0) === Math.sign(w1)) continue;
     const back = Math.sign(w0) * R - w1;

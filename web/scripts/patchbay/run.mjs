@@ -282,6 +282,30 @@ const scenarios = {
     ok(worst < 0.5, `cord still moving ${worst}px/frame while held still`);
   }],
 
+  // Jango (seed 973385617, not reproducible at replay speed): a cord hooked on the TIP of another cord's plug
+  // and swept round the SOCKET end of that plug meets nothing there — the post is the plug and its nut only
+  "no barrier above a socket": [LO, 704995189, async (t) => {
+    const s = await t.state(); ok(s.cables[1].a.join() === "1020,540", `deal changed: ${JSON.stringify(s.cables)}`);
+    // red a is under black: pulled up it hooks black's plug b (900,540; barrel down to ~581, socket end up).
+    // Then, before the tug pops it, the hand sweeps over the socket end: the arm from the hook to the hand
+    // must stay a straight taut line — a kink at x=900 above the nut is a wall
+    const probe = () => { const s = document.querySelector("canvas").__pb3d(); const c = s.drag.cable; const h = c.pts[0]; const tip = { x: 900 * s.dpr, y: 581 * s.dpr }; const L = Math.hypot(tip.x - h.x, tip.y - h.y) || 1; let worst = 0, at = null; for (let i = 1; i < s.N; i++) { const p = c.pts[i]; const t = ((p.x - h.x) * (tip.x - h.x) + (p.y - h.y) * (tip.y - h.y)) / (L * L); if (t < 0.1 || t > 0.9) continue; const d = Math.abs((p.x - h.x) * (tip.y - h.y) - (p.y - h.y) * (tip.x - h.x)) / L; if (d > worst) { worst = d; at = [Math.round(p.x / s.dpr), Math.round(p.y / s.dpr)]; } } return { off: +(worst / s.dpr).toFixed(0), at, hook: c.hookKey, popped: !!s.cables[0].looseB, hand: [Math.round(h.x / s.dpr), Math.round(h.y / s.dpr)] }; };
+    await t.page.mouse.move(1020, 540); await t.page.mouse.down();
+    await t.glide(1020, 540, 1000, 400, 12);
+    const log = [];
+    let from = [1000, 400];
+    for (const [x, y] of [[1120, 380], [1120, 250], [980, 180], [820, 220], [700, 320]]) { for (let k = 1; k <= 6; k++) { await t.page.mouse.move(from[0] + (x - from[0]) * k / 6, from[1] + (y - from[1]) * k / 6); await t.page.waitForTimeout(16); log.push(await t.page.evaluate(probe)); } from = [x, y]; }
+    if (process.env.PB_VERBOSE) console.log(JSON.stringify(log.map((r) => [r.hand, r.hook, r.off, r.at, r.popped])));
+    ok(log.some((r) => r.hook === "0b"), "never hooked on black's plug b");
+    const above = log.filter((r) => r.hook === "0b" && !r.popped && r.hand[1] < 300 && r.hand[0] < 1000 && r.hand[0] > 800);
+    ok(above.length > 0, "the plug popped before the hand got above its socket; sweep faster");
+    // the arm may bend round the plug itself (nut end at y≈521, tip at 581), nowhere else
+    const worst = above.reduce((m, r) => (r.off > m.off ? r : m));
+    const offPlug = worst.at ? Math.hypot(worst.at[0] - 900, worst.at[1] - Math.max(521, Math.min(581, worst.at[1]))) : 0;
+    ok(worst.off < 30 || offPlug < 30, `the arm to the hand kinks ${worst.off}px off its line at ${worst.at}, ${offPlug.toFixed(0)}px from the plug: a wall above the socket`);
+    await t.page.mouse.up();
+  }],
+
   // a hole another cord lies across is not open
   "covered hole refuses a plug": [LO, 704995189, async (t) => {
     const s = await t.state();
