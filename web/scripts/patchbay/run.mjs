@@ -125,6 +125,17 @@ const scenarios = {
     const s = await t.state(); ok(s.cables[0].b.join() === "780,180", `did not seat at (780,180): ${JSON.stringify(s.cables[0].b)}`);
   }],
 
+  // Jango's recording: a settled cord with shape keeps it when its end is grabbed — only what the hand pulls moves
+  "grab keeps the cord's shape (571798856)": [HI, 571798856, async (t) => {
+    await t.page.mouse.move(1140.04, 298.39); await t.page.mouse.down();
+    const r = await t.page.evaluate(() => new Promise((res) => { const c = document.querySelector("canvas"); const s0 = c.__pb3d(); const k = s0.drag && s0.drag.cable; if (!k) return res(null); const start = k.pts.map((q) => [q.x, q.y]); let n = 0; const tick = () => { if (++n >= 20) res({ moved: k.pts.map((q, i) => Math.hypot(q.x - start[i][0], q.y - start[i][1]) / s0.dpr) }); else requestAnimationFrame(tick); }; requestAnimationFrame(tick); }));
+    ok(r, "did not grab the plug at (1140,298)");
+    // the hand is still, so past the first few points nothing should move more than a few px
+    const far = r.moved.slice(6); const worst = Math.max(...far);
+    ok(worst < 6, `cord lost its shape on grab: max move away from the hand ${worst.toFixed(0)}px`);
+    await t.page.mouse.up();
+  }],
+
   // a hole another cord lies across is not open
   "covered hole refuses a plug": [LO, 704995189, async (t) => {
     const s = await t.state();
