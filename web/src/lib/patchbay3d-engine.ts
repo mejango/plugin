@@ -228,42 +228,13 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     const back = Math.min(excess, d);
     p.x -= ((p.x - q.x) / d) * back; p.y -= ((p.y - q.y) / d) * back;
   }
-  // The strain of a caught cord goes into whatever it is caught on. When the
-  // hand cannot reach the cursor and the dragged cord is pressed against a
-  // seated plug's post, that plug is being tugged; enough of it and it gives.
-  const STRETCH = 0.06, TUG_FRAMES = 25;
-  function tug() {
-    const strained = new Set();
-    if (drag) {
-      const c = drag.cable, p = c.pts[drag.end === "a" ? 0 : N - 1];
-      const far = c.pts[drag.end === "a" ? N - 1 : 0];
-      const maxR = Math.sqrt(Math.max(0, c.len * c.len - LIFT_Z * LIFT_Z));
-      // strained: the cord is stretched past its length (the hand is at the
-      // cursor; a caught cord stretches) or held back from the cursor
-      const short = arc(c) > c.len * (1 + STRETCH / 3) || Math.hypot(mouse.x - p.x, mouse.y - p.y) > 20 * dpr;
-      const farLoose = c[drag.end === "a" ? "looseB" : "looseA"];
-      const straight = !farLoose && Math.hypot(mouse.x - far.x, mouse.y - far.y) >= maxR;   // simply out of cord: nothing to tug
-      if (short && !straight) for (const post of c.pressing || []) if (post.c !== c) strained.add(cables.indexOf(post.c) + post.name);
-    }
-    cables.forEach((o, oi) => { for (const name of ["a", "b"]) {
-      const key = "tug" + name;
-      if (strained.has(oi + name)) {
-        o[key] = (o[key] || 0) + 1;
-        if (o[key] >= TUG_FRAMES) { unplug(o, name); o[key] = 0; }
-      } else o[key] = Math.max(0, (o[key] || 0) - 2);
-    } });
-  }
+  const STRETCH = 0.06;
   // waking does not unstick: a grabbed cord keeps the shape the shelf holds
   // until the pull reaches each point (yieldHand peels them off in turn)
   function wake(c) { c.asleep = false; c.stillFrames = 0; }
-  function unplug(c, name) {
-    for (const o of cables) { wake(o); if (o.hookKey === cables.indexOf(c) + name) o.hookKey = null; }   // whatever leaned on, or hung on, this plug wakes and lets go
-    const i = name === "a" ? 0 : N - 1;
-    const p = c.pts[i], point = { x: p.x, y: p.y };
-    if (name === "a") { c.a = c.na = point; c.looseA = true; } else { c.b = c.nb = point; c.looseB = true; }
-    c.prev[i].x = p.x; c.prev[i].y = p.y; c.prev[i].z = p.z;   // a pinned end has no history; without this it launches
-  }
-
+  // No tug-and-unplug: a cord caught under another cord's plug stays caught —
+  // it stretches its allowance, the hand is held back, and it tangles until
+  // the user untangles it (Jango). A plug never leaves its hole but by hand.
   function ease(k) { return k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; }
 
   function step() {
@@ -381,7 +352,6 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       for (const c of cables) if (!c.asleep) offPosts(c);
       yieldHand();
     }
-    tug();
     // Sleep: nothing moving more than a couple of px a frame for 30 frames,
     // AND nowhere it was not 30 frames ago. A shimmer — the solver's rules
     // trading a pixel back and forth — has next to no net travel and is put
@@ -506,10 +476,6 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       // plug (Jango: "an artificial barrier above it"). A cord that slides
       // round the nut end is off the plug, as it would be.
       const bar = post;
-      if (mode < 0 && drag && drag.cable === c) {
-        if (nearPost(c, post)) c.hookKey = key;
-        else if (c.hookKey === key) c.hookKey = null;
-      }
       // its own post only ever blocks: a cord leaving its plug cannot fold
       // back over that plug's barrel within the barrel's own length, and
       // letting the top rule try made the exit flicker between lifted and
@@ -519,6 +485,12 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       else if (post.name === "a") moved = offPost3(v, post, POST_H, 0, skip, -1);
       else moved = offPost3(v, post, POST_H, N - 1 - skip, N - 1, -1);
       if (moved) c.pressing.push(post);
+      // hooked: pushed by the plug this pass (a straddling segment's ends can
+      // both be well clear of it), or a point within reach of it
+      if (mode < 0 && drag && drag.cable === c) {
+        if (moved || nearPost(c, post)) c.hookKey = key;
+        else if (c.hookKey === key) c.hookKey = null;
+      }
     }
   }
   // is c over o? Only known while they cross (crossOrder); null otherwise

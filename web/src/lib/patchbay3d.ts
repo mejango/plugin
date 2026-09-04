@@ -348,18 +348,63 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
     if (rope.pinned?.[i]) continue;
     const p = rope.pts[i];
     if (mode === 0 && (p.z > maxZ || rope.onPost?.[i])) continue;
+    const w0 = (fs[2 * i] - a0.x) * pnx + (fs[2 * i + 1] - a0.y) * pny, w1 = (p.x - a0.x) * pnx + (p.y - a0.y) * pny;
+    if (Math.abs(w0) < 1e-6 || Math.sign(w0) === Math.sign(w1)) continue;
+    // where along the axis the point's path crossed it (not where the point
+    // is now: a big enough jump lands beyond the tip, and a side-only test
+    // let that one round the plug in a single substep)
     const sx = a1.x - a0.x, sy = a1.y - a0.y, ll = sx * sx + sy * sy || 1;
     const s0 = ((fs[2 * i] - a0.x) * sx + (fs[2 * i + 1] - a0.y) * sy) / ll, s1 = ((p.x - a0.x) * sx + (p.y - a0.y) * sy) / ll;
+    const sc = s0 + (s1 - s0) * (w0 / (w0 - w1));
     // A cord BENEATH the post's cord cannot cross the barrel's line at the
     // tip either: that is where the cord it is under enters the plug, and
     // slipping round the tip took it from under that cord to beside it.
     // The nut end (s < 0) is open: a cord slides round a socket.
     const sMax = mode < 0 ? 1 + R / al : 1;
-    if (s0 <= 0 || s0 >= sMax || s1 <= 0 || s1 >= sMax) continue;
-    const w0 = (fs[2 * i] - a0.x) * pnx + (fs[2 * i + 1] - a0.y) * pny, w1 = (p.x - a0.x) * pnx + (p.y - a0.y) * pny;
-    if (Math.abs(w0) < 1e-6 || Math.sign(w0) === Math.sign(w1)) continue;
+    if (sc <= 0 || sc >= sMax) continue;
     const back = Math.sign(w0) * R - w1;
     p.x += pnx * back; p.y += pny * back;
+    moved++;
+  }
+  // A SEGMENT that straddles the barrel's line — one end each side — with its
+  // crossing inside the barrel passes through the plug, and no point of it
+  // need ever have crossed the line: under tension the crossing slides along
+  // the axis from beyond the tip into the barrel while both ends keep their
+  // sides. Slide it back out along the axis, to the end it came in from
+  // (the frame start says which), so the cord hooks on the tip or rounds
+  // the nut instead of piercing the plug.
+  // (not against a cord's own plug: its exit hairpins beside its barrel at a
+  // bottom socket, and sliding that along the axis twitched at rest; the
+  // sideways block below is all its own plug needs)
+  if (fs && mode <= 0 && skipFrom < 0) for (let i = 0; i < n - 1; i++) {
+    const p = rope.pts[i], q = rope.pts[i + 1];
+    if (mode === 0 && (Math.min(p.z, q.z) > maxZ || rope.onPost?.[i] || rope.onPost?.[i + 1])) continue;
+    const wp = (p.x - a0.x) * pnx + (p.y - a0.y) * pny, wq = (q.x - a0.x) * pnx + (q.y - a0.y) * pny;
+    if (Math.abs(wp) < 1e-6 || Math.abs(wq) < 1e-6 || Math.sign(wp) === Math.sign(wq)) continue;
+    const sx = a1.x - a0.x, sy = a1.y - a0.y, ll = sx * sx + sy * sy || 1;
+    const sp = ((p.x - a0.x) * sx + (p.y - a0.y) * sy) / ll, sq = ((q.x - a0.x) * sx + (q.y - a0.y) * sy) / ll;
+    const sc = sp + (sq - sp) * (wp / (wp - wq));
+    const sMax = mode < 0 ? 1 + R / al : 1;
+    if (sc <= 0 || sc >= sMax) continue;
+    // where the crossing was when the frame began: past the tip, or past the nut
+    const fp = { x: fs[2 * i], y: fs[2 * i + 1] }, fq = { x: fs[2 * i + 2], y: fs[2 * i + 3] };
+    const fwp = (fp.x - a0.x) * pnx + (fp.y - a0.y) * pny, fwq = (fq.x - a0.x) * pnx + (fq.y - a0.y) * pny;
+    let was = sc;
+    if (Math.sign(fwp) !== Math.sign(fwq) && Math.abs(fwp - fwq) > 1e-6) {
+      const fsp = ((fp.x - a0.x) * sx + (fp.y - a0.y) * sy) / ll, fsq = ((fq.x - a0.x) * sx + (fq.y - a0.y) * sy) / ll;
+      was = fsp + (fsq - fsp) * (fwp / (fwp - fwq));
+    }
+    const target = was >= sMax ? sMax : was <= 0 ? 0 : sc < sMax / 2 ? 0 : sMax;
+    const shift = (target - sc) * al;    // along the axis, device px
+    const gp = (i > 0 || rope.freeA) && !rope.pinned?.[i] ? 1 : 0, gq = (i + 1 < n - 1 || rope.freeB) && !rope.pinned?.[i + 1] ? 1 : 0;
+    if (!gp && !gq) continue;
+    // both ends move by the shift (the crossing moves with them); a fixed
+    // end leaves the whole move to the other, which moves the crossing by
+    // its share of the segment
+    const ux = sx / al, uy = sy / al;
+    const k = gp && gq ? 1 : 2;
+    if (gp) { p.x += ux * shift * k; p.y += uy * shift * k; }
+    if (gq) { q.x += ux * shift * k; q.y += uy * shift * k; }
     moved++;
   }
   for (let i = 0; i < n - 1; i++) {
@@ -405,29 +450,13 @@ export function offPost3(rope: Rope3, post: Post, maxZ: number, skipFrom = -1, s
     let spread = g0 * g0 + g1 * g1;
     if (spread < 1e-6) continue;
     spread = Math.max(spread, Math.max(g0, g1));   // no endpoint moves further than the gap (see collide3)
-    // Friction. Frictionless, a hooked cord slides round any round post to
-    // its straight line. A cord that BENDS round the post (capstan: the wrap
-    // angle is what holds) does not slide at all; one merely pressed against
-    // it holds by how hard it presses — how far the solve sank it this pass.
-    const ml = Math.hypot(mx, my) || 1, tx = -my / ml, ty = mx / ml;
-    const bendAt = (a: P3, b: P3, d: P3) => {   // cos of the turn at b, from a to d
-      const ux = b.x - a.x, uy = b.y - a.y, vx = d.x - b.x, vy = d.y - b.y;
-      return (ux * vx + uy * vy) / ((Math.hypot(ux, uy) || 1) * (Math.hypot(vx, vy) || 1));
-    };
-    const turn = Math.min(i > 0 ? bendAt(rope.pts[i - 1], p, q) : 1, i + 2 < n ? bendAt(p, q, rope.pts[i + 2]) : 1);
-    // > ~18° round it: hooked. A wrap spreads over two or three segments, so
-    // no single point turns much; at 30° a 45° wrap slid off by luck of timing.
-    // No friction against a rope's OWN plug (skipFrom >= 0): a cord doubling
-    // back beside its barrel held its tangent to a `prev` the bend pass kept
-    // moving, and the two settled into a steady 5px shimmer.
-    const stick = skipFrom >= 0 ? 0 : turn < 0.95 ? 1 : Math.min(1, (R - c.d) / (0.25 * R));
-    const hold = (v: P3, w: P3, g: number) => {
-      v.x += mx * g / spread; v.y += my * g / spread;
-      const slid = (v.x - w.x) * tx + (v.y - w.y) * ty;
-      v.x -= tx * slid * stick; v.y -= ty * slid * stick;
-    };
-    if (g0) hold(p, pp, g0);
-    if (g1) hold(q, pq, g1);
+    // No friction: the plug is smooth. What keeps a cord beneath hooked is
+    // that its crossing cannot pass the tip (above); the cord slides round
+    // the cap like a rope over a pulley. Capstan friction at the round end
+    // held a released cord's U on the tip with its plug swinging for ever.
+    const hold = (v: P3, g: number) => { v.x += mx * g / spread; v.y += my * g / spread; };
+    if (g0) hold(p, g0);
+    if (g1) hold(q, g1);
     moved++;
   }
   return moved;
