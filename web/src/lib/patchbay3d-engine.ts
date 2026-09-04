@@ -293,9 +293,8 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         const floor = h - (loose ? c.width * 1.2 : c.r);
         const p = c.pts[i], q = c.prev[i];
         if (p.y > floor) { p.y = floor; p.z = Math.min(p.z, 2 * c.r); q.x = p.x; q.y = p.y; q.z = Math.min(q.z, p.z); }
-        // and side walls: a loose plug came to rest at x = -33, off the board
-        const side = loose ? c.width * 1.2 : c.r;
-        if (p.x < side) { p.x = side; q.x = p.x; } else if (p.x > w - side) { p.x = w - side; q.x = p.x; }
+        // no side walls: a cord swings off the screen and an end may come to
+        // rest out there (Jango; the walls had stopped a swing at the edge)
       }
       for (const c of cables) {
         for (const [name, idx] of [["a", 0], ["b", N - 1]]) {

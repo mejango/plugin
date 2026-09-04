@@ -251,6 +251,22 @@ const scenarios = {
     await t.page.mouse.up();
   }],
 
+  // the sides of the screen are not walls: a hanging end swung at the edge goes past it
+  "cord swings off the side of the screen": [LO, 704995189, async (t) => {
+    const s = await t.state();
+    const i = s.cables.map((c, i) => [c.len, i]).sort((x, y) => y[0] - x[0])[0][1]; const c = s.cables[i];
+    await t.page.mouse.move(c.a[0], c.a[1]); await t.page.mouse.down(); await t.glide(c.a[0], c.a[1], c.a[0] + 40, c.a[1] - 50, 20); await t.page.mouse.up(); await t.still("after drop");
+    ok((await t.state()).cables[i].looseA, "end a did not go loose");
+    const b = (await t.state()).cables[i].b;
+    await t.page.mouse.move(b[0], b[1]); await t.page.mouse.down();
+    await t.page.evaluate((i) => { const s = document.querySelector("canvas").__pb3d(); window.__maxx = 0; const f = () => { window.__maxx = Math.max(window.__maxx, ...s.cables[i].pts.map((q) => q.x / s.dpr)); requestAnimationFrame(f); }; requestAnimationFrame(f); }, i);
+    // a brisk swing to the right edge, then hold: the loose end carries on past it
+    await t.glide(b[0], b[1], 1195, 300, 10); await t.page.waitForTimeout(1200);
+    const maxx = await t.page.evaluate(() => window.__maxx);
+    ok(maxx > 1200, `the cord stopped at the edge: rightmost point ${maxx.toFixed(0)}px of 1200`);
+    await t.page.mouse.up();
+  }],
+
   // a hole another cord lies across is not open
   "covered hole refuses a plug": [LO, 704995189, async (t) => {
     const s = await t.state();
