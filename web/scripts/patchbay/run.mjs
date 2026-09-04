@@ -185,7 +185,6 @@ const scenarios = {
   // Jango's recording: two separate cords — the one carried across the other's plug goes OVER it, never catches
   "carried cord rides over an unrelated plug (1870313391)": [HI, 1870313391, async (t) => {
     const rec = REC(1870313391);
-    const before = await t.state();
     const log = await replay(t, rec, { from: 100, watch: () => t.page.evaluate(inPost) });
     await t.still("after replay");
     const s = await t.state();
