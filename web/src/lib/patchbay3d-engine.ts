@@ -205,14 +205,18 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
     // STRETCH of its length) before the plug is held back — retreating the
     // hand by every px of excess parted it from the cursor the moment the
     // cord touched anything, and by the solver's own residual on every drag.
-    const excess = arc(c) - c.len - STRETCH * c.len;
-    if (excess <= 0) return;
+    const over = arc(c) - c.len;
     // The cord is taut from the hand to whatever holds it: if that is a
     // shelf point, the pull peels it off — the nearest to the hand, one a
     // pass. A REAL pull: the solver's normal half-percent residual is a few
     // px of excess on a long cord, and at that bar every pin let go the
     // frame a settled cord was gripped, and it lost its shape unmoved.
-    if (excess > Math.max(8 * dpr, 0.02 * c.len)) { const dir = drag.end === "a" ? 1 : -1; for (let k = i; k >= 0 && k < N; k += dir) if (c.stuck[k]) { c.stuck[k] = 0; break; } }
+    if (over > Math.max(8 * dpr, 0.02 * c.len)) { const dir = drag.end === "a" ? 1 : -1; for (let k = i; k >= 0 && k < N; k += dir) if (c.stuck[k]) { c.stuck[k] = 0; break; } }
+    const excess = over - STRETCH * c.len;
+    // and only held back by something it is pressed against: a fast drag's
+    // unconverged solve, or a lift onto a plug's back mid-cord, is excess
+    // too, and retreating for that stuttered the hand 14px for a frame
+    if (excess <= 0 || !(c.pressing && c.pressing.length)) return;
     const p = c.pts[i], q = c.pts[j], d = Math.hypot(p.x - q.x, p.y - q.y) || 1e-6;
     const back = Math.min(excess, d);
     p.x -= ((p.x - q.x) / d) * back; p.y -= ((p.y - q.y) / d) * back;
@@ -478,7 +482,15 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       const key = cables.indexOf(post.c) + post.name;
       if (post.c !== c && c.hookKey === key) { const i = cables.indexOf(c), j = cables.indexOf(post.c); const pk = i < j ? i + ":" + j : j + ":" + i; if (!crossOrder.has(pk)) crossOrder.set(pk, i < j ? -1 : 1); }
       const rel = post.c === c ? 0 : over(c, post.c);
-      const mode = rel === true ? 1 : rel === false ? -1 : 0;
+      // Unrelated cords: geometry decides for a cord at rest, but a cord
+      // being CARRIED goes over the plug of any cord it is not under — its
+      // body at board height snagged on the plug's side while the hand went
+      // past (Jango: "if cords are separate, the one moved over the other
+      // should go over").
+      // Carried means the hand has actually moved off (the lift's own 40px):
+      // gripped in place, a body resting against a plug stays where it is.
+      const carried = drag && drag.cable === c && post.c !== c && Math.hypot(c.pts[drag.end === "a" ? 0 : N - 1].x - drag.gx, c.pts[drag.end === "a" ? 0 : N - 1].y - drag.gy) > 40 * dpr;
+      const mode = rel === true ? 1 : rel === false ? -1 : carried ? 1 : 0;
       // For a DRAGGED cord beneath, hooked on this plug, the post reaches
       // all the way back past the jack: a loose loop rounds any short end
       // long before the pull makes it taut, and a cord cannot come off the

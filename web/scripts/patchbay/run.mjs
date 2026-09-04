@@ -182,6 +182,20 @@ const scenarios = {
     ok(popped, "the over cord's plug did not pop");
   }],
 
+  // Jango's recording: two separate cords — the one carried across the other's plug goes OVER it, never catches
+  "carried cord rides over an unrelated plug (1870313391)": [HI, 1870313391, async (t) => {
+    const rec = REC(1870313391);
+    const before = await t.state();
+    const log = await replay(t, rec, { from: 100, watch: () => t.page.evaluate(inPost) });
+    await t.still("after replay");
+    const s = await t.state();
+    if (process.env.PB_VERBOSE) console.log(JSON.stringify(log.map(([f, r]) => [f, r.dragUnder, r.hook, r.pressing, r.tug, r.worst, r.hand, r.mouse])));
+    const off = Math.max(...log.map(([, r]) => Math.hypot(r.hand[0] - r.mouse[0], r.hand[1] - r.mouse[1])));
+    ok(off < 12, `hand held back from the cursor by ${off.toFixed(0)}px: the cord caught on the other plug`);
+    ok(Math.max(...log.map(([, r]) => Math.max(...r.tug))) === 0, "the other cord's plug was strained");
+    ok(!s.cables.some((k) => k.looseA || k.looseB), "a plug popped");
+  }],
+
   // Jango's recording: the top cord must not be drawn underneath the moment both cords fall asleep
   "over cord stays over after both sleep (667126059)": [HI, 667126059, async (t) => {
     await replay(t, REC(667126059)); await t.still("after replay");
