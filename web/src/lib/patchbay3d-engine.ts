@@ -186,6 +186,11 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
   let LIFT_Z = 26, POST_H = LIFT_Z * 0.85;
   const STIFF = 0.34, LEN = 24, SUB = 8, MIN_BEND = 72, UNKINK = 0.35;
 
+  // Carried: in the hand, and the hand has actually moved off (the lift's
+  // own 40px). Gripped in place, a cord keeps its shape and its shelf pins.
+  function carried(c) {
+    return !!drag && drag.cable === c && Math.hypot(c.pts[drag.end === "a" ? 0 : N - 1].x - drag.gx, c.pts[drag.end === "a" ? 0 : N - 1].y - drag.gy) > 40 * dpr;
+  }
   function ropeView(c) {
     return { pts: c.pts, prev: c.prev, r: c.r, rest: c.rest,
       heldA: heldEnd(c, "a"), heldB: heldEnd(c, "b"), freeA: !!c.looseA, freeB: !!c.looseB, onPost: c.onPost, frozen: !!c.asleep, pinned: c.stuck, frameStart: c.lastPts };
@@ -402,7 +407,10 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
         const pileZone = p.y >= h - 40 * dpr;
         const sp = c.stillPt || (c.stillPt = new Uint8Array(N));
         sp[i] = !busy && m < 1.5 * dpr && relaxed ? Math.min(255, sp[i] + 1) : 0;
-        if (!pileZone || pulled(i - 1) || pulled(i)) c.stuck[i] = 0;
+        // A carried cord's shelf section SLIDES along: a cord dragged across
+        // a table does not stick to it. Pinned, the cord stretched 2% against
+        // its own pins and peeled them one at a time (Jango: "sticky").
+        if (!pileZone || pulled(i - 1) || pulled(i) || carried(c)) c.stuck[i] = 0;
         else if (sp[i] >= 10) { c.stuck[i] = 1; c.prev[i].x = p.x; c.prev[i].y = p.y; c.prev[i].z = p.z; }
         moved = Math.max(moved, m); net = Math.max(net, Math.abs(p.x - ago[2 * i]), Math.abs(p.y - ago[2 * i + 1])); last[2 * i] = p.x; last[2 * i + 1] = p.y;
       }
@@ -487,10 +495,7 @@ export function startPatchBay3D(canvas: HTMLCanvasElement, opts: { cables?: numb
       // body at board height snagged on the plug's side while the hand went
       // past (Jango: "if cords are separate, the one moved over the other
       // should go over").
-      // Carried means the hand has actually moved off (the lift's own 40px):
-      // gripped in place, a body resting against a plug stays where it is.
-      const carried = drag && drag.cable === c && post.c !== c && Math.hypot(c.pts[drag.end === "a" ? 0 : N - 1].x - drag.gx, c.pts[drag.end === "a" ? 0 : N - 1].y - drag.gy) > 40 * dpr;
-      const mode = rel === true ? 1 : rel === false ? -1 : carried ? 1 : 0;
+      const mode = rel === true ? 1 : rel === false ? -1 : post.c !== c && carried(c) ? 1 : 0;
       // For a DRAGGED cord beneath, hooked on this plug, the post reaches
       // all the way back past the jack: a loose loop rounds any short end
       // long before the pull makes it taut, and a cord cannot come off the

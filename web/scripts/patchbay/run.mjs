@@ -196,6 +196,19 @@ const scenarios = {
     ok(!s.cables.some((k) => k.looseA || k.looseB), "a plug popped");
   }],
 
+  // Jango's recording: a cord whose lower part lies on the shelf is dragged about by its upper plug — the
+  // shelf part must slide along, not stick (the cord stretched against its own pins)
+  "shelf section slides when the cord is dragged (1927592017)": [HI, 1927592017, async (t) => {
+    const rec = REC(1927592017);
+    const probe = () => { const s = document.querySelector("canvas").__pb3d(); const d = s.drag; if (!d) return null; const c = d.cable; let arc = 0; for (let i = 0; i < s.N - 1; i++) arc += Math.hypot(c.pts[i + 1].x - c.pts[i].x, c.pts[i + 1].y - c.pts[i].y, c.pts[i + 1].z - c.pts[i].z);
+      const shelf = c.pts.filter((q) => q.y >= s.dpr * (838 - 40)); return { pins: Array.from(c.stuck || []).filter(Boolean).length, shelf: shelf.length, sx: shelf.length ? Math.round(Math.min(...shelf.map((q) => q.x)) / s.dpr) : null, stretch: +(arc / c.len).toFixed(3), hand: [Math.round(c.pts[d.end === "a" ? 0 : s.N - 1].x / s.dpr), Math.round(c.pts[d.end === "a" ? 0 : s.N - 1].y / s.dpr)], mouse: s.rec.frames.at(-1) }; };
+    const log = await replay(t, rec, { from: 70, watch: () => t.page.evaluate(probe) });
+    await t.still("after replay");
+    if (process.env.PB_VERBOSE) console.log(log.map(([f, r]) => `${f}: pins ${r.pins} shelf ${r.shelf}@${r.sx} stretch ${r.stretch} hand ${r.hand} mouse ${r.mouse}`).join("\n"));
+    const worst = Math.max(...log.map(([, r]) => r.stretch));
+    ok(worst < 1.02, `cord stretched ${((worst - 1) * 100).toFixed(1)}% against its shelf pins while carried`);
+  }],
+
   // Jango's recording: the top cord must not be drawn underneath the moment both cords fall asleep
   "over cord stays over after both sleep (667126059)": [HI, 667126059, async (t) => {
     await replay(t, REC(667126059)); await t.still("after replay");
