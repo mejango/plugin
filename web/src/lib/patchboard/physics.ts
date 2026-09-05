@@ -15,6 +15,7 @@ export type Particle = { p: V3; old: V3; velocity: V3; mass: number; radius: num
 export type Cord = { color: number[]; nodes: Particle[]; rest: number[]; bend: number[]; ports: [number | null, number | null] };
 export type Grip = { cord: number; index: number; target: V3; dock: number | null };
 type Segment = { a: Particle; b: Particle; cord: number; index: number; radius: number; min: V3; max: V3 };
+type RestState = { sleeping: boolean; probe: V3[]; quietTime: number; idleTime: number; ports: string };
 
 // Dampen whole-cable deformation, including broad low-frequency waves that
 // neighbour-only damping barely affects. Preserve translational momentum so
@@ -45,10 +46,70 @@ export class PatchWorld {
   lastRejection: "contact" | "extension" | null = null;
   private contacts = new Set<Particle>();
   private retryVelocities = new Float64Array(0);
+  private restStates = new Map<Cord, RestState>();
+  private restGroups: Cord[][] = [];
+  private sleepingNodes = new Set<Particle>();
+  private memoryTime = 0;
+  get sleeping() { return this.cords.length > 0 && this.cords.every(c => this.restState(c).sleeping); }
 
-  constructor() { this.reset(); }
+  private restState(c: Cord): RestState {
+    let state=this.restStates.get(c);
+    if(!state){state={sleeping:false,probe:[],quietTime:0,idleTime:0,ports:c.ports.join(",")};this.restStates.set(c,state);}
+    return state;
+  }
+
+  private wake(cord?: Cord) {
+    const group=cord?(this.restGroups.find(g=>g.includes(cord))??[cord]):this.cords;
+    for(const c of group){
+      const s=this.restState(c);s.sleeping=false;s.quietTime=0;s.idleTime=0;s.probe=[];
+      for(const n of c.nodes)this.sleepingNodes.delete(n);
+    }
+  }
+
+  private settle(dt: number, pairs: [Segment, Segment][]) {
+    // Support propagates across real cord/plug contacts, not through the
+    // panel or through the mere existence of another cable in the scene.
+    const roots=this.cords.map((_,i)=>i);
+    const root=(i:number):number=>roots[i]===i?i:(roots[i]=root(roots[i]));
+    for(const [a,b] of pairs)if(a.cord!==b.cord&&closest(a.a.p,a.b.p,b.a.p,b.b.p).distance<=a.radius+b.radius+0.006)roots[root(a.cord)]=root(b.cord);
+    const groups=new Map<number,Cord[]>();
+    this.cords.forEach((c,i)=>{const r=root(i);if(!groups.has(r))groups.set(r,[]);groups.get(r)!.push(c);});
+    this.restGroups=[...groups.values()];
+    for(const group of this.restGroups){
+      const driven=this.grip!==null&&group.includes(this.cords[this.grip.cord]);
+      const supported=group.some(c=>c.ports.some(p=>p!==null)||c.nodes.some(n=>n.p.y<=n.radius+0.004||(this.feel.floorFriction>0&&n.p.z<=n.radius+0.004))||this.docking.some(d=>this.cords[d.cord]===c));
+      if(driven||!supported){for(const c of group)this.wake(c);continue;}
+      const states=group.map(c=>this.restState(c));
+      if(states.every(s=>s.sleeping))continue;
+      const idle=Math.min(...states.map(s=>s.idleTime))+dt;
+      const drift=group.some(c=>{
+        const s=this.restState(c);
+        return s.probe.length!==c.nodes.length||c.nodes.some((n,i)=>distance(n.p,s.probe[i])>0.035);
+      });
+      const quiet=drift?0:Math.min(...states.map(s=>s.quietTime))+dt;
+      for(const c of group){
+        const s=this.restState(c);s.idleTime=idle;s.quietTime=quiet;
+        if(drift)s.probe=c.nodes.map(n=>({...n.p}));
+        // Once supported and left alone, dissipate the residual whole-cable
+        // swing too. Pure mode damping preserves this motion indefinitely.
+        // Unsupported free fall and anything in the hand are never damped here.
+        const retain=Math.exp(-Math.min(4,Math.max(0,idle-1.25)*2)*dt);
+        for(const n of c.nodes)if(n.mass){n.velocity.x*=retain;n.velocity.y*=retain;n.velocity.z*=retain;}
+        if(quiet>=0.65){
+          s.sleeping=true;s.ports=c.ports.join(",");
+          for(const n of c.nodes){n.velocity=v();Object.assign(n.old,n.p);this.sleepingNodes.add(n);}
+        }
+      }
+    }
+  }
+
+  constructor(layout?: { columns: number; rows: number; top: number; gap: number }) {
+    if(layout)this.sockets=Array.from({length:layout.columns*layout.rows},(_,i)=>v((i%layout.columns-(layout.columns-1)/2)*layout.gap,layout.top-Math.floor(i/layout.columns)*layout.gap,0.3));
+    this.reset();
+  }
 
   configure(settings: CableFeel) {
+    this.wake();
     this.feel = sanitizeFeel(settings);
     for (const c of this.cords) for (const i of [0, COUNT - 1]) {
       if (c.nodes[i].mass) c.nodes[i].mass = 1 / this.feel.plugWeight;
@@ -56,6 +117,8 @@ export class PatchWorld {
   }
 
   reset() {
+    this.wake();
+    this.restStates.clear();this.restGroups=[];this.sleepingNodes.clear();
     this.grip = null;
     this.docking = [];
     this.rejectedSteps = 0;
@@ -79,20 +142,32 @@ export class PatchWorld {
         const p = i === 0 ? { ...start } : i === COUNT - 1 ? { ...end } : lerp(curve[j - 1], curve[j], (target - arc[j - 1]) / (arc[j] - arc[j - 1]));
         return { p, old: { ...p }, velocity: v(), mass: i < 2 || i > COUNT - 3 ? 0 : 1, radius: i < 2 || i > COUNT - 3 ? PLUG_RADIUS : RADIUS };
       });
+      const rest=nodes.slice(1).map((n,i)=>distance(nodes[i].p,n.p));
       return {
         nodes, color: [[0.91, 0.28, 0.13], [0.17, 0.49, 0.70], [0.77, 0.64, 0.27]][ci],
-        rest: nodes.slice(1).map((n, i) => distance(nodes[i].p, n.p)),
-        bend: nodes.slice(2).map((n, i) => distance(nodes[i].p, n.p)),
+        rest,
+        // A cable's manufacture gives it a gentle, distributed coil set, not
+        // a copy of the exact hanging initialization pose. Small deterministic
+        // differences distinguish cords without introducing random kinks.
+        bend: nodes.slice(2).map((_,i)=>{
+          const turn=0.045+0.009*Math.sin(i/(COUNT-3)*Math.PI*2+ci*1.7);
+          return Math.sqrt(rest[i]**2+rest[i+1]**2+2*rest[i]*rest[i+1]*Math.cos(turn));
+        }),
         ports: [a, b] as [number, number],
       };
     });
   }
 
   occupied(port: number) { return this.cords.some(c => c.ports.includes(port)) || this.docking.some(d => d.dock === port); }
+  dockingBlocked(dock: Grip) { return this.restState(this.cords[dock.cord]).sleeping; }
 
-  cancelDocking() { this.docking = []; }
+  cancelDocking() { this.docking = []; this.wake(); }
 
   grab(cord: number, index: number) {
+    this.wake(this.cords[cord]);
+    // A blocked, sleeping insertion may become possible as another plug is
+    // removed, even when only its prospective metal shaft was obstructed.
+    for(const dock of this.docking)this.wake(this.cords[dock.cord]);
     this.release();
     const c = this.cords[cord];
     if (index < 2 || index > c.nodes.length - 3) {
@@ -107,12 +182,14 @@ export class PatchWorld {
     this.grip = { cord, index, target: { ...c.nodes[index].p }, dock: null };
   }
 
-  release(port: number | null = null) {
+  release(port: number | null = null, approach = false) {
     const g = this.grip;
     if (g && port !== null && !this.occupied(port) && (g.index === 0 || g.index === COUNT - 1)) {
       // Dock by pulling to the socket. Never teleport an end on mouse-up.
+      // The raised-hand approach is requested only after the view verifies
+      // that both the cursor and the actual held tip are over the aperture.
       const p = this.cords[g.cord].nodes[g.index].p;
-      if (distance(p, this.sockets[port]) < 0.65) {
+      if (distance(p, this.sockets[port]) < (approach ? 7 : 0.65)) {
         this.docking.push({ ...g, dock: port, target: { ...this.sockets[port] } });
         this.grip = null;
         return;
@@ -167,10 +244,55 @@ export class PatchWorld {
     b.p.x-=x*wb;b.p.y-=y*wb;b.p.z-=z*wb;
   }
 
+  private smoothBend(a: Particle, b: Particle, c: Particle, compliance: number) {
+    let ux=a.p.x-b.p.x,uy=a.p.y-b.p.y,uz=a.p.z-b.p.z;
+    let vx=c.p.x-b.p.x,vy=c.p.y-b.p.y,vz=c.p.z-b.p.z;
+    const la=Math.sqrt(ux*ux+uy*uy+uz*uz),lc=Math.sqrt(vx*vx+vy*vy+vz*vz);
+    if(la<1e-6||lc<1e-6)return;
+    ux/=la;uy/=la;uz/=la;vx/=lc;vy/=lc;vz/=lc;
+    const q=clamp(ux*vx+uy*vy+uz*vz,-1,1);
+    if(q<-0.9838436928)return;
+    const turn=Math.acos(-q);
+    const sin=Math.sqrt(Math.max(1e-8,1-q*q));
+    const ax=(vx-q*ux)/(la*sin),ay=(vy-q*uy)/(la*sin),az=(vz-q*uz)/(la*sin);
+    const cx=(ux-q*vx)/(lc*sin),cy=(uy-q*vy)/(lc*sin),cz=(uz-q*vz)/(lc*sin);
+    const bx=-ax-cx,by=-ay-cy,bz=-az-cz;
+    const denom=a.mass*(ax*ax+ay*ay+az*az)+b.mass*(bx*bx+by*by+bz*bz)+c.mass*(cx*cx+cy*cy+cz*cz)+compliance;
+    if(!denom)return;
+    const correction=-(turn-0.18)/denom;
+    const wa=a.mass*correction,wb=b.mass*correction,wc=c.mass*correction;
+    a.p.x+=ax*wa;a.p.y+=ay*wa;a.p.z+=az*wa;
+    b.p.x+=bx*wb;b.p.y+=by*wb;b.p.z+=bz*wb;
+    c.p.x+=cx*wc;c.p.y+=cy*wc;c.p.z+=cz*wc;
+  }
+
+  private rememberBends(dt: number) {
+    if(!this.feel.shapeMemory||!this.grip){this.memoryTime=0;return;}
+    this.memoryTime+=dt;if(this.memoryTime<0.05)return;
+    const c=this.cords[this.grip.cord],turns=c.bend.map((_,i)=>{
+      const a=sub(c.nodes[i+1].p,c.nodes[i].p),b=sub(c.nodes[i+2].p,c.nodes[i+1].p);
+      return Math.acos(clamp(dot(a,b)/(length(a)*length(b)||1),-1,1));
+    });
+    // Slow material creep only while handled. Average over a broad section;
+    // a brief sharp contact must not become a permanent notch.
+    const rate=1-Math.exp(-this.memoryTime/30);this.memoryTime=0;
+    for(let i=3;i<c.bend.length-3;i++){
+      let turn=0;for(let j=i-3;j<=i+3;j++)turn+=turns[j]/7;
+      turn=clamp(turn,0.025,0.12);
+      const a=c.rest[i],b=c.rest[i+1],wanted=Math.sqrt(a*a+b*b+2*a*b*Math.cos(turn));
+      c.bend[i]+=(wanted-c.bend[i])*rate;
+    }
+  }
+
   private collide(a: Segment, b: Segment) {
     const c = closest(a.a.p, a.b.p, b.a.p, b.b.p);
     const gap = a.radius + b.radius + 0.0015 - c.distance;
     if (gap <= 0) return;
+    const ca=this.cords[a.cord],cb=this.cords[b.cord];
+    const asleepA=this.restState(ca).sleeping,asleepB=this.restState(cb).sleeping;
+    if(asleepA&&asleepB)return;
+    if(asleepA)this.wake(ca);
+    if(asleepB)this.wake(cb);
     const n = c.distance > 1e-8 ? mul(sub(c.p, c.q), 1 / c.distance) : unit(sub(lerp(a.a.old, a.b.old, c.s), lerp(b.a.old, b.b.old, c.t)));
     const weights = [1 - c.s, c.s, 1 - c.t, c.t];
     const nodes = [a.a, a.b, b.a, b.b];
@@ -215,25 +337,40 @@ export class PatchWorld {
       const progressed=this.step(dt);
       // A blocked hand must not spend hundreds of iterations retrying the
       // same contact. Try again next display frame when the target changes.
-      if (!progressed) break;
+      if (!progressed) {
+        // A rejected collision step can still be a quiet, supported state.
+        // Rest timers follow elapsed time, not only accepted solver substeps.
+        if(!g)this.settle(Math.max(0,duration-(i+1)*dt),this.pairs(this.segments()));
+        break;
+      }
     }
     if (direct && handTarget) g.target = handTarget;
   }
 
   step(dt = STEP, pausedHand = false): boolean {
     this.steps++;
+    for(const c of this.cords)if(this.restState(c).sleeping&&(this.restState(c).ports!==c.ports.join(",")||c.nodes.some(n=>length(n.velocity)>0||distance(n.p,n.old)>0)))this.wake(c);
+    if(this.sleeping){
+      if(this.grip)this.wake(this.cords[this.grip.cord]);
+      else{this.simulationTime+=dt;return true;}
+    }
     this.contacts.clear();
     const all = this.cords.flatMap(c => c.nodes);
     const g = this.grip;
     const held = g && g.dock === null && (g.index === 0 || g.index === COUNT - 1) ? this.cords[g.cord].nodes[g.index] : null;
     const heldMass = held?.mass ?? 0;
+    const dockPins=new Map<Particle,number>();
+    for(const dock of this.docking)if(!this.restState(this.cords[dock.cord]).sleeping){
+      const c=this.cords[dock.cord];
+      for(const i of [dock.index,dock.index===0?1:COUNT-2])dockPins.set(c.nodes[i],c.nodes[i].mass);
+    }
     if(held&&!pausedHand){
       if(this.retryVelocities.length!==all.length*3)this.retryVelocities=new Float64Array(all.length*3);
       all.forEach((p,i)=>{this.retryVelocities[i*3]=p.velocity.x;this.retryVelocities[i*3+1]=p.velocity.y;this.retryVelocities[i*3+2]=p.velocity.z;});
     }
     for (const p of all) {
       Object.assign(p.old, p.p);
-      if (!p.mass || p === held) continue;
+      if (!p.mass || p === held || dockPins.has(p) || this.sleepingNodes.has(p)) continue;
       p.velocity.y -= SCENE_GRAVITY * dt;
       const speed=Math.sqrt(p.velocity.x**2+p.velocity.y**2+p.velocity.z**2);
       const scale=Math.min(dt,TRAVEL/(speed||1));
@@ -241,6 +378,7 @@ export class PatchWorld {
     }
     const drives=g?[g,...this.docking]:this.docking;
     for (const drive of drives) {
+      if(this.restState(this.cords[drive.cord]).sleeping)continue;
       const p = this.cords[drive.cord].nodes[drive.index];
       const d = sub(drive.target, p.p);
       move(p.p, d, Math.min(drive === g && held ? 1 : drive.dock !== null ? 0.22 : this.feel.grip, TRAVEL / (length(d) || 1)));
@@ -255,6 +393,10 @@ export class PatchWorld {
         const neighbour = this.cords[drive.cord].nodes[drive.index === 0 ? 1 : COUNT - 2];
         const align = sub(add(this.sockets[drive.dock], v(0, 0, 0.22)), neighbour.p);
         move(neighbour.p, align, Math.min(0.22, TRAVEL / (length(align) || 1)));
+        // Alignment is a bounded placement of the rigid connector, not a
+        // soft spring that cable tension can hold permanently half-seated.
+        // Collision validation below can still reject either placement.
+        p.mass=0;neighbour.mass=0;
       }
     }
     const pairs = this.pairs(this.segments());
@@ -267,15 +409,22 @@ export class PatchWorld {
     const stretchCompliance=(0.0005+this.feel.stretch**2*1.5)*complianceScale;
     const sweep = (iteration: number) => {
       for (const c of this.cords) {
+        if(this.restState(c).sleeping)continue;
         // Rest curvature gives a little shape memory; high compliance lets loops form.
-        for (let i = 0; i < COUNT - 2; i++) this.constrain(c.nodes[i], c.nodes[i + 2], this.feel.shapeMemory ? c.bend[i] : c.rest[i] + c.rest[i + 1], bendCompliance);
+        for (let k = 0; k < COUNT - 2; k++) {
+          const i=iteration%2?COUNT-3-k:k;
+          this.constrain(c.nodes[i], c.nodes[i + 2], this.feel.shapeMemory ? c.bend[i] : c.rest[i] + c.rest[i + 1], bendCompliance);
+          // Angle-based resistance distributes curvature where the distance
+          // bend constraint is poorly conditioned near a straight segment.
+          if(i>1&&i<COUNT-4)this.smoothBend(c.nodes[i],c.nodes[i+1],c.nodes[i+2],bendCompliance*80);
+        }
         for (let k = 0; k < COUNT - 1; k++) {
           const i = iteration % 2 ? COUNT - 2 - k : k;
           this.constrain(c.nodes[i], c.nodes[i + 1], c.rest[i], stretchCompliance);
         }
       }
       for (const [a, b] of pairs) this.collide(a, b);
-      for (const p of all) if (p.mass) {
+      for (const p of all) if (p.mass&&!this.sleepingNodes.has(p)) {
         const r = p.radius;
         for (const axis of ["y", "z"] as const) if (p.p[axis] < r + 0.001) {
           const support = r + 0.001 - p.p[axis];
@@ -297,21 +446,26 @@ export class PatchWorld {
     // barrier prevents a mouse jump (or constraint correction) swapping sides.
     // Reject an unresolved step instead of accepting a topology-changing overlap.
     const contactsClear = () => pairs.every(([a, b]) => closest(a.a.p, a.b.p, b.a.p, b.b.p).distance >= (a.radius + b.radius) * 0.985);
+    const lengthDriven=new Set(this.docking.filter(d=>!this.dockingBlocked(d)).map(d=>this.cords[d.cord]));
+    if(held&&g)lengthDriven.add(this.cords[g.cord]);
     const lengthsValid = () => {
-      if(!held||!g)return true;
-      const c=this.cords[g.cord];
-      let rest=0,current=0,previous=0;
-      for(let i=0;i<c.rest.length;i++){
-        rest+=c.rest[i];current+=distance(c.nodes[i].p,c.nodes[i+1].p);previous+=distance(c.nodes[i].old,c.nodes[i+1].old);
-      }
       // Distance constraints handle individual links. The hard hand limit is
       // the whole cord's material length, not a transient stretch in one link
       // while tension propagates around a contact and draws on available slack.
-      return current<=Math.max(rest*(1.04+this.feel.stretch*0.3),previous+0.00001);
+      // Docking must respect the same limit; insertion cannot stretch a trapped
+      // cable beyond the reach that was available in the user's hand.
+      for(const c of lengthDriven){
+        let rest=0,current=0,previous=0;
+        for(let i=0;i<c.rest.length;i++){
+          rest+=c.rest[i];current+=distance(c.nodes[i].p,c.nodes[i+1].p);previous+=distance(c.nodes[i].old,c.nodes[i+1].old);
+        }
+        if(current>Math.max(rest*(1.04+this.feel.stretch*0.3),previous+0.00001))return false;
+      }
+      return true;
     };
     // A local length violation can mean that tension has not yet propagated
     // around a bend. Spend extra sweeps only on this difficult held step.
-    if(held&&!lengthsValid())for(let i=0;i<24;i++){
+    if(lengthDriven.size&&!lengthsValid())for(let i=0;i<24;i++){
       sweep(iterations+i);
       if(i%4===3&&lengthsValid()&&contactsClear())break;
     }
@@ -319,6 +473,7 @@ export class PatchWorld {
     const extensionValid = lengthsValid();
     const valid = contactValid && extensionValid;
     if (held) held.mass = heldMass;
+    for(const [p,mass] of dockPins)p.mass=mass;
     if (!valid) {
       this.rejectedSteps++;
       this.lastRejection = contactValid ? "extension" : "contact";
@@ -334,6 +489,7 @@ export class PatchWorld {
         const progressed=this.step(dt,true);g.target=target;
         return progressed;
       }
+      this.settle(dt,pairs);
       return false;
     }
     this.simulationTime += dt;
@@ -348,8 +504,8 @@ export class PatchWorld {
     // act like syrup/air drag on a cable in free fall: uniform Earth-gravity
     // acceleration is unchanged, regardless of the damping slider.
     const damping = 1 - Math.exp(-this.feel.damping * dt * 6);
-    for (const c of this.cords) dampCableModes(c.nodes, this.feel.settling, dt, held);
-    for (const c of this.cords) for (let i = 0; i < COUNT - 1; i++) {
+    for (const c of this.cords) if(!this.restState(c).sleeping)dampCableModes(c.nodes, Math.max(this.grip ? 0 : 3, this.feel.settling), dt, held);
+    for (const c of this.cords) if(!this.restState(c).sleeping)for (let i = 0; i < COUNT - 1; i++) {
       const a = c.nodes[i], b = c.nodes[i + 1];
       const wa = a === held ? 0 : a.mass, wb = b === held ? 0 : b.mass;
       if (wa + wb === 0) continue;
@@ -358,7 +514,9 @@ export class PatchWorld {
       a.velocity.x+=x*wa;a.velocity.y+=y*wa;a.velocity.z+=z*wa;
       b.velocity.x-=x*wb;b.velocity.y-=y*wb;b.velocity.z-=z*wb;
     }
-    for (const dock of [...this.docking]) this.finishDock(dock);
+    for (const dock of [...this.docking]) if(!this.restState(this.cords[dock.cord]).sleeping)this.finishDock(dock);
+    this.rememberBends(dt);
+    this.settle(dt,pairs);
     return true;
   }
 
@@ -368,14 +526,26 @@ export class PatchWorld {
     // Align the strain relief by a bounded physical pull before seating.
     const wanted = add(port, v(0, 0, 0.22));
     if (distance(p.p, port) > 0.025 || distance(neighbour.p, wanted) > 0.035) return;
+    if (distance(p.old, port) > TRAVEL || distance(neighbour.old,wanted)>TRAVEL) return;
+    // Finish the last sub-radius alignment at the socket center, not at an
+    // arbitrary point within the docking tolerance. Validate the corrected
+    // geometry before locking; an obstructed insertion stays pending.
+    const reached = { ...p.p };
+    const reachedNeighbour={...neighbour.p};
+    p.p = { ...port };
+    neighbour.p={...wanted};
+    const segments = this.segments();
+    if (this.pairs(segments).some(([a, b]) => closest(a.a.p, a.b.p, b.a.p, b.b.p).distance < (a.radius + b.radius) * 0.985)) {
+      p.p = reached;neighbour.p=reachedNeighbour; return;
+    }
     // A newly inserted metal shaft must also have clearance all the way to
     // the panel; checking only the visible plug would seal a cord behind it.
     const base = v(p.p.x, p.p.y, 0);
-    for (const s of this.segments()) {
+    for (const s of segments) {
       if (s.cord === g.cord && (g.index === 0 ? s.index <= 3 : s.index >= COUNT - 5)) continue;
-      if (closest(base, p.p, s.a.p, s.b.p).distance < PLUG_RADIUS + s.radius + 0.001) return;
+      if (closest(base, p.p, s.a.p, s.b.p).distance < PLUG_RADIUS + s.radius + 0.001) { p.p = reached;neighbour.p=reachedNeighbour; return; }
     }
-    // Lock at the reached position: no snap through nearby geometry.
+    // Lock only the centered, collision-checked insertion.
     c.ports[g.index === 0 ? 0 : 1] = g.dock;
     p.mass = 0; neighbour.mass = 0;
     p.velocity = v(); neighbour.velocity = v();
@@ -386,6 +556,6 @@ export class PatchWorld {
     let penetration = 0, stretch = 1;
     for (const [a, b] of this.pairs(this.segments())) penetration = Math.max(penetration, a.radius + b.radius - closest(a.a.p, a.b.p, b.a.p, b.b.p).distance);
     for (const c of this.cords) c.rest.forEach((r, i) => { stretch = Math.max(stretch, distance(c.nodes[i].p, c.nodes[i + 1].p) / r); });
-    return { penetration, stretch, rejectedSteps: this.rejectedSteps, lastRejection: this.lastRejection, steps: this.steps, simulationTime: this.simulationTime, metersPerUnit: METERS_PER_UNIT, docking: this.docking.map(d => ({ cord: d.cord, index: d.index, port: d.dock })), feel: { ...this.feel }, finite: this.cords.every(c => c.nodes.every(n => Number.isFinite(dot(n.p, n.p)))) };
+    return { penetration, stretch, sleeping:this.sleeping, rest:this.cords.map(c=>{const s=this.restState(c);return {sleeping:s.sleeping,quietTime:s.quietTime,idleTime:s.idleTime};}), rejectedSteps: this.rejectedSteps, lastRejection: this.lastRejection, steps: this.steps, simulationTime: this.simulationTime, metersPerUnit: METERS_PER_UNIT, docking: this.docking.map(d => ({ cord: d.cord, index: d.index, port: d.dock, blocked:this.dockingBlocked(d) })), feel: { ...this.feel }, finite: this.cords.every(c => c.nodes.every(n => Number.isFinite(dot(n.p, n.p)))) };
   }
 }

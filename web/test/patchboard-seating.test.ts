@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { PatchWorld } from "../src/lib/patchboard/physics";
-import { distance, lerp } from "../src/lib/patchboard/math";
+import { add, distance, lerp, v } from "../src/lib/patchboard/math";
+import { FEEL_PRESETS } from "../src/lib/patchboard/settings";
 
 it("does not cancel a pending insertion when another end is grabbed", () => {
   const w = new PatchWorld();
@@ -46,5 +47,23 @@ it("keeps other seated plugs fixed when a held end presses across them", () => {
     expect(w.grip?.cord).toBe(0);
     expect(w.grip?.index).toBe(72);
   }
+  expect(w.diagnostics().penetration).toBeLessThan(0.004);
+});
+
+it.each(Object.entries(FEEL_PRESETS))("fully inserts an angled plug under cable tension with %s",(_,feel)=>{
+  const w=new PatchWorld({columns:12,rows:7,top:7.45,gap:1.05});w.configure(feel);
+  w.grab(2,72);
+  const target=w.sockets[11];
+  w.grip!.target={...target,z:1.2};
+  for(let i=0;i<45;i++)w.advance(1/60);
+  expect(distance(w.cords[2].nodes[72].p,target)).toBeGreaterThan(0.65);
+  expect(distance(w.cords[2].nodes[72].p,target)).toBeLessThan(1.5);
+  w.release(11,true);
+  expect(w.docking).toHaveLength(1);
+  for(let i=0;i<120;i++)w.advance(1/60);
+  expect(w.cords[2].ports[1],JSON.stringify(w.diagnostics())).toBe(11);
+  expect(w.cords[2].nodes[72].p).toEqual(target);
+  expect(w.cords[2].nodes[71].p).toEqual(add(target,v(0,0,0.22)));
+  expect(w.docking).toHaveLength(0);
   expect(w.diagnostics().penetration).toBeLessThan(0.004);
 });

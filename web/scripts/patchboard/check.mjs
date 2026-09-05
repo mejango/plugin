@@ -13,7 +13,8 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
-  await page.goto("http://localhost:3004/patchboard");
+  await page.goto(process.env.PATCHBOARD_URL || "http://localhost:3004/patchboard");
+  await page.locator("details").evaluate(el => { el.open = true; });
   await page.waitForFunction(() => document.querySelector("canvas")?.__patchboard);
   const state = () => page.evaluate(() => document.querySelector("canvas").__patchboard());
   const waitSteps = async (count) => {
@@ -50,7 +51,10 @@ try {
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const fastGrip = (await state()).cords[0].points[0].screen;
   assert.ok(Math.hypot(fastGrip.x - b.x - 100, fastGrip.y - b.y - 135) < 1, "fast grip movement must reach the cursor within a display frame");
-  await page.mouse.up(); await waitSteps(1000);
+  await page.mouse.up();
+  // Adaptive collision subdivisions are not a duration; wait for the drop
+  // itself, including any brief contact on another cord along the way.
+  await page.waitForFunction(() => document.querySelector("canvas").__patchboard().cords[0].points[0].y < 0.2);
   s = await state();
   assert.ok(s.cords[0].points[0].y < 0.2);
   assert.ok(s.penetration < 0.004);
@@ -64,10 +68,11 @@ try {
   await page.keyboard.press("Escape");
   assert.equal((await state()).grip, null);await page.mouse.up();
   console.log("PASS: grab cord body, pull across cords, Escape drops");
-  await page.getByRole("button", { name: "Orbit", exact: true }).click();
+  await page.locator("canvas").first().focus();
+  await page.keyboard.press("o");
   await waitSteps(10);
-  await page.getByRole("button", { name: "Front", exact: true }).click();
-  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await page.keyboard.press("f");
+  await page.keyboard.press("r");
   await waitSteps(10);
   assert.deepEqual((await state()).cords.map(c => c.ports), [[0,2],[3,5],[7,9]]);
   assert.equal(await page.getByRole("slider").count(), 9);
@@ -83,6 +88,7 @@ try {
   assert.equal((await state()).feel.shapeMemory, false);
   await page.reload();
   await page.waitForFunction(() => document.querySelector("canvas")?.__patchboard);
+  await page.locator("details").evaluate(el => { el.open = true; });
   assert.equal((await state()).feel.damping, 8);
   assert.equal((await state()).feel.shapeMemory, false);
   assert.equal(await page.getByRole("slider", { name: "Gravity", exact: true }).count(), 0);

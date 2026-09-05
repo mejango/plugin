@@ -33,11 +33,14 @@ describe("physical patchboard", () => {
       w.configure(sanitizeFeel({ ...DEFAULT_FEEL, damping, gravity: 0, gravityEnabled: false }));
       const c = w.cords[0];c.ports = [null, null];
       c.nodes.forEach(n => { n.mass = 1; n.velocity = v(); });
-      const y = c.nodes[36].p.y;
+      const centerY=()=>c.nodes.reduce((sum,n)=>sum+n.p.y,0)/c.nodes.length;
+      const y = centerY();
       // Use the public elapsed-time stepper so collision subdivisions cannot
       // impose a terminal speed. Bound semi-implicit integration error.
       w.advance(0.1);
-      const drop = (y - c.nodes[36].p.y) * METERS_PER_UNIT;
+      // Material rest curvature may deform the cable during free fall; its
+      // center of mass, not a particular bending node, follows Earth gravity.
+      const drop = (y - centerY()) * METERS_PER_UNIT;
       expect(drop).toBeGreaterThanOrEqual(EARTH_GRAVITY * 0.1 ** 2 / 2 - 1e-8);
       expect(drop).toBeLessThanOrEqual(EARTH_GRAVITY * 0.1 * (0.1 + STEP) / 2 + 1e-8);
       expect(w.simulationTime).toBeCloseTo(0.1, 6);
@@ -149,6 +152,7 @@ describe("physical patchboard", () => {
     w.release(1);
     for(let i=0;i<600;i++)w.step();
     expect(w.cords[0].ports[0]).toBe(1);
+    expect(w.cords[0].nodes[0].p).toEqual(w.sockets[1]);
     expect(w.diagnostics().penetration).toBeLessThan(0.004);
   });
   it("keeps a loose trefoil loop self-colliding while it falls", () => {

@@ -1,0 +1,57 @@
+import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { pathToFileURL } from "node:url";
+
+const root = [process.env.PLAYWRIGHT_CORE, `${homedir()}/.claude/skills/gstack/node_modules/playwright-core`].find(p => p && existsSync(`${p}/index.mjs`));
+if (!root) throw new Error("Set PLAYWRIGHT_CORE to a playwright-core installation");
+const { chromium } = await import(pathToFileURL(`${root}/index.mjs`).href);
+const browser = await chromium.launch({ headless: true, args: ["--enable-unsafe-swiftshader"] });
+try {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const errors = []; page.on("pageerror", e => errors.push(e.message));
+  await page.goto("http://localhost:3004/patchboard-angle");
+  await page.waitForFunction(() => document.querySelector("canvas")?.__patchboard?.().sleeping);
+  const state = () => page.evaluate(() => document.querySelector("canvas").__patchboard());
+  const atCursor = async (index, x, y) => page.waitForFunction(({ index, x, y }) => {
+    const p = document.querySelector("canvas").__patchboard().cords[0].points[index].screen;
+    return Math.hypot(p.x - x, p.y - y) < 1;
+  }, { index, x, y });
+  let s = await state();
+  const from = s.cords[0].points[72].screen, crossing = s.cords[1].points[12].screen;
+  const bluePorts = [...s.cords[1].ports];
+  await page.mouse.move(from.x, from.y); await page.mouse.down();
+  await page.mouse.move(crossing.x, crossing.y, { steps: 40 });
+  await atCursor(72, crossing.x, crossing.y);
+  s = await state();
+  assert.ok(s.cords[0].points[72].z > s.cords[1].points[12].z + 0.19, "dragged end crosses in FRONT of the other cord");
+  assert.deepEqual(s.cords[1].ports, bluePorts, "crossing never unplugs the other cable");
+  assert.ok(s.penetration < 0.004);
+  console.log("PASS: default drag crosses over a cord, follows the cursor, preserves seated plugs");
+  await page.mouse.move(crossing.x + 70, crossing.y + 30, { steps: 20 });
+  await page.mouse.wheel(0, 500);
+  await page.waitForFunction(() => document.querySelector("canvas").__patchboard().grip.target.z <= 0.31);
+  await page.mouse.move(crossing.x + 80, crossing.y + 35);
+  assert.ok((await state()).grip.target.z <= 0.31, "manual wheel depth disables automatic lift");
+  await page.mouse.up();
+  await page.locator("canvas").first().focus(); await page.keyboard.press("r");
+  await page.waitForFunction(() => document.querySelector("canvas").__patchboard().sleeping);
+  s = await state();
+  const plug = s.cords[0].points[0].screen, hole = s.sockets[1].hole;
+  await page.mouse.move(plug.x, plug.y); await page.mouse.down();
+  await page.mouse.move(hole.x, hole.y, { steps: 30 });
+  await atCursor(0, hole.x, hole.y);
+  s = await state();
+  const otherDepth = Math.max(...s.cords.slice(1).flatMap(c => c.points.map(p => p.z)));
+  assert.ok(s.cords[0].points[0].z > otherDepth + 0.19, "end remains in front of other cords while held over the socket");
+  await page.mouse.up();
+  await page.waitForFunction(() => document.querySelector("canvas").__patchboard().cords[0].ports[0] === 1);
+  s = await state();
+  const tip = s.cords[0].points[0], collar = s.cords[0].points[1], socket = s.sockets[1].position;
+  assert.deepEqual({ x: tip.x, y: tip.y, z: tip.z }, socket);
+  assert.deepEqual({ x: collar.x, y: collar.y, z: collar.z }, { ...socket, z: socket.z + 0.22 });
+  assert.equal(s.docking.length, 0);
+  assert.ok(s.penetration < 0.004);
+  console.log("PASS: manual depth override and fully flush insertion from the raised drag plane");
+  assert.deepEqual(errors, []);
+} finally { await browser.close(); }
