@@ -13,8 +13,11 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
-  await page.goto(process.env.PATCHBOARD_URL || "http://localhost:3004/patchboard");
-  await page.locator("details").evaluate(el => { el.open = true; });
+  const url=new URL(process.env.PATCHBOARD_URL || "http://localhost:3004/patchboard");
+  const tuning=url.pathname==="/patchboard";
+  if(!tuning)url.searchParams.set("scene","classic");
+  await page.goto(url.href);
+  if(tuning)await page.locator("details").evaluate(el => { el.open = true; });
   await page.waitForFunction(() => document.querySelector("canvas")?.__patchboard);
   const state = () => page.evaluate(() => document.querySelector("canvas").__patchboard());
   const waitSteps = async (count) => {
@@ -75,6 +78,7 @@ try {
   await page.keyboard.press("r");
   await waitSteps(10);
   assert.deepEqual((await state()).cords.map(c => c.ports), [[0,2],[3,5],[7,9]]);
+  if(tuning){
   assert.equal(await page.getByRole("slider").count(), 9);
   await page.getByRole("button", { name: "Try firm + fast settling" }).click();
   assert.equal((await state()).feel.bend, 5);
@@ -94,10 +98,15 @@ try {
   assert.equal(await page.getByRole("slider", { name: "Gravity", exact: true }).count(), 0);
   assert.equal(await page.getByRole("checkbox", { name: "Gravity enabled", exact: true }).count(), 0);
   await page.getByRole("button", { name: "Restore cable defaults" }).click();
-  assert.equal((await state()).feel.damping, 2.8);
+  assert.deepEqual((await state()).feel,{bend:8,settling:30,damping:8,cordFriction:0.5,floorFriction:0.95,grip:0.35,stretch:0.01,plugWeight:3.75,socketResistance:0.38,shapeMemory:true,socketAssist:true});
   console.log("PASS: socket hold, live settings, presets, persistence and defaults");
+  }else{
+    assert.equal(await page.locator("details, main footer").count(),0);
+    assert.equal((await state()).feel.bend,8);
+    assert.equal((await state()).feel.settling,30);
+  }
   if (process.env.PATCHBOARD_SCREENSHOT) {
-    await page.getByRole("region", { name: "Stiffness & settling" }).scrollIntoViewIfNeeded();
+    if(tuning)await page.getByRole("region", { name: "Stiffness & settling" }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: process.env.PATCHBOARD_SCREENSHOT });
   }
   await page.setViewportSize({width:390,height:844});await waitSteps(10);

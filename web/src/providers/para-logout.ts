@@ -11,14 +11,14 @@ type LogoutParaSessionOptions = {
   markSession?: (active: boolean) => void;
 };
 
-export class ParaSessionLogoutError extends Error {
+class ParaSessionLogoutError extends Error {
   constructor() {
     super("Para did not confirm logout");
     this.name = "ParaSessionLogoutError";
   }
 }
 
-export class ParaLocalDisconnectError extends Error {
+class ParaLocalDisconnectError extends Error {
   constructor() {
     super("Para logged out but Wagmi did not disconnect");
     this.name = "ParaLocalDisconnectError";

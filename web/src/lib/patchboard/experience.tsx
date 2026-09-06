@@ -7,7 +7,7 @@ import { DEFAULT_FEEL, FEEL_PRESETS, FEEL_SLIDERS, sanitizeFeel, type CableFeel 
 export function PatchboardExperience({ angle = false }: { angle?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const controller = useRef<PatchboardController | null>(null);
-  const [status, setStatus] = useState<BoardStatus>({ held: false, depth: 0.3, connected: 6, docking: false, blocked: false });
+  const [status, setStatus] = useState<BoardStatus>({ held: false, depth: 0.3, connected: 0, total: 0, docking: false, blocked: false });
   const [error, setError] = useState("");
   const [feel, setFeel] = useState<CableFeel>({ ...DEFAULT_FEEL });
   const [preset, setPreset] = useState("¼-inch cable");
@@ -18,14 +18,19 @@ export function PatchboardExperience({ angle = false }: { angle?: boolean }) {
   };
   useEffect(() => {
     let saved = { ...DEFAULT_FEEL };
-    try { const raw = localStorage.getItem("patchboard-feel-v1"); if (raw) saved = sanitizeFeel(JSON.parse(raw)); } catch { /* Use defaults if storage is unavailable. */ }
-    queueMicrotask(() => { setFeel(saved); setPreset(Object.keys(FEEL_PRESETS).find(k => JSON.stringify(FEEL_PRESETS[k]) === JSON.stringify(saved)) ?? "Custom"); });
-    try { controller.current = startPatchboard(canvas.current!, setStatus, saved, angle); }
+    // The homepage has a deliberate, fixed feel. Saved tuning belongs to the
+    // experiment and must not silently change a page without tuning controls.
+    if (!angle) {
+      try { const raw = localStorage.getItem("patchboard-feel-v1"); if (raw) saved = sanitizeFeel(JSON.parse(raw)); } catch { /* Use defaults if storage is unavailable. */ }
+      queueMicrotask(() => { setFeel(saved); setPreset(Object.keys(FEEL_PRESETS).find(k => JSON.stringify(FEEL_PRESETS[k]) === JSON.stringify(saved)) ?? "Custom"); });
+    }
+    try { controller.current = startPatchboard(canvas.current!, angle ? () => {} : setStatus, saved, angle); }
     catch (e) { queueMicrotask(() => setError(e instanceof Error ? e.message : "The 3D patchboard could not start.")); }
     return () => { controller.current?.dispose(); controller.current = null; };
   }, [angle]);
+  const Container=angle?"div":"main";
   return (
-    <main className="fixed inset-0 isolate overflow-hidden bg-[#ece9e2] text-[#45483e]" style={{ fontFamily: "ui-monospace, SFMono-Regular, monospace" }}>
+    <Container className="fixed inset-0 isolate overflow-hidden bg-[#ece9e2] text-[#45483e]" style={{ fontFamily: "ui-monospace, SFMono-Regular, monospace" }}>
       <div className="absolute inset-0">
         <canvas ref={canvas} className="h-full w-full touch-none outline-none" tabIndex={0} aria-label="Interactive 3D patchboard. Drag plugs or cords. Scroll while holding to change depth. Right-drag to orbit. Escape drops a cord." />
       </div>
@@ -38,11 +43,15 @@ export function PatchboardExperience({ angle = false }: { angle?: boolean }) {
         </div>
       </header>}
       {error && <div role="alert" className="absolute left-1/2 top-1/2 max-w-md -translate-x-1/2 -translate-y-1/2 rounded bg-white p-6 text-sm">{error}</div>}
-      <details open={!angle} className="absolute right-6 top-24 w-64 rounded-lg border border-black/15 bg-[#f2f0e9]/95 p-4 text-[11px] shadow-sm backdrop-blur-sm sm:right-9">
-        <summary className="cursor-pointer font-semibold tracking-wide">Cable feel <span className="float-right font-normal opacity-55">{preset}</span></summary>
-        <div className="mt-4 max-h-[calc(100svh-270px)] overflow-y-auto pr-1">
-          <label className="flex items-center justify-between gap-3">Preset
-            <select aria-label="Cable preset" className="max-w-36 rounded border border-black/20 bg-transparent p-1" value={preset} onChange={e => changeFeel(FEEL_PRESETS[e.target.value], e.target.value)}>
+      {!angle && <details open className="group absolute right-6 top-24 z-10 w-64 max-w-[calc(100vw-24px)] rounded-lg border border-black/15 bg-[#f2f0e9]/95 p-4 text-[11px] shadow-sm backdrop-blur-sm sm:right-9">
+        <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold tracking-wide [&::-webkit-details-marker]:hidden">
+          <span aria-hidden="true" className="shrink-0 group-open:rotate-90">▸</span>
+          <span className="shrink-0">Cable feel</span>
+          <span title={preset} className="min-w-0 flex-1 truncate text-right font-normal opacity-55">{preset}</span>
+        </summary>
+        <div className="mt-4 max-h-[calc(100svh-270px)] w-full min-w-0 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
+          <label className="grid gap-2">Preset
+            <select aria-label="Cable preset" className="w-full min-w-0 rounded border border-black/20 bg-transparent p-1" value={preset} onChange={e => changeFeel(FEEL_PRESETS[e.target.value], e.target.value)}>
               {preset === "Custom" && <option value="Custom" disabled>Custom</option>}
               {Object.keys(FEEL_PRESETS).map(name => <option key={name}>{name}</option>)}
             </select>
@@ -56,7 +65,7 @@ export function PatchboardExperience({ angle = false }: { angle?: boolean }) {
           ].map(group => <section key={group.title} aria-label={group.title}>
           <h2 className="mb-3 border-b border-black/10 pb-2 font-semibold">{group.title}</h2>
           {FEEL_SLIDERS.filter(s => group.keys.includes(s.key)).map(s => <label key={s.key} className="mb-4 block">
-            <span className="flex justify-between"><span>{s.label}</span><output className="tabular-nums opacity-60">{feel[s.key].toFixed(2)}</output></span>
+            <span className="flex justify-between gap-3"><span>{s.label}</span><output className="shrink-0 tabular-nums opacity-60">{feel[s.key].toFixed(2)}</output></span>
             <input aria-label={s.label} type="range" min={s.min} max={s.max} step={s.step} value={feel[s.key]} className="mt-2 block w-full accent-[#74796b]" onChange={e => changeFeel({ ...feel, [s.key]: Number(e.target.value) })} />
             <span className="mt-1 block text-[10px] leading-4 opacity-55">{s.hint}</span>
           </label>)}</section>)}
@@ -64,17 +73,17 @@ export function PatchboardExperience({ angle = false }: { angle?: boolean }) {
           <p className="mt-3 text-[10px] opacity-55">Earth gravity · always on · 9.81 m/s²</p>
           <button className="mt-2 w-full rounded border border-black/20 py-2 hover:bg-white" onClick={() => changeFeel({ ...DEFAULT_FEEL }, "¼-inch cable")}>Restore cable defaults</button>
         </div>
-      </details>
-      <footer className="pointer-events-none absolute bottom-5 left-6 right-6 flex flex-wrap items-end justify-between gap-4 text-[11px] sm:bottom-7 sm:left-9 sm:right-9">
-        {!angle && <div className="rounded bg-[#ece9e2]/90 p-3 leading-6 backdrop-blur-sm">
+      </details>}
+      {!angle && <footer className="pointer-events-none absolute bottom-5 left-6 right-6 flex flex-wrap items-end justify-between gap-4 text-[11px] sm:bottom-7 sm:left-9 sm:right-9">
+        <div className="rounded bg-[#ece9e2]/90 p-3 leading-6 backdrop-blur-sm">
           <p>Drag a plug to unplug · release near a free socket to connect</p>
           <p className="opacity-60">Scroll while holding: out / in · drag a cord to shape it</p>
           <p className="opacity-60">Right-drag: orbit · scroll: zoom · Esc: drop</p>
-        </div>}
-        <div className="pointer-events-auto ml-auto rounded bg-[#ece9e2]/90 p-3 backdrop-blur-sm">
-          <p aria-live="polite" className="opacity-60">{status.blocked ? "Plug not seated · blocked · drag to retry" : status.docking ? "Seating plug…" : status.held ? `Holding · depth ${status.depth.toFixed(2)}` : `${status.connected} / 6 plugs connected · Earth gravity`}</p>
         </div>
-      </footer>
-    </main>
+        <div className="ml-auto rounded bg-[#ece9e2]/90 p-3 backdrop-blur-sm">
+          <p aria-live="polite" className="opacity-60">{status.blocked ? "Plug not seated · blocked · drag to retry" : status.docking ? "Seating plug…" : status.held ? `Holding · depth ${status.depth.toFixed(2)}` : `${status.connected} / ${status.total} plugs connected · Earth gravity`}</p>
+        </div>
+      </footer>}
+    </Container>
   );
 }

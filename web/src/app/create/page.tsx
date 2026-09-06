@@ -1,5 +1,4 @@
 import { CreateForm } from "@/components/create/CreateForm";
-import { PatchBay } from "@/components/PatchBay";
 import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata = {
@@ -8,8 +7,9 @@ export const metadata = {
 
 export default function CreatePage() {
   return (
-    <>
-      <PatchBay scrim />
+    // Scroll the foreground independently so opening the form cannot resize
+    // the viewport-sized board or regenerate it when a scrollbar appears.
+    <div className="fixed inset-0 z-[2] overflow-y-auto overscroll-contain bg-white/[.65]">
       <SiteHeader back />
       <main className="relative z-[2] mx-auto max-w-[900px] px-[6vw] pb-[12vh] pt-[7vh]">
         <h1 className="display text-[clamp(2.6rem,9vw,5.5rem)]">Plug in</h1>
@@ -18,6 +18,6 @@ export default function CreatePage() {
         </p>
         <CreateForm />
       </main>
-    </>
+    </div>
   );
 }

@@ -45,12 +45,6 @@ export function doublingFor(key: DoublingKey) {
   return DOUBLINGS[doublingIndex(key)];
 }
 
-/** Price to issue one token at a moment in the machine's life. */
-export function issuancePriceAt(doubling: DoublingKey, day: number): number {
-  const doublings = Math.floor(day / doublingFor(doubling).days);
-  return (1 / INITIAL_ISSUANCE_PER_USD) * 2 ** doublings;
-}
-
 /** Tokens a dollar mints at a moment in the machine's life. */
 export function tokensPerDollarAt(doubling: DoublingKey, day: number): number {
   const doublings = Math.floor(day / doublingFor(doubling).days);

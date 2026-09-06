@@ -11,7 +11,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
-  await page.goto("http://localhost:3004/patchboard-angle");
+  await page.goto("http://localhost:3004/patchboard-angle?scene=classic");
   await page.waitForFunction(() => document.querySelector("canvas")?.__patchboard);
   assert.equal(await page.getByText("Drag a plug to unplug · release near a free socket to connect", { exact: true }).count(), 0, "full-screen variant has no bottom-left explainer");
   assert.equal(await page.getByRole("heading", {name:"PATCHBOARD",exact:true}).count(),0);
@@ -27,8 +27,8 @@ try {
     }
   };
   let s = await state(); aligned(s);
-  assert.equal(s.sockets.length,84,"dense 12 by 7 grid covers the board");
-  assert.ok(s.sockets[9].x - s.sockets[0].x > 1100, "socket grid fills desktop width");
+  assert.equal(s.sockets.length,s.layout.columns*s.layout.rows,"responsive socket grid covers the board");
+  assert.ok(s.sockets[11].x - s.sockets[0].x > 1300, "socket grid fills desktop width");
   const target = s.sockets[1].hole;
   const scale = (s.sockets[1].x - s.sockets[0].x) / 1.05;
   const drag = async (x, y) => {
@@ -56,11 +56,12 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(200);
   s = await state(); aligned(s);
-  assert.ok(s.sockets[0].x > 0 && s.sockets[11].x < 390, "mobile keeps all columns reachable");
+  assert.equal(s.layout.columns,4,"mobile uses four reachable columns");
+  assert.ok(s.sockets[0].x > 0 && s.sockets[3].x < 390, "mobile keeps all columns reachable");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.waitForTimeout(200);
   s = await state();
-  assert.ok(s.sockets[9].x - s.sockets[0].x > 1100, "desktop framing returns after resize");
+  assert.ok(s.sockets[11].x - s.sockets[0].x > 1300, "desktop framing returns after resize");
   assert.deepEqual(errors, []);
   console.log("PASS: full-screen framing, exact plug/hole alignment, rim rejection, hole seating, camera reset and responsive resize");
 } finally { await browser.close(); }

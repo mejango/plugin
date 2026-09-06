@@ -1,17 +1,23 @@
 import { add, clamp, cross, dot, length, lerp, mul, sub, unit, v, type V3 } from "./math";
-import { PatchWorld, PLUG_RADIUS, RADIUS } from "./physics";
+import { PatchWorld, PLUG_RADIUS, RADIUS, type Cord } from "./physics";
 import { frameSeconds } from "./clock";
 import { type CableFeel, DEFAULT_FEEL } from "./settings";
 import { panelArtwork } from "./artwork";
+import { cableShadowSpine, PANEL_SHADOW_Z, PATCH_LIGHTS, projectShadow } from "./shadows";
+import { screenLayout } from "./layout";
+import { rubberGrain, RUBBER_TEXTURE_SIZE } from "./material";
 
 type Color = number[];
 const TAU = Math.PI * 2;
+const VERTEX_FLOATS = 11;
 class Mesh {
   data: number[] = [];
-  vertex(p: V3, n: V3, c: Color) { this.data.push(p.x, p.y, p.z, n.x, n.y, n.z, c[0], c[1], c[2]); }
-  triangle(a: V3, b: V3, c: V3, color: Color) {
+  // A negative U marks non-rubber geometry (panel, shadows and metal).
+  vertex(p: V3, n: V3, c: Color, u=-1, w=0) { this.data.push(p.x, p.y, p.z, n.x, n.y, n.z, c[0], c[1], c[2],u,w); }
+  triangle(a: V3, b: V3, c: V3, color: Color, rubber=false) {
     const n = unit(cross(sub(b, a), sub(c, a)));
-    this.vertex(a, n, color); this.vertex(b, n, color); this.vertex(c, n, color);
+    const u=rubber?0.5:-1;
+    this.vertex(a, n, color,u); this.vertex(b, n, color,u); this.vertex(c, n, color,u);
   }
   quad(a: V3, b: V3, c: V3, d: V3, color: Color) { this.triangle(a, b, c, color); this.triangle(a, c, d, color); }
   // Clip projected shadows to the actual receiving surface, including its edge.
@@ -32,52 +38,70 @@ class Mesh {
     const p = [v(a.x,a.y,a.z),v(b.x,a.y,a.z),v(b.x,b.y,a.z),v(a.x,b.y,a.z),v(a.x,a.y,b.z),v(b.x,a.y,b.z),v(b.x,b.y,b.z),v(a.x,b.y,b.z)];
     for (const [i,j,k,l] of [[0,3,2,1],[4,5,6,7],[0,1,5,4],[3,7,6,2],[0,4,7,3],[1,2,6,5]]) this.quad(p[i],p[j],p[k],p[l],c);
   }
-  cylinder(a: V3, b: V3, radius: number, color: Color, sides = 10, endRadius = radius) {
+  cylinder(a: V3, b: V3, radius: number, color: Color, sides = 10, endRadius = radius, rubber=false) {
     const axis = unit(sub(b, a));
+    const span=length(sub(b,a))/(TAU*radius);
     const right = unit(cross(axis, Math.abs(axis.y) > 0.9 ? v(1,0,0) : v(0,1,0)));
     const up = cross(axis, right);
     for (let i = 0; i < sides; i++) {
       const n = add(mul(right, Math.cos(i / sides * TAU)), mul(up, Math.sin(i / sides * TAU)));
       const m = add(mul(right, Math.cos((i + 1) / sides * TAU)), mul(up, Math.sin((i + 1) / sides * TAU)));
       const p = add(a, mul(n,radius)), q = add(a,mul(m,radius)), r = add(b,mul(n,endRadius)), s = add(b,mul(m,endRadius));
-      for (const [pt, normal] of [[p,n],[r,n],[q,m],[q,m],[r,n],[s,m]]) this.vertex(pt,normal,color);
-      this.triangle(a, q, p, color); this.triangle(b, r, s, color);
+      const u=rubber?i/sides:-1,w=rubber?(i+1)/sides:-1;
+      this.vertex(p,n,color,u,0);this.vertex(r,n,color,u,span);this.vertex(q,m,color,w,0);
+      this.vertex(q,m,color,w,0);this.vertex(r,n,color,u,span);this.vertex(s,m,color,w,span);
+      this.triangle(a, q, p, color,rubber); this.triangle(b, r, s, color,rubber);
     }
   }
-  sphere(p: V3, radius: number, color: Color) {
+  sphere(p: V3, radius: number, color: Color, rubber=false) {
     for (let j = 0; j < 6; j++) for (let i = 0; i < 10; i++) {
       const normal = (u: number, w: number) => v(Math.sin(w * Math.PI / 6) * Math.cos(u * TAU / 10), Math.cos(w * Math.PI / 6), Math.sin(w * Math.PI / 6) * Math.sin(u * TAU / 10));
       const ns = [normal(i,j), normal(i+1,j), normal(i+1,j+1), normal(i,j+1)];
-      for (const k of [0,1,2,0,2,3]) this.vertex(add(p,mul(ns[k],radius)),ns[k],color);
+      const us=[i/10,(i+1)/10,(i+1)/10,i/10],ws=[j/6,j/6,(j+1)/6,(j+1)/6];
+      for (const k of [0,1,2,0,2,3]) this.vertex(add(p,mul(ns[k],radius)),ns[k],color,rubber?us[k]:-1,ws[k]);
     }
   }
-  tube(points: V3[], color: Color) {
+  tube(points: V3[], color: Color, rest: number[], phase=0) {
     let right = v(1,0,0);
+    let along=phase;
     const rings = points.map((p,i) => {
+      // Rest-length coordinates keep the grain attached to the cable as it
+      // bends or stretches, rather than sampling a stationary world pattern.
+      if(i)along+=rest[i-1]/(TAU*RADIUS);
       const axis = unit(sub(points[Math.min(points.length-1,i+1)],points[Math.max(0,i-1)]));
       right = unit(sub(right,mul(axis,dot(right,axis))));
       if (length(right)<0.1) right = unit(cross(axis,v(0,0,1)));
       const up = cross(axis,right);
       return Array.from({length:10},(_,j) => {
         const n = add(mul(right,Math.cos(j*TAU/10)),mul(up,Math.sin(j*TAU/10)));
-        return { p:add(p,mul(n,RADIUS)),n };
+        return { p:add(p,mul(n,RADIUS)),n,t:along };
       });
     });
     for (let i=0;i<rings.length-1;i++) for(let j=0;j<10;j++) {
       const k=(j+1)%10;
-      for(const pt of [rings[i][j],rings[i+1][j],rings[i][k],rings[i][k],rings[i+1][j],rings[i+1][k]]) this.vertex(pt.p,pt.n,color);
+      const a=rings[i][j],b=rings[i+1][j],c=rings[i][k],d=rings[i+1][k],u=j/10,w=(j+1)/10;
+      this.vertex(a.p,a.n,color,u,a.t);this.vertex(b.p,b.n,color,u,b.t);this.vertex(c.p,c.n,color,w,c.t);
+      this.vertex(c.p,c.n,color,w,c.t);this.vertex(b.p,b.n,color,u,b.t);this.vertex(d.p,d.n,color,w,d.t);
     }
   }
 }
 
 export type PatchboardController = { reset: () => void; view: (front: boolean) => void; configure: (settings: CableFeel) => void; dispose: () => void };
-export type BoardStatus = { held: boolean; depth: number; connected: number; docking: boolean; blocked: boolean };
+export type BoardStatus = { held: boolean; depth: number; connected: number; total: number; docking: boolean; blocked: boolean };
 
 export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: BoardStatus) => void, settings = DEFAULT_FEEL, angle = false): PatchboardController {
   const gl = canvas.getContext("webgl", { antialias:true, alpha:false });
   if (!gl) throw new Error("This patchboard needs WebGL. Enable hardware acceleration and reload.");
-  const world = new PatchWorld(angle?{columns:12,rows:7,top:7.45,gap:1.05}:undefined);
+  const bounds=canvas.getBoundingClientRect();
+  let layout=screenLayout(bounds.width,bounds.height);
+  const query=new URLSearchParams(window.location.search);
+  const seed=query.has("seed")?Number(query.get("seed"))>>>0:crypto.getRandomValues(new Uint32Array(1))[0];
+  const randomized=angle&&query.get("scene")!=="classic";
+  let world = new PatchWorld(angle?layout:undefined,randomized?{seed,cables:layout.cables}:undefined);
+  let lights=angle?[v(-layout.width*0.33,layout.height+0.4,5),v(layout.width*0.33,layout.height+0.4,5)]:PATCH_LIGHTS;
+  const meshCache=new Map<Cord,{points:Float64Array;ports:string;buffer:WebGLBuffer;vertices:number}>();
   world.configure(settings);
+  if(angle)world.restInitialPlacement();
   const shader = (type: number, source: string) => {
     const s = gl.createShader(type)!; gl.shaderSource(s,source); gl.compileShader(s);
     if (!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || "Shader compilation failed");
@@ -85,19 +109,36 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
   };
   const vs = shader(gl.VERTEX_SHADER, `
     precision mediump float;
-    attribute vec3 position; attribute vec3 normal; attribute vec3 color;
+    attribute vec3 position; attribute vec3 normal; attribute vec3 color; attribute vec2 surface;
     uniform vec3 eye; uniform vec3 right; uniform vec3 up; uniform vec3 forward; uniform float aspect; uniform float orthographic;
-    varying vec3 tint; varying vec3 norm; varying vec3 pos;
-    void main(){vec3 p=position-eye; float z=dot(p,forward); float w=orthographic>0.0?orthographic:z; float clipZ=orthographic>0.0?((z-0.1)/99.9*2.0-1.0)*w:1.002002*z-0.2002002; gl_Position=vec4(dot(p,right)*1.95/aspect,dot(p,up)*1.95,clipZ,w);tint=color;norm=normal;pos=position;}
+    varying vec3 tint; varying vec3 norm; varying vec3 pos; varying vec2 rubberUV;
+    void main(){vec3 p=position-eye; float z=dot(p,forward); float w=orthographic>0.0?orthographic:z; float clipZ=orthographic>0.0?((z-0.1)/99.9*2.0-1.0)*w:1.002002*z-0.2002002; gl_Position=vec4(dot(p,right)*1.95/aspect,dot(p,up)*1.95,clipZ,w);tint=color;norm=normal;pos=position;rubberUV=surface;}
   `);
   const fs = shader(gl.FRAGMENT_SHADER, `
-    precision mediump float; varying vec3 tint; varying vec3 norm; varying vec3 pos; uniform vec3 eye; uniform sampler2D artwork;
-    void main(){vec3 n=normalize(norm); vec3 light=normalize(vec3(-0.5,0.9,0.8)); float diffuse=max(0.0,dot(n,light)); vec3 h=normalize(light+normalize(eye-pos)); float spec=pow(max(0.0,dot(n,h)),48.0)*0.19;
-    ${angle ? `vec3 l=normalize(vec3(-4.1,8.8,5.0)-pos);vec3 r=normalize(vec3(4.1,8.8,5.0)-pos);diffuse=0.5*(max(0.0,dot(n,l))+max(0.0,dot(n,r)));spec=0.07*(pow(max(0.0,dot(n,normalize(l+normalize(eye-pos)))),48.0)+pow(max(0.0,dot(n,normalize(r+normalize(eye-pos)))),48.0));` : ""}
+    precision mediump float; varying vec3 tint; varying vec3 norm; varying vec3 pos; varying vec2 rubberUV; uniform vec3 eye; uniform vec3 forward; uniform float orthographic; uniform sampler2D artwork; uniform sampler2D rubber; uniform vec2 panelSize; uniform vec3 lightLeft; uniform vec3 lightRight;
+    void main(){vec3 n=normalize(norm);
+    ${angle ? `if(abs(pos.z)<0.003 && n.z>0.9){
+      vec3 surface=tint;
+      if(abs(pos.x)<panelSize.x*0.5 && pos.y>=0.0 && pos.y<=panelSize.y){vec4 ink=texture2D(artwork,vec2(pos.x/panelSize.x+0.5,1.0-pos.y/panelSize.y));surface*=mix(vec3(1.0),ink.rgb,ink.a);}
+      gl_FragColor=vec4(surface,1.0);return;
+    }
+    if(abs(pos.y-0.004)<0.0005)n=vec3(0.0,1.0,0.0);` : ""}
+    if(rubberUV.x>=0.0){
+      vec3 view=orthographic>0.0?-forward:normalize(eye-pos);
+      vec3 l=${angle?"normalize(lightLeft-pos)":"normalize(vec3(-0.5,0.9,0.8))"};
+      vec3 r=${angle?"normalize(lightRight-pos)":"l"};
+      float grain=texture2D(rubber,rubberUV).r-0.5;
+      float diffuse=0.5*(max(0.0,dot(n,l))+max(0.0,dot(n,r)));
+      float gloss=0.12*(pow(max(0.0,dot(n,normalize(l+view))),36.0)+pow(max(0.0,dot(n,normalize(r+view))),36.0));
+      float edge=pow(1.0-max(0.0,dot(n,view)),3.0)*0.018;
+      vec3 body=tint*(0.72+0.28*diffuse)*(1.0+0.055*grain);
+      gl_FragColor=vec4(body+gloss*(1.0+0.25*grain)+edge,1.0);return;
+    }
+    vec3 light=normalize(vec3(-0.5,0.9,0.8)); float diffuse=max(0.0,dot(n,light)); vec3 h=normalize(light+normalize(eye-pos)); float spec=pow(max(0.0,dot(n,h)),48.0)*0.19;
+    ${angle ? `vec3 l=normalize(lightLeft-pos);vec3 r=normalize(lightRight-pos);diffuse=0.5*(max(0.0,dot(n,l))+max(0.0,dot(n,r)));spec=0.07*(pow(max(0.0,dot(n,normalize(l+normalize(eye-pos)))),48.0)+pow(max(0.0,dot(n,normalize(r+normalize(eye-pos)))),48.0));` : ""}
     vec3 surface=tint;
-    ${angle ? `if(abs(pos.z)<0.001 && n.z>0.9 && abs(pos.x)<6.5 && pos.y>=0.0 && pos.y<=8.5){vec4 ink=texture2D(artwork,vec2((pos.x+6.5)/13.0,(8.5-pos.y)/8.5));surface=mix(surface,ink.rgb,ink.a);}` : ""}
     gl_FragColor=vec4(surface*(${angle ? "0.82+0.18" : "0.56+0.44"}*diffuse)+spec,1.0);
-    ${angle ? `if(abs(pos.z)<0.001 && n.z>0.9)gl_FragColor=vec4(surface,1.0);` : ""}}
+    }
   `);
   const program = gl.createProgram()!; gl.attachShader(program,vs); gl.attachShader(program,fs); gl.linkProgram(program);
   if(!gl.getProgramParameter(program,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || "Could not initialize the 3D renderer");
@@ -110,25 +151,42 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,panelArtwork(world.sockets));
     gl.uniform1i(gl.getUniformLocation(program,"artwork"),0);
   }
-  const buffer=gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
-  for(const [i,name] of ["position","normal","color"].entries()) { const a=gl.getAttribLocation(program,name);gl.enableVertexAttribArray(a);gl.vertexAttribPointer(a,3,gl.FLOAT,false,36,i*12); }
-  const uniforms=Object.fromEntries(["eye","right","up","forward","aspect","orthographic"].map(n=>[n,gl.getUniformLocation(program,n)]));
+  const rubber=gl.createTexture();
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,rubber);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,RUBBER_TEXTURE_SIZE,RUBBER_TEXTURE_SIZE,0,gl.RGBA,gl.UNSIGNED_BYTE,rubberGrain());
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.generateMipmap(gl.TEXTURE_2D);gl.uniform1i(gl.getUniformLocation(program,"rubber"),1);
+  gl.activeTexture(gl.TEXTURE0);
+  const buffer=gl.createBuffer()!;
+  const attributes=["position","normal","color","surface"].map(name=>gl.getAttribLocation(program,name));
+  for(const a of attributes)gl.enableVertexAttribArray(a);
+  const bindMesh=(buffer:WebGLBuffer)=>{
+    gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+    attributes.forEach((a,i)=>gl.vertexAttribPointer(a,i===3?2:3,gl.FLOAT,false,VERTEX_FLOATS*4,i*12));
+  };
+  const uniforms=Object.fromEntries(["eye","right","up","forward","aspect","orthographic","panelSize","lightLeft","lightRight"].map(n=>[n,gl.getUniformLocation(program,n)]));
   const overlay=document.createElement("canvas"); overlay.style.cssText="position:absolute;inset:0;width:100%;height:100%;pointer-events:none";
   canvas.parentElement!.appendChild(overlay);
   const ctx=overlay.getContext("2d")!;
   const defaultZoom=angle?8:16.8;
   let width=1,height=1,yaw=angle?0:0.18,pitch=angle?0:0.13,zoom=defaultZoom;
   const focus=v(0,angle?3.6:3.5,0.5);
-  const fittedZoom=()=>angle?Math.max(defaultZoom,12.2*0.975/(width/height)):Math.max(defaultZoom,12.3/(width/height));
+  const fittedZoom=()=>angle?layout.width*0.975/(width/height):Math.max(defaultZoom,12.3/(width/height));
   const orthographic=()=>angle&&yaw===0&&pitch===0;
-  let eye=v(),right=v(),up=v(),forward=v();
+  let eye=v(),right=v(),up=v(),forward=v(),cameraRevision=0;
   const camera=()=> {
-    if(angle&&yaw===0&&pitch===0)focus.y=(0.5-Math.min(48/height,0.06))*zoom/0.975;
-    eye=add(focus,v(Math.sin(yaw)*Math.cos(pitch)*zoom,Math.sin(pitch)*zoom,Math.cos(yaw)*Math.cos(pitch)*zoom));
+    if(angle&&yaw===0&&pitch===0)focus.y=(0.5-layout.foot/height)*zoom/0.975;
+    // Orthographic framing is independent of camera distance. Short/wide
+    // viewports must not put the camera inside the cable's depth range.
+    const distance=orthographic()?Math.max(10,zoom):zoom;
+    eye=add(focus,v(Math.sin(yaw)*Math.cos(pitch)*distance,Math.sin(pitch)*distance,Math.cos(yaw)*Math.cos(pitch)*distance));
     forward=unit(sub(focus,eye));right=unit(cross(forward,v(0,1,0)));up=cross(right,forward);
+    cameraRevision++;
   };
   const setView=(front:boolean)=>{yaw=front?0:0.5;pitch=front?0:0.28;zoom=fittedZoom();camera();};
   camera();
@@ -142,6 +200,17 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
   const resize=()=> {
     const previousFit=fittedZoom();
     const rect=canvas.getBoundingClientRect(); width=rect.width;height=rect.height;
+    const next=screenLayout(width,height);
+    if(angle&&sized&&(next.columns!==layout.columns||next.rows!==layout.rows||Math.abs(next.height-layout.height)>0.01)){
+      // Responsive reflow is a new physical board, not a stretch/teleport of
+      // live cables through one another. Keep the page seed and cable feel.
+      cancel();
+      const feel=world.feel;layout=next;
+      world=new PatchWorld(layout,randomized?{seed,cables:layout.cables}:undefined);world.configure(feel);
+      world.restInitialPlacement();
+      lights=[v(-layout.width*0.33,layout.height+0.4,5),v(layout.width*0.33,layout.height+0.4,5)];
+      buildBoard();
+    }else if(angle&&!sized)layout=next;
     zoom=angle?(sized?zoom/previousFit:1)*fittedZoom():Math.max(zoom,12.3/(width/height));sized=true;camera();
     const dpr=Math.min(window.devicePixelRatio,2);
     canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);
@@ -149,8 +218,12 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     gl.viewport(0,0,canvas.width,canvas.height);
   };
   const observer=new ResizeObserver(resize);observer.observe(canvas);resize();
-  const board=new Mesh();
+  let board=new Mesh();
+  const buildBoard=()=>{
+  board=new Mesh();
   if(angle){
+    gl.bindTexture(gl.TEXTURE_2D,artwork);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,panelArtwork(world.sockets,layout.width,layout.height));
     // Extend the presentation surfaces past the viewport; socket spacing and
     // the physical world stay unchanged. The floor remains visible below y=0.
     board.box(v(-100,-0.6,-0.45),v(100,0,8),[0.94,0.94,0.93]);
@@ -179,6 +252,8 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     board.box(v(x-0.039,y-0.008,0.046),v(x+0.039,y+0.008,0.05),[0.18,0.18,0.16]);
   }
   }
+  };
+  buildBoard();
   let pointer={x:0,y:0}, orbit=false, down=false, depth=0.55, hoverPort:number|null=null;
   let activePointer:number|null=null;
   let frontDrag=false;
@@ -216,7 +291,7 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
       depth=Math.max(depth,Math.min(6.5,clearance));
       p=unproject(pointer.x,pointer.y,depth);
     }
-    world.grip.target=v(clamp(p.x,-6.5,6.5),clamp(p.y,PLUG_RADIUS,9),depth);
+    world.grip.target=v(clamp(p.x,-6.5,6.5),clamp(p.y,PLUG_RADIUS,angle?Math.max(9,layout.height+0.5):9),depth);
     hoverPort=null;
     const aperture=unproject(pointer.x,pointer.y,0.07);
     for(const [i,s] of world.sockets.entries()) {
@@ -267,15 +342,17 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);
   };
   const cancel=()=>{if(down||world.grip)world.release();down=false;orbit=false;activePointer=null;hoverPort=null;seatedGrip=null;};
+  const reset=()=>{cancel();world.reset();if(angle)world.restInitialPlacement();};
   const wheel=(e:WheelEvent)=> {
     e.preventDefault();
     if(down){frontDrag=false;depth=clamp(depth-e.deltaY*0.004,0.3,6.5);updateTarget();}
-    else{zoom=clamp(zoom+e.deltaY*0.012,angle?5:11,Math.max(24,18/(width/height)));camera();}
+    else if(!angle){zoom=clamp(zoom+e.deltaY*0.012,11,Math.max(24,fittedZoom()*3));camera();}
   };
   const key=(e:KeyboardEvent)=> {
+    if(canvas.closest("[inert]"))return;
     if((e.target as HTMLElement)?.matches("input,button,select,textarea"))return;
     if(e.key==="Escape"){if(!down&&!world.grip)world.cancelDocking();cancel();}
-    if(e.key.toLowerCase()==="r"){cancel();world.reset();}
+    if(e.key.toLowerCase()==="r")reset();
     if(e.key.toLowerCase()==="f")setView(true);
     if(e.key.toLowerCase()==="o")setView(false);
     if(down&&(e.key==="ArrowUp"||e.key==="ArrowDown")){e.preventDefault();frontDrag=false;depth=clamp(depth+(e.key==="ArrowUp"?0.15:-0.15),0.3,6.5);updateTarget();}
@@ -285,7 +362,8 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
   canvas.addEventListener("pointerup",pointerUp);canvas.addEventListener("pointercancel",pointerUp);canvas.addEventListener("lostpointercapture",pointerUp);
   canvas.addEventListener("wheel",wheel,{passive:false});canvas.addEventListener("contextmenu",context);window.addEventListener("keydown",key);window.addEventListener("blur",cancel);
   let frame=0,last:number|null=null,disposed=false,lastStatus=0;
-  let timing={physicsMs:0,renderMs:0,frameMs:0,substeps:0};
+  let timing={physicsMs:0,renderMs:0,frameMs:0,substeps:0,rebuiltCords:[] as number[],uploadedBytes:0,drawCalls:0};
+  let uploadedBoard:Mesh|null=null,boardVertices=0,drawnCamera=-1,previousStatus="";
   const visibility=()=>{last=null;if(document.hidden)cancel();};
   document.addEventListener("visibilitychange",visibility);
   const render=(time:number)=> {
@@ -294,32 +372,46 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     const elapsed=frameSeconds(last,time);last=time;
     if(!document.hidden&&elapsed>0)world.advance(elapsed);
     const physicsEnd=performance.now();
-    const mesh=new Mesh();
+    let uploadedBytes=0,sceneChanged=false,drawCalls=0;
+    const rebuiltCords:number[]=[];
+    for(const [cord,cached] of meshCache)if(!world.cords.includes(cord)){
+      gl.deleteBuffer(cached.buffer);meshCache.delete(cord);sceneChanged=true;
+    }
     // Geometry uses the solver's polyline directly; visual splines cannot cut
     // corners through contacts or misrepresent which cord is in front.
-    for(const c of world.cords) {
+    const meshes=world.cords.map((c,ci)=>{
+      const cached=meshCache.get(c);
+      const ports=c.ports.join(",");
+      if(cached&&cached.ports===ports&&cached.points.length===c.nodes.length*3&&c.nodes.every((n,i)=>n.p.x===cached.points[i*3]&&n.p.y===cached.points[i*3+1]&&n.p.z===cached.points[i*3+2]))return cached;
+      const mesh=new Mesh();
       const pts=c.nodes.map(n=>n.p);
-      for(let i=0;i<pts.length-1;i++) {
-        const a=pts[i],b=pts[i+1];
+      const shadow=angle?cableShadowSpine(c):pts.map(p=>({p,radius:RADIUS}));
+      for(let i=0;i<shadow.length-1;i++) {
+        const a=shadow[i].p,b=shadow[i+1].p;
         if(angle){
           // The same inward-set point lights used in the material shader.
-          for(const lx of [-4.1,4.1])for(const floor of [false,true]){
-            const light=v(lx,8.8,5),axis=floor?"y":"z",plane=floor?0.004:0.002;
+          for(const light of lights)for(const floor of [false,true]){
+            const axis=floor?"y":"z",plane=floor?0.004:PANEL_SHADOW_Z;
             if(a[axis]>=light[axis]-0.1||b[axis]>=light[axis]-0.1)continue;
-            const projectShadow=(p:V3)=>add(light,mul(sub(p,light),(plane-light[axis])/(p[axis]-light[axis])));
-            const sa=projectShadow(a),sb=projectShadow(b);
+            const sa=projectShadow(a,light,axis,plane),sb=projectShadow(b,light,axis,plane);
             const normal=floor?v(0,1,0):v(0,0,1);
-            const scale=Math.min(3,light[axis]/(light[axis]-(a[axis]+b[axis])/2));
-            const w=mul(unit(cross(sub(sb,sa),normal)),RADIUS*scale);
+            const radiusA=shadow[i].radius*Math.min(3,(light[axis]-plane)/(light[axis]-a[axis]));
+            const radiusB=shadow[i+1].radius*Math.min(3,(light[axis]-plane)/(light[axis]-b[axis]));
+            const side=unit(cross(sub(sb,sa),normal)),wa=mul(side,radiusA),wb=mul(side,radiusB);
             const bounds: [keyof V3,number,number][]=floor?[["x",-100,100],["z",-0.45,8]]:[["x",-100,100],["y",0,50]];
-            const shade=floor?[0.85,0.85,0.84]:[0.92,0.92,0.92];
-            mesh.clippedQuad([sub(sa,w),add(sa,w),add(sb,w),sub(sb,w)],bounds,shade);
+            // A faint tint of the receiving surface; panel engraving remains
+            // visible underneath, without lighting darkening the shadow again.
+            const shade=floor?[0.925,0.925,0.915]:[0.97,0.97,0.97];
+            mesh.clippedQuad([sub(sa,wa),add(sa,wa),add(sb,wb),sub(sb,wb)],bounds,shade);
             // Round joins keep the projected physical polyline continuous.
-            const cap=Array.from({length:10},(_,j)=>{
-              const x=Math.cos(j*TAU/10)*RADIUS*scale,y=Math.sin(j*TAU/10)*RADIUS*scale;
-              return add(sa,floor?v(x,0,y):v(x,y,0));
-            });
-            mesh.clippedQuad(cap,bounds,shade);
+            const caps=i===shadow.length-2?[[sa,radiusA],[sb,radiusB]] as const:[[sa,radiusA]] as const;
+            for(const [center,radius] of caps){
+              const cap=Array.from({length:10},(_,j)=>{
+                const x=Math.cos(j*TAU/10)*radius,y=Math.sin(j*TAU/10)*radius;
+                return add(center,floor?v(x,0,y):v(x,y,0));
+              });
+              mesh.clippedQuad(cap,bounds,shade);
+            }
           }
           continue;
         }
@@ -329,7 +421,7 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
         const wa=v(a.x+0.2*a.z,a.y-0.6*a.z,0.002),wb=v(b.x+0.2*b.z,b.y-0.6*b.z,0.002);
         if(wa.y>0&&wb.y>0){const q=mul(unit(cross(sub(wb,wa),v(0,0,1))),RADIUS*1.2);mesh.quad(sub(wa,q),add(wa,q),add(wb,q),sub(wb,q),[0.70,0.69,0.64]);}
       }
-      mesh.tube(angle?pts.slice(1,-1):pts,c.color);
+      mesh.tube(angle?pts.slice(1,-1):pts,c.color,angle?c.rest.slice(1,-1):c.rest,ci*0.371);
       c.ports.forEach((port,end)=>{if(port!==null){const p=pts[end===0?0:pts.length-1];mesh.cylinder(v(p.x,p.y,0.07),p,PLUG_RADIUS,[0.32,0.33,0.31],14);}});
       for(const end of [0,pts.length-1]) {
         const neighbour=end===0?1:pts.length-2;
@@ -346,26 +438,42 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
             mesh.cylinder(at(0.61),at(0.70),0.082,chrome,18);
           }
           const body=at(seated?0:0.7);
-          mesh.cylinder(body,elbow,PLUG_RADIUS*0.92,c.color,18);
-          mesh.sphere(elbow,PLUG_RADIUS*0.92,c.color);
+          mesh.cylinder(body,elbow,PLUG_RADIUS*0.92,c.color,18,PLUG_RADIUS*0.92,true);
+          mesh.sphere(elbow,PLUG_RADIUS*0.92,c.color,true);
           // Molded right-angle elbow and flexible ribbed strain relief follow
           // the physical cable direction immediately behind the connector.
           const boot=pts[end===0?2:pts.length-3];
-          mesh.cylinder(elbow,boot,0.096,c.color,16,0.07);
+          mesh.cylinder(elbow,boot,0.096,c.color,16,0.07,true);
           const rib=c.color.map(n=>n*0.65);
-          for(const t of [0.2,0.4,0.6,0.8])mesh.cylinder(lerp(elbow,boot,t),lerp(elbow,boot,t+0.06),0.097-t*0.026,rib,16);
+          for(const t of [0.2,0.4,0.6,0.8])mesh.cylinder(lerp(elbow,boot,t),lerp(elbow,boot,t+0.06),0.097-t*0.026,rib,16,0.097-t*0.026,true);
           continue;
         }
-        mesh.cylinder(pts[end],pts[neighbour],PLUG_RADIUS,c.color,14);
-        mesh.sphere(pts[end],PLUG_RADIUS,c.color);
+        mesh.cylinder(pts[end],pts[neighbour],PLUG_RADIUS,c.color,14,PLUG_RADIUS,true);
+        mesh.sphere(pts[end],PLUG_RADIUS,c.color,true);
         mesh.cylinder(lerp(pts[end],pts[neighbour],0.15),lerp(pts[end],pts[neighbour],0.32),PLUG_RADIUS*1.015,[0.30,0.31,0.29],14);
       }
+      const data=new Float32Array(mesh.data),points=new Float64Array(c.nodes.length*3);
+      c.nodes.forEach((n,i)=>{points[i*3]=n.p.x;points[i*3+1]=n.p.y;points[i*3+2]=n.p.z;});
+      const entry={points,ports,buffer:cached?.buffer??gl.createBuffer()!,vertices:data.length/VERTEX_FLOATS};
+      gl.bindBuffer(gl.ARRAY_BUFFER,entry.buffer);gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_DRAW);
+      uploadedBytes+=data.byteLength;rebuiltCords.push(ci);sceneChanged=true;
+      meshCache.set(c,entry);return entry;
+    });
+    if(uploadedBoard!==board){
+      const data=new Float32Array(board.data);
+      gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,data,gl.STATIC_DRAW);
+      uploadedBytes+=data.byteLength;uploadedBoard=board;boardVertices=data.length/VERTEX_FLOATS;sceneChanged=true;
     }
-    const data=new Float32Array(board.data.length+mesh.data.length);data.set(board.data);data.set(mesh.data,board.data.length);
-    gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-    for(const [name,p]of Object.entries({eye,right,up,forward}))gl.uniform3f(uniforms[name],p.x,p.y,p.z);
-    gl.uniform1f(uniforms.orthographic,orthographic()?zoom:0);
-    gl.uniform1f(uniforms.aspect,width/height);gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_DRAW);gl.drawArrays(gl.TRIANGLES,0,data.length/9);
+    if(sceneChanged||drawnCamera!==cameraRevision){
+      gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+      for(const [name,p]of Object.entries({eye,right,up,forward}))gl.uniform3f(uniforms[name],p.x,p.y,p.z);
+      gl.uniform1f(uniforms.orthographic,orthographic()?zoom:0);
+      if(angle){gl.uniform2f(uniforms.panelSize,layout.width,layout.height);gl.uniform3f(uniforms.lightLeft,lights[0].x,lights[0].y,lights[0].z);gl.uniform3f(uniforms.lightRight,lights[1].x,lights[1].y,lights[1].z);}
+      gl.uniform1f(uniforms.aspect,width/height);
+      bindMesh(buffer);gl.drawArrays(gl.TRIANGLES,0,boardVertices);drawCalls++;
+      for(const mesh of meshes){bindMesh(mesh.buffer);gl.drawArrays(gl.TRIANGLES,0,mesh.vertices);drawCalls++;}
+      drawnCamera=cameraRevision;
+    }
     ctx.clearRect(0,0,width,height);ctx.textAlign="center";ctx.font="10px ui-monospace, monospace";ctx.fillStyle="#73736b";
     if(!angle){
       for(const [i,s]of world.sockets.entries()){const p=project(add(s,v(0,0.35,-0.22)));ctx.fillText(`${String.fromCharCode(65+Math.floor(i/10))}${i%10+1}`,p.x,p.y);}
@@ -382,24 +490,30 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
       ctx.beginPath();ctx.arc(p.x,p.y,14,0,TAU);ctx.stroke();ctx.setLineDash([]);
       if(world.dockingBlocked(dock)){ctx.textAlign="center";ctx.font="10px ui-monospace, monospace";ctx.fillStyle="#8a6025";ctx.fillText("NOT SEATED",p.x,p.y+29);}
     }
-    if(time-lastStatus>100){lastStatus=time;onStatus({held:down,depth,connected:world.cords.reduce((n,c)=>n+c.ports.filter(p=>p!==null).length,0),docking:!down&&world.docking.length>0,blocked:!down&&world.docking.some(d=>world.dockingBlocked(d))});}
-    timing={physicsMs:physicsEnd-begin,renderMs:performance.now()-physicsEnd,frameMs:elapsed*1000,substeps:world.steps-beforeSteps};
+    if(time-lastStatus>100){
+      lastStatus=time;
+      const status={held:down,depth,connected:world.cords.reduce((n,c)=>n+c.ports.filter(p=>p!==null).length,0),total:world.cords.length*2,docking:!down&&world.docking.length>0,blocked:!down&&world.docking.some(d=>world.dockingBlocked(d))};
+      const key=JSON.stringify(status);if(key!==previousStatus){previousStatus=key;onStatus(status);}
+    }
+    timing={physicsMs:physicsEnd-begin,renderMs:performance.now()-physicsEnd,frameMs:elapsed*1000,substeps:world.steps-beforeSteps,rebuiltCords,uploadedBytes,drawCalls};
     frame=requestAnimationFrame(render);
   };
   // Read-only snapshots for reproducible browser verification.
-  const debugCanvas=canvas as HTMLCanvasElement & { __patchboard?:()=>unknown };
-  debugCanvas.__patchboard=()=>({ ...world.diagnostics(),timing:{...timing},grip:world.grip,sockets:world.sockets.map((p,i)=>({...project(p),hole:project(v(p.x,p.y,0.07)),position:{...p},occupied:world.occupied(i)})),cords:world.cords.map(c=>({ports:[...c.ports],points:c.nodes.map(n=>({...n.p,screen:project(n.p)}))})) });
+  const debugCanvas=canvas as HTMLCanvasElement & { __patchboard?:()=>unknown;__patchboardTiming?:()=>unknown };
+  debugCanvas.__patchboard=()=>({ ...world.diagnostics(),seed,layout:angle?{...layout}:null,timing:{...timing},grip:world.grip,sockets:world.sockets.map((p,i)=>({...project(p),hole:project(v(p.x,p.y,0.07)),position:{...p},occupied:world.occupied(i)})),cords:world.cords.map(c=>({ports:[...c.ports],length:c.rest.reduce((a,b)=>a+b,0),points:c.nodes.map(n=>({...n.p,screen:project(n.p)}))})) });
+  debugCanvas.__patchboardTiming=()=>({...timing,rebuiltCords:[...timing.rebuiltCords]});
   frame=requestAnimationFrame(render);
   return {
-    reset:()=>{cancel();world.reset();},
+    reset,
     view:setView,
     configure:(settings)=>{world.configure(settings);},
     dispose:()=>{
-      disposed=true;cancelAnimationFrame(frame);observer.disconnect();overlay.remove();delete debugCanvas.__patchboard;
+      disposed=true;cancelAnimationFrame(frame);observer.disconnect();overlay.remove();delete debugCanvas.__patchboard;delete debugCanvas.__patchboardTiming;
       document.removeEventListener("visibilitychange",visibility);
       canvas.removeEventListener("pointerdown",pointerDown);canvas.removeEventListener("pointermove",pointerMove);canvas.removeEventListener("pointerup",pointerUp);canvas.removeEventListener("pointercancel",pointerUp);canvas.removeEventListener("lostpointercapture",pointerUp);
       canvas.removeEventListener("wheel",wheel);canvas.removeEventListener("contextmenu",context);window.removeEventListener("keydown",key);window.removeEventListener("blur",cancel);
-      gl.deleteTexture(artwork);gl.deleteBuffer(buffer);gl.deleteProgram(program);gl.deleteShader(vs);gl.deleteShader(fs);
+      for(const cached of meshCache.values())gl.deleteBuffer(cached.buffer);meshCache.clear();
+      gl.deleteTexture(artwork);gl.deleteTexture(rubber);gl.deleteBuffer(buffer);gl.deleteProgram(program);gl.deleteShader(vs);gl.deleteShader(fs);
     },
   };
 }

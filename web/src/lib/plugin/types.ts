@@ -1,17 +1,10 @@
-import type { ChainProjectIds } from "@/lib/bendystraw/operations";
 import type { SupportedChainId } from "@/lib/chains";
+import type { Machine } from "@/lib/machines";
 import type { DoublingKey } from "@/lib/plugin/house";
-
-/** A machine the user routes part of their keep to. */
-export type RouteTarget = {
-  name: string;
-  symbol: string;
-  ids: ChainProjectIds;
-};
 
 /** One configured route: who, how much of the keep, and whether it's permanent. */
 export type Route = {
-  machine: RouteTarget;
+  machine: Machine;
   percent: number;
   locked: boolean;
 };

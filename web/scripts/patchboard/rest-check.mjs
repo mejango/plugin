@@ -11,7 +11,10 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
-  await page.goto(process.env.PATCHBOARD_URL || "http://localhost:3004/patchboard-angle");
+  const url=new URL(process.env.PATCHBOARD_URL || "http://localhost:3004/patchboard-angle");
+  const tuning=url.pathname==="/patchboard";
+  if(!tuning)url.searchParams.set("scene","classic");
+  await page.goto(url.href);
   await page.waitForFunction(() => document.querySelector("canvas")?.__patchboard);
   const state = () => page.evaluate(() => document.querySelector("canvas").__patchboard());
   const positions = s => s.cords.map(c => c.points.map(({ x, y, z }) => ({ x, y, z })));
@@ -23,10 +26,12 @@ try {
   };
   await rest();
   console.log("PASS: initial scene becomes exactly motionless");
-  for (const preset of ["¼-inch cable", "Firm + fast settling"]) {
-    await page.locator("details").evaluate(el => { el.open = true; });
-    await page.getByLabel("Cable preset").selectOption(preset);
-    await page.locator("details").evaluate(el => { el.open = false; });
+  for (const preset of tuning?["¼-inch cable", "Firm + fast settling"]:["Homepage default"]) {
+    if(tuning){
+      await page.locator("details").evaluate(el => { el.open = true; });
+      await page.getByLabel("Cable preset").selectOption(preset);
+      await page.locator("details").evaluate(el => { el.open = false; });
+    }
     await page.locator("canvas").first().focus(); await page.keyboard.press("r");
     await rest();
     const s = await state(), tip = s.cords[0].points[0].screen;
@@ -36,11 +41,20 @@ try {
     await page.waitForTimeout(400);
     assert.ok((await state()).grip, "grab wakes the selected cable");
     assert.deepEqual(positions(await state()).slice(1), untouched, "unrelated cords stay still during a drag");
+    await rest();
+    assert.ok((await state()).grip, "a stationary grip remains held after the cable becomes still");
+    const held = (await state()).cords[0].points[0].screen;
+    await page.mouse.move(held.x + 15, held.y + 10);
+    await page.waitForFunction(({ x, y }) => {
+      const s = document.querySelector("canvas").__patchboard(), p = s.cords[0].points[0].screen;
+      return !s.rest[0].sleeping && Math.hypot(p.x - x, p.y - y) < 1;
+    }, { x: held.x + 15, y: held.y + 10 });
+    await rest();
     await page.mouse.up();
     assert.equal((await state()).grip, null);
     await rest();
     assert.ok((await state()).penetration < 0.004);
-    console.log(`PASS: ${preset} drop settles completely, unrelated cords stay still`);
+    console.log(`PASS: ${preset} held cable rests, resumes at the cursor, and falls/settles on release; unrelated cords stay still`);
   }
   assert.deepEqual(errors, []);
 } finally { await browser.close(); }

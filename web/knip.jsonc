@@ -1,0 +1,7 @@
+{
+  // Next routes and Vitest tests are discovered by their built-in plugins.
+  // These browser regressions are also entry points, invoked directly via Node.
+  "entry": ["scripts/patchboard/*.mjs"],
+  // Next supplies this build-time server/client boundary marker itself.
+  "ignoreDependencies": ["server-only"]
+}

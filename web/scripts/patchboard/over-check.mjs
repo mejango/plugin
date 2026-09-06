@@ -10,7 +10,7 @@ const browser = await chromium.launch({ headless: true, args: ["--enable-unsafe-
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = []; page.on("pageerror", e => errors.push(e.message));
-  await page.goto("http://localhost:3004/patchboard-angle");
+  await page.goto("http://localhost:3004/patchboard-angle?scene=classic");
   await page.waitForFunction(() => document.querySelector("canvas")?.__patchboard?.().sleeping);
   const state = () => page.evaluate(() => document.querySelector("canvas").__patchboard());
   const atCursor = async (index, x, y) => page.waitForFunction(({ index, x, y }) => {

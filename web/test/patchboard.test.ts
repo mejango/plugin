@@ -5,6 +5,17 @@ import { frameSeconds } from "../src/lib/patchboard/clock";
 import { DEFAULT_FEEL, FEEL_PRESETS, sanitizeFeel } from "../src/lib/patchboard/settings";
 
 describe("physical patchboard", () => {
+  it("uses the approved cable settings as the homepage and restore defaults", () => {
+    const approved = {
+      bend: 8, settling: 30, damping: 8, cordFriction: 0.5, floorFriction: 0.95,
+      grip: 0.35, stretch: 0.01, plugWeight: 3.75, socketResistance: 0.38,
+      shapeMemory: true, socketAssist: true,
+    };
+    expect(DEFAULT_FEEL).toEqual(approved);
+    expect(FEEL_PRESETS["¼-inch cable"]).toEqual(approved);
+    expect(sanitizeFeel(undefined)).toEqual(approved);
+    expect(new PatchWorld().feel).toEqual(approved);
+  });
   it("quickly settles a broad wave without damping translation or a held plug", () => {
     const w = new PatchWorld(), nodes = w.cords[0].nodes;
     nodes.forEach((n, i) => { n.mass = i === 0 ? 1 / 3 : 1; n.velocity = v(Math.sin(i / (nodes.length - 1) * Math.PI * 2), -4, 2); });
@@ -32,14 +43,17 @@ describe("physical patchboard", () => {
       const w = new PatchWorld();w.cords = w.cords.slice(0, 1);
       w.configure(sanitizeFeel({ ...DEFAULT_FEEL, damping, gravity: 0, gravityEnabled: false }));
       const c = w.cords[0];c.ports = [null, null];
-      c.nodes.forEach(n => { n.mass = 1; n.velocity = v(); });
+      // Start with a stress-free cable to isolate gravity from the travel
+      // limiter's approximation when a very stiff, pre-bent shape relaxes.
+      let x=-c.rest.reduce((sum,r)=>sum+r,0)/2;
+      c.nodes.forEach((n,i) => { n.mass = 1; n.velocity = v(); n.p=v(x,6,2);n.old={...n.p};x+=c.rest[i]??0; });
+      c.bend=c.rest.slice(1).map((r,i)=>r+c.rest[i]);
       const centerY=()=>c.nodes.reduce((sum,n)=>sum+n.p.y,0)/c.nodes.length;
       const y = centerY();
       // Use the public elapsed-time stepper so collision subdivisions cannot
       // impose a terminal speed. Bound semi-implicit integration error.
       w.advance(0.1);
-      // Material rest curvature may deform the cable during free fall; its
-      // center of mass, not a particular bending node, follows Earth gravity.
+      // Its center of mass follows Earth gravity regardless of damping.
       const drop = (y - centerY()) * METERS_PER_UNIT;
       expect(drop).toBeGreaterThanOrEqual(EARTH_GRAVITY * 0.1 ** 2 / 2 - 1e-8);
       expect(drop).toBeLessThanOrEqual(EARTH_GRAVITY * 0.1 * (0.1 + STEP) / 2 + 1e-8);

@@ -173,7 +173,7 @@ export function unkink3(r: Rope3, minDeg: number, relax: number) {
   }
 }
 
-export function lifted(r: Rope3, i: number) {
+function lifted(r: Rope3, i: number) {
   if (r.heldA && r.heldB) return true;
   if (r.heldA && i <= 0) return true;
   if (r.heldB && i >= r.pts.length - 2) return true;

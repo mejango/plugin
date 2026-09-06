@@ -2,14 +2,15 @@ import type { V3 } from "./math";
 
 // Printed panel artwork, using the same multilingual signal vocabulary and
 // circuit motifs as patchbay.ts. Uploaded once, not redrawn during simulation.
-export function panelArtwork(sockets: V3[]) {
+export function panelArtwork(sockets: V3[], width=13, height=8.5) {
   const canvas = document.createElement("canvas");
-  canvas.width = 2048; canvas.height = 1536;
+  const resolution=Math.min(160,2048/Math.max(width,height));
+  canvas.width=Math.round(width*resolution);canvas.height=Math.round(height*resolution);
   const ctx = canvas.getContext("2d")!;
-  const sx = canvas.width / 13, sy = canvas.height / 8.5;
-  const point = (x: number, y: number) => [(x + 6.5) * sx, (8.5 - y) * sy] as const;
+  const sx = canvas.width / width, sy = canvas.height / height;
+  const point = (x: number, y: number) => [(x + width/2) * sx, (height - y) * sy] as const;
   const text = (label: string, x: number, y: number, size = 15, alpha = 0.5) => {
-    ctx.font = `500 ${size}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.font = `500 ${size*resolution/158}px ui-sans-serif, system-ui, sans-serif`;
     ctx.fillStyle = `rgba(45,49,47,${alpha})`; ctx.textAlign = "center";
     ctx.fillText(label, ...point(x, y));
   };
@@ -41,18 +42,21 @@ export function panelArtwork(sockets: V3[]) {
     ["FEED / IN", "DOUBLING / CLK", "曲線 / 整形", "TREASURY / SUM", "剰余 / 還流"],
     ["OMNI / BUS", "SUCKER / BRIDGE", "SURPLUS / RETURN", "EXT PAY / IN", "TOKEN / OUT"],
   ];
-  for (const [row, chain] of chains.entries()) {
-    const y = 5.875 - row * 2.1;
-    for (const [col, label] of chain.entries()) {
-      const x = -4.3 + col * 2.15;
+  for (let row=0;row<Math.floor(sockets.length/columns)-1;row+=2) {
+    const chain=chains[(row/2)%chains.length];
+    const y=(sockets[row*columns].y+sockets[(row+1)*columns].y)/2;
+    for (let col=0;col<columns-1;col+=2) {
+      const label=chain[(col/2)%chain.length];
+      const x=(sockets[row*columns+col].x+sockets[row*columns+col+1].x)/2;
       const [a, b] = label.split(" / ");
       const p = point(x - 0.36, y + 0.13);
       ctx.strokeStyle = "rgba(45,49,47,0.22)"; ctx.lineWidth = 1.2;
       ctx.strokeRect(p[0], p[1], 0.72 * sx, 0.26 * sy);
       text(a, x, y + 0.025, 10, 0.45); text(b, x, y - 0.07, 10, 0.45);
-      if (col < chain.length - 1) {
-        line([[x + 0.36, y], [x + 1.79, y]]);
-        line([[x + 1.72, y + 0.04], [x + 1.79, y], [x + 1.72, y - 0.04]]);
+      if (col < columns - 3) {
+        const next=(sockets[row*columns+col+2].x+sockets[row*columns+col+3].x)/2-0.36;
+        line([[x + 0.36, y], [next, y]]);
+        line([[next-0.07, y + 0.04], [next, y], [next-0.07, y - 0.04]]);
       }
     }
   }

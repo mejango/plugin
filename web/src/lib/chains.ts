@@ -29,7 +29,7 @@ export const SUPPORTED_CHAIN_IDS: readonly SupportedChainId[] = [
   arbitrum.id,
 ];
 
-export function isSupportedChainId(id: number): id is SupportedChainId {
+function isSupportedChainId(id: number): id is SupportedChainId {
   return (SUPPORTED_CHAIN_IDS as readonly number[]).includes(id);
 }
 

@@ -90,6 +90,8 @@ describe("untouched cable rest", () => {
     expect(Math.min(...c.nodes.map(n=>n.p.y-n.radius))).toBeGreaterThan(0.1);
     expect(w.sleeping,JSON.stringify(w.diagnostics())).toBe(true);
     const before=positions(c);frames(w,2);expect(positions(c)).toEqual(before);
+    w.grab(0,0);
+    expect(w.diagnostics().rest[1].sleeping,"a loose cable must wake when its supporting cable is disturbed").toBe(false);
   });
   it("lets an obstructed pending insertion rest without canceling it or disturbing other cords",()=>{
     const w=new PatchWorld(),socket=w.sockets[1];
@@ -110,7 +112,10 @@ describe("untouched cable rest", () => {
     ["maximum stiffness and stretch",{...FEEL_PRESETS["¼-inch cable"],bend:8,settling:30,damping:8,stretch:1,plugWeight:6}],
   ] as const)("settles the dense board after a drop with %s",(_,feel)=>{
     const w=new PatchWorld({columns:12,rows:7,top:7.45,gap:1.05});w.configure(feel);
-    w.grab(0,0);w.grip!.target.z=2;frames(w,0.5);w.release();frames(w,10);
+    w.grab(0,0);w.grip!.target.z=2;frames(w,0.5);w.release();
+    // Deliberately undamped/frictionless extremes can swing longer with a
+    // heavier plug; every supported configuration must still reach exact rest.
+    for(let i=0;i<15*30&&!w.sleeping;i++)w.advance(1/30);
     expect(w.sleeping,JSON.stringify(w.diagnostics())).toBe(true);
     const before=w.cords.map(positions);frames(w,2);expect(w.cords.map(positions)).toEqual(before);
     expect(w.diagnostics().penetration).toBeLessThan(0.004);

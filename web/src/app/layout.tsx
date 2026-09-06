@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Anton } from "next/font/google";
 
 import { Providers } from "@/app/providers";
+import { PatchboardBackdrop } from "@/components/PatchboardBackdrop";
 
 // Self-hosted by Next: no CDN round-trip, no swap flash on the one face that
 // carries the whole brand.
@@ -21,7 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className={anton.variable}>
-        <Providers>{children}</Providers>
+        <Providers><PatchboardBackdrop />{children}</Providers>
       </body>
     </html>
   );
