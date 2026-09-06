@@ -3,6 +3,31 @@ import { PatchWorld } from "../src/lib/patchboard/physics";
 import { add, distance, lerp, v } from "../src/lib/patchboard/math";
 import { FEEL_PRESETS } from "../src/lib/patchboard/settings";
 
+it.each([0,1])("can reinsert loose end %i from the full table depth without teleporting",end=>{
+  const w=new PatchWorld();w.cords=w.cords.slice(0,1);
+  const c=w.cords[0],index=end===0?0:c.nodes.length-1;
+  const socket=v(-4.725,0.53,0.3);w.sockets[0]=socket;c.ports=[null,null];
+  const total=c.rest.reduce((sum,length)=>sum+length,0);let along=0;
+  // A loose cable picked up just above the floor, farther out than the old
+  // seven-unit insertion cutoff. Both ends are free to follow the approach.
+  c.nodes.forEach((n,i)=>{
+    n.p=v(socket.x+(end===0?along:total-along),socket.y,7.75);
+    n.old={...n.p};n.velocity=v();n.mass=1;along+=c.rest[i]??0;
+  });
+  const before={...c.nodes[index].p};
+  w.grab(0,index);w.release(0);
+  expect(w.docking).toHaveLength(0); // Manual depth still requires proximity.
+  w.grab(0,index);w.release(0,true);
+  expect(w.docking).toHaveLength(1);
+  expect(c.nodes[index].p).toEqual(before);expect(c.ports[end]).toBeNull();
+  w.step();expect(distance(c.nodes[index].p,before)).toBeLessThan(0.028);
+  for(let i=0;i<360&&c.ports[end]===null;i++)w.advance(1/60);
+  expect(c.ports[end],JSON.stringify(w.diagnostics())).toBe(0);
+  expect(c.nodes[index].p).toEqual(socket);
+  expect(c.nodes[end===0?1:c.nodes.length-2].p).toEqual(add(socket,v(0,0,0.22)));
+  expect(w.diagnostics().penetration).toBeLessThan(0.004);
+});
+
 it("does not cancel a pending insertion when another end is grabbed", () => {
   const w = new PatchWorld();
   w.grab(0, 0); w.release(0);

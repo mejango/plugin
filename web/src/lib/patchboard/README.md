@@ -168,6 +168,13 @@ pull-distance threshold. A click without movement leaves it connected. Wheel
 or arrow-key depth movement also starts the drag immediately. Old saved socket
 hold settings are ignored. `node scripts/patchboard/unplug-check.mjs` checks
 immediate release, click/cancel safety, and pointer ownership in the browser.
+The metal tip, elbow, and strain relief are picked as one connector, always
+mapped to the physical endpoint. A floor plug takes priority over its own
+folded cable body within the handle's hit area; another cable in front still
+occludes it. This keeps plug handling and socket assistance active when a loose
+connector is picked up sideways. `node scripts/patchboard/floor-check.mjs`
+checks dropping both ends and re-inserting them from the floor at desktop and
+phone sizes, including picking up the second end while the first is attached.
 
 `physics.ts` uses about one particle per 0.115 scene units for the stock cables
 (73 for the original three-cable fixture), at a base 600 Hz using compliant length and
@@ -216,6 +223,10 @@ The pointer and visible plug must both be over the actual 0.091-unit socket
 aperture on release, not its rim or a padded screen-space snap zone. Final
 seating centers the endpoint exactly, with a sub-radius correction checked
 against cord and shaft collisions before it is locked.
+Verified socket approaches work from the full table depth, without the old
+seven-unit cutoff. They still travel through the solver, obey cable reach and
+collisions, and lock only after reaching the exact seated pose. Manual-depth
+placement without alignment assistance still requires socket proximity.
 Escape while idle cancels pending insertions; while dragging it drops only the
 held cord.
 

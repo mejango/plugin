@@ -6,6 +6,7 @@ import { panelArtwork } from "./artwork";
 import { cableShadowSpine, PANEL_SHADOW_Z, PATCH_LIGHTS, projectShadow } from "./shadows";
 import { screenLayout } from "./layout";
 import { rubberGrain, RUBBER_TEXTURE_SIZE } from "./material";
+import { pickCord } from "./picking";
 
 type Color = number[];
 const TAU = Math.PI * 2;
@@ -258,22 +259,7 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
   let activePointer:number|null=null;
   let frontDrag=false;
   let seatedGrip: { cord: number; index: number } | null = null;
-  const pick=()=> {
-    let hit:{cord:number;index:number;z:number}|null=null;
-    world.cords.forEach((c,ci)=>c.nodes.forEach((n,i)=>{
-      const p=project(n.p),end=i<2||i>c.nodes.length-3;
-      if(Math.hypot(pointer.x-p.x,pointer.y-p.y)<(end?16:9) && (!hit||p.z<hit.z)) hit={cord:ci,index:i,z:p.z};
-    }));
-    const selected=hit as {cord:number;index:number;z:number}|null;
-    if(selected){
-      const c=world.cords[selected.cord],last=c.nodes.length-1;
-      for(const end of [0,last]){
-        const p=project(c.nodes[end].p);
-        if(Math.abs(selected.index-end)<=3&&Math.hypot(pointer.x-p.x,pointer.y-p.y)<16)selected.index=end;
-      }
-    }
-    return selected;
-  };
+  const pick=()=>pickCord(world.cords,pointer,project);
   const updateTarget=(beginDrag=false)=> {
     if(!down) return;
     let p=unproject(pointer.x,pointer.y,depth);

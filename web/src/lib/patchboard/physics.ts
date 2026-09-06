@@ -303,7 +303,10 @@ export class PatchWorld {
       // The raised-hand approach is requested only after the view verifies
       // that both the cursor and the actual held tip are over the aperture.
       const p = this.cords[g.cord].nodes[g.index].p;
-      if (distance(p, this.sockets[port]) < (approach ? 7 : 0.65)) {
+      // A dropped plug can lie farther out on the table than the usual hand
+      // plane. A verified approach must work from that depth too; the solver
+      // still checks the complete path, cable reach and final insertion.
+      if (approach || distance(p, this.sockets[port]) < 0.65) {
         this.docking.push({ ...g, dock: port, target: { ...this.sockets[port] } });
         this.grip = null;
         return;
