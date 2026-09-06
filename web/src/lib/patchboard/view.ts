@@ -257,7 +257,7 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
   let pointer={x:0,y:0}, orbit=false, down=false, depth=0.55, hoverPort:number|null=null;
   let activePointer:number|null=null;
   let frontDrag=false;
-  let seatedGrip: { cord: number; index: number; origin: V3 } | null = null;
+  let seatedGrip: { cord: number; index: number } | null = null;
   const pick=()=> {
     let hit:{cord:number;index:number;z:number}|null=null;
     world.cords.forEach((c,ci)=>c.nodes.forEach((n,i)=>{
@@ -274,11 +274,13 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     }
     return selected;
   };
-  const updateTarget=()=> {
+  const updateTarget=(beginDrag=false)=> {
     if(!down) return;
     let p=unproject(pointer.x,pointer.y,depth);
     if(seatedGrip){
-      if(length(sub(p,seatedGrip.origin))<world.feel.socketResistance)return;
+      // A click leaves the plug seated; the first actual drag movement releases
+      // it immediately, with no screen- or world-space distance threshold.
+      if(!beginDrag)return;
       world.grab(seatedGrip.cord,seatedGrip.index);seatedGrip=null;
     }
     if(!world.grip)return;
@@ -308,24 +310,30 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
       const c=world.cords[hit.cord],end=hit.index===0?0:hit.index===c.nodes.length-1?1:null;
       frontDrag=end!==null;
       depth=c.nodes[hit.index].p.z;
-      if(end!==null&&c.ports[end]!==null&&world.feel.socketResistance>0)seatedGrip={cord:hit.cord,index:hit.index,origin:{...c.nodes[hit.index].p}};
+      if(end!==null&&c.ports[end]!==null)seatedGrip={cord:hit.cord,index:hit.index};
       else world.grab(hit.cord,hit.index);
       down=true;updateTarget();
     } else return;
     activePointer=e.pointerId;canvas.setPointerCapture(e.pointerId);canvas.style.cursor="grabbing";
   };
   const pointerMove=(e:PointerEvent)=> {
+    if(activePointer!==null&&e.pointerId!==activePointer)return;
     const rect=canvas.getBoundingClientRect(),next={x:e.clientX-rect.left,y:e.clientY-rect.top};
+    const moved=next.x!==pointer.x||next.y!==pointer.y;
     if(orbit){yaw=clamp(yaw+(next.x-pointer.x)*0.004,-0.9,0.9);pitch=clamp(pitch+(next.y-pointer.y)*0.004,-0.05,0.65);camera();}
-    pointer=next;updateTarget();
+    pointer=next;updateTarget(moved);
     if(!down&&!orbit)canvas.style.cursor=pick()?"grab":"default";
   };
   const pointerUp=(e:PointerEvent)=> {
     if(e.pointerId!==activePointer)return;
     if(down){
-      const rect=canvas.getBoundingClientRect();
-      pointer={x:e.clientX-rect.left,y:e.clientY-rect.top};updateTarget();
-      let port=e.type==="pointercancel"?null:hoverPort;
+      if(e.type==="pointerup"){
+        const rect=canvas.getBoundingClientRect();
+        pointer={x:e.clientX-rect.left,y:e.clientY-rect.top};updateTarget();
+      }
+      // Cancellation may have no valid pointer position; drop without docking
+      // or turning a pending click into a drag.
+      let port=e.type==="pointerup"?hoverPort:null;
       if(port!==null&&world.grip){
         const g=world.grip,tip=project(world.cords[g.cord].nodes[g.index].p);
         const actual=unproject(tip.x,tip.y,0.07),socket=world.sockets[port];
@@ -343,9 +351,14 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
   };
   const cancel=()=>{if(down||world.grip)world.release();down=false;orbit=false;activePointer=null;hoverPort=null;seatedGrip=null;};
   const reset=()=>{cancel();world.reset();if(angle)world.restInitialPlacement();};
+  const adjustDepth=(delta:number)=>{
+    if(delta===0)return;
+    const next=clamp(depth+delta,0.3,6.5),moved=next!==depth;
+    frontDrag=false;depth=next;updateTarget(moved);
+  };
   const wheel=(e:WheelEvent)=> {
     e.preventDefault();
-    if(down){frontDrag=false;depth=clamp(depth-e.deltaY*0.004,0.3,6.5);updateTarget();}
+    if(down)adjustDepth(-e.deltaY*0.004);
     else if(!angle){zoom=clamp(zoom+e.deltaY*0.012,11,Math.max(24,fittedZoom()*3));camera();}
   };
   const key=(e:KeyboardEvent)=> {
@@ -355,7 +368,7 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     if(e.key.toLowerCase()==="r")reset();
     if(e.key.toLowerCase()==="f")setView(true);
     if(e.key.toLowerCase()==="o")setView(false);
-    if(down&&(e.key==="ArrowUp"||e.key==="ArrowDown")){e.preventDefault();frontDrag=false;depth=clamp(depth+(e.key==="ArrowUp"?0.15:-0.15),0.3,6.5);updateTarget();}
+    if(down&&(e.key==="ArrowUp"||e.key==="ArrowDown")){e.preventDefault();adjustDepth(e.key==="ArrowUp"?0.15:-0.15);}
   };
   const context=(e:Event)=>e.preventDefault();
   canvas.addEventListener("pointerdown",pointerDown);canvas.addEventListener("pointermove",pointerMove);

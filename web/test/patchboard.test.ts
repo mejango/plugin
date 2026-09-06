@@ -8,13 +8,19 @@ describe("physical patchboard", () => {
   it("uses the approved cable settings as the homepage and restore defaults", () => {
     const approved = {
       bend: 8, settling: 30, damping: 8, cordFriction: 0.5, floorFriction: 0.95,
-      grip: 0.35, stretch: 0.01, plugWeight: 3.75, socketResistance: 0.38,
+      grip: 0.35, stretch: 0.01, plugWeight: 3.75,
       shapeMemory: true, socketAssist: true,
     };
     expect(DEFAULT_FEEL).toEqual(approved);
     expect(FEEL_PRESETS["¼-inch cable"]).toEqual(approved);
     expect(sanitizeFeel(undefined)).toEqual(approved);
     expect(new PatchWorld().feel).toEqual(approved);
+  });
+  it("ignores obsolete socket pull thresholds in saved experiment settings", () => {
+    for (const socketResistance of [0, 0.38, 0.6]) {
+      expect(sanitizeFeel({ socketResistance, bend: 5, socketAssist: false }))
+        .toEqual({ ...DEFAULT_FEEL, bend: 5, socketAssist: false });
+    }
   });
   it("quickly settles a broad wave without damping translation or a held plug", () => {
     const w = new PatchWorld(), nodes = w.cords[0].nodes;

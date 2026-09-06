@@ -9,7 +9,7 @@ const { chromium }=await import(pathToFileURL(`${root}/index.mjs`).href);
 const browser=await chromium.launch({headless:true,args:["--enable-unsafe-swiftshader"]});
 try{
   const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];
-  const approved={bend:8,settling:30,damping:8,cordFriction:0.5,floorFriction:0.95,grip:0.35,stretch:0.01,plugWeight:3.75,socketResistance:0.38,shapeMemory:true,socketAssist:true};
+  const approved={bend:8,settling:30,damping:8,cordFriction:0.5,floorFriction:0.95,grip:0.35,stretch:0.01,plugWeight:3.75,shapeMemory:true,socketAssist:true};
   // Previous experiment preferences must not override the public homepage.
   await page.addInitScript(()=>localStorage.setItem("patchboard-feel-v1",JSON.stringify({bend:0.25,settling:2,damping:1.6,shapeMemory:false,socketAssist:false})));
   page.on("pageerror",e=>errors.push(e.message));

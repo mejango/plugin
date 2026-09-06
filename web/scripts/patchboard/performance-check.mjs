@@ -33,8 +33,8 @@ try{
   const recording=sample(90);
   await page.mouse.move(tip.x,tip.y);await page.mouse.down();
   for(let i=1;i<=30;i++)await page.mouse.move(tip.x+8*i/30,tip.y+20*i/30);
-  // Exceed the configured socket hold without crossing distant cables.
-  const pull=Math.max(31,(s.feel.socketResistance+0.05)*1440/s.layout.width);
+  // Continue the small local drag without crossing distant cables.
+  const pull=31;
   await page.mouse.move(tip.x+pull*0.4,tip.y+pull*0.92,{steps:5});
   const frames=await recording,held=await state();
   if(profiler){

@@ -61,7 +61,7 @@ export function PatchboardExperience({ angle = false }: { angle?: boolean }) {
           {[
             { title: "Stiffness & settling", keys: ["bend", "settling"] },
             { title: "Surface & motion", keys: ["damping", "cordFriction", "floorFriction"] },
-            { title: "Handling", keys: ["grip", "stretch", "plugWeight", "socketResistance"] },
+            { title: "Handling", keys: ["grip", "stretch", "plugWeight"] },
           ].map(group => <section key={group.title} aria-label={group.title}>
           <h2 className="mb-3 border-b border-black/10 pb-2 font-semibold">{group.title}</h2>
           {FEEL_SLIDERS.filter(s => group.keys.includes(s.key)).map(s => <label key={s.key} className="mb-4 block">

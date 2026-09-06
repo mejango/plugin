@@ -79,7 +79,7 @@ try {
   await waitSteps(10);
   assert.deepEqual((await state()).cords.map(c => c.ports), [[0,2],[3,5],[7,9]]);
   if(tuning){
-  assert.equal(await page.getByRole("slider").count(), 9);
+  assert.equal(await page.getByRole("slider").count(), 8);
   await page.getByRole("button", { name: "Try firm + fast settling" }).click();
   assert.equal((await state()).feel.bend, 5);
   assert.equal((await state()).feel.settling, 24);
@@ -98,8 +98,8 @@ try {
   assert.equal(await page.getByRole("slider", { name: "Gravity", exact: true }).count(), 0);
   assert.equal(await page.getByRole("checkbox", { name: "Gravity enabled", exact: true }).count(), 0);
   await page.getByRole("button", { name: "Restore cable defaults" }).click();
-  assert.deepEqual((await state()).feel,{bend:8,settling:30,damping:8,cordFriction:0.5,floorFriction:0.95,grip:0.35,stretch:0.01,plugWeight:3.75,socketResistance:0.38,shapeMemory:true,socketAssist:true});
-  console.log("PASS: socket hold, live settings, presets, persistence and defaults");
+  assert.deepEqual((await state()).feel,{bend:8,settling:30,damping:8,cordFriction:0.5,floorFriction:0.95,grip:0.35,stretch:0.01,plugWeight:3.75,shapeMemory:true,socketAssist:true});
+  console.log("PASS: live settings, presets, persistence and defaults");
   }else{
     assert.equal(await page.locator("details, main footer").count(),0);
     assert.equal((await state()).feel.bend,8);

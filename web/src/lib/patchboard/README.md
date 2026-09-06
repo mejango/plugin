@@ -51,7 +51,7 @@ Direct entry to `/create` initializes the same public board behind the form.
 The homepage and creation form replace the former `PatchBay` background and
 ignore saved experiment tuning. The approved defaults
 are bending stiffness 8, settling 30, damping 8, cable grip 0.50, surface grip
-0.95, body handling 0.35, stretch 0.01, plug weight 3.75, and socket hold 0.38;
+0.95, body handling 0.35, stretch 0.01, and plug weight 3.75;
 rest-shape memory and socket assist are both enabled. Experiment preferences
 remain saved separately in the existing browser storage and are not deleted.
 Run the browser regression against this variant with
@@ -146,7 +146,7 @@ Idle solver chatter is never learned; switching shape memory off stops learning.
 This stores bend magnitude, not a full torsional/oriented material frame.
 
 The panel also exposes motion damping, cable and surface
-friction, body handling, stretch, connector weight, and socket hold.
+friction, body handling, stretch, and connector weight.
 Shape memory and socket alignment assist can be toggled independently.
 Earth gravity is fixed at 9.81 m/s², always enabled, and cannot be changed by
 presets or old saved settings. One scene unit is 5 cm: cable diameter is 6.5 mm,
@@ -163,7 +163,11 @@ points, not calibrated specifications for any physical cable diameter.
 Cable friction resolves relative tangential movement at capsule contacts, with
 a static-slip threshold and a sliding correction limited by contact support.
 Surface friction similarly limits tangential movement against the panel/floor.
-Socket hold is a mouse pull-distance threshold, not measured extraction force.
+A seated plug releases on the first pointer movement while held, without a
+pull-distance threshold. A click without movement leaves it connected. Wheel
+or arrow-key depth movement also starts the drag immediately. Old saved socket
+hold settings are ignored. `node scripts/patchboard/unplug-check.mjs` checks
+immediate release, click/cancel safety, and pointer ownership in the browser.
 
 `physics.ts` uses about one particle per 0.115 scene units for the stock cables
 (73 for the original three-cable fixture), at a base 600 Hz using compliant length and

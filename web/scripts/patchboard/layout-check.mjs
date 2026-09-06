@@ -53,7 +53,7 @@ try{
   const handle=ends.find(e=>e.point.screen.x<1100&&e.point.screen.y<850&&s.cords.every((c,ci)=>ci===e.cord||c.points.every(p=>Math.hypot(p.screen.x-e.point.screen.x,p.screen.y-e.point.screen.y)>35)));
   assert.ok(handle,"find a visually accessible plug in the populated scene");
   const tip=handle.point.screen,ports=s.cords.map(c=>c.ports);
-  const pull=Math.max(41,(s.feel.socketResistance+0.05)*1440/s.layout.width);
+  const pull=41;
   const target={x:tip.x+pull*0.5,y:tip.y+pull*0.87};
   await page.mouse.move(tip.x,tip.y);await page.mouse.down();
   await page.mouse.move(target.x,target.y,{steps:20});
