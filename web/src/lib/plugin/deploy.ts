@@ -4,7 +4,7 @@ import {
   USD_CURRENCY_ID, SPLITS_TOTAL_PERCENT, MAX_WEIGHT_CUT_PERCENT,
 } from "@bananapus/nana-sdk-core";
 import { isAddress, zeroAddress, type Address, type Hex, type ContractFunctionArgs } from "viem";
-import { assertSupportedChainId } from "@/lib/chains";
+import { assertSupportedChainId, MAINNET_CHAIN_IDS, TESTNET_CHAIN_IDS } from "@/lib/chains";
 import { doublingFor, keepIndex, INITIAL_ISSUANCE_PER_USD } from "@/lib/plugin/house";
 import type { MachineDraft } from "@/lib/plugin/types";
 
@@ -19,6 +19,10 @@ export function projectsFor(chainId: number): Address {
 /** One immutable snapshot, salt and start time must be shared across all chains. */
 export function buildDeployArgs(draft: MachineDraft, pitchUri: string, chainId: number, salt: Hex, startsAtOrAfter: number) {
   const chain=assertSupportedChainId(chainId);
+  if (!draft.chainIds.includes(chain) || new Set(draft.chainIds).size !== draft.chainIds.length ||
+    ![MAINNET_CHAIN_IDS, TESTNET_CHAIN_IDS].some(chains => draft.chainIds.every(id => chains.includes(id)))) {
+    throw new Error("Deploy on distinct supported chains from one network environment.");
+  }
   if(!isAddress(draft.address.trim())||draft.address.trim().toLowerCase()===zeroAddress)throw new Error("Enter a valid machine address.");
   if(!Number.isSafeInteger(startsAtOrAfter)||startsAtOrAfter<=0||startsAtOrAfter>=2**48)throw new Error("Invalid machine start time.");
   keepIndex(draft.keepPercent);

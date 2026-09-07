@@ -1,14 +1,16 @@
-// Chain membership is derived from the protocol SDK, never hand-listed, so a
-// chain the protocol adds cannot silently go missing here.
-import { arbitrum, base, mainnet, optimism } from "viem/chains";
+import { arbitrum, arbitrumSepolia, base, baseSepolia, mainnet, optimism, optimismSepolia, sepolia } from "viem/chains";
 
-export const CHAINS = [mainnet, base, optimism, arbitrum] as const;
+export const CHAINS = [mainnet, base, optimism, arbitrum, sepolia, baseSepolia, optimismSepolia, arbitrumSepolia] as const;
 
 export const CHAIN_NAMES: Record<number, string> = {
   [mainnet.id]: "ETH",
   [base.id]: "BASE",
   [optimism.id]: "OP",
   [arbitrum.id]: "ARB",
+  [sepolia.id]: "SEP",
+  [baseSepolia.id]: "BASE SEP",
+  [optimismSepolia.id]: "OP SEP",
+  [arbitrumSepolia.id]: "ARB SEP",
 };
 
 export const CHAIN_LABELS: Record<number, string> = {
@@ -16,18 +18,28 @@ export const CHAIN_LABELS: Record<number, string> = {
   [base.id]: "Base",
   [optimism.id]: "Optimism",
   [arbitrum.id]: "Arbitrum",
+  [sepolia.id]: "Sepolia",
+  [baseSepolia.id]: "Base Sepolia",
+  [optimismSepolia.id]: "Optimism Sepolia",
+  [arbitrumSepolia.id]: "Arbitrum Sepolia",
 };
 
 /** The chains plugin deploys to. A literal union so it lines up with the
  *  protocol SDK's own chain-id types instead of widening to `number`. */
-export type SupportedChainId = 1 | 10 | 8453 | 42161;
+export type SupportedChainId = (typeof CHAINS)[number]["id"];
 
-export const SUPPORTED_CHAIN_IDS: readonly SupportedChainId[] = [
+export const MAINNET_CHAIN_IDS: readonly SupportedChainId[] = [
   mainnet.id,
   optimism.id,
   base.id,
   arbitrum.id,
 ];
+
+export const TESTNET_CHAIN_IDS: readonly SupportedChainId[] = [
+  sepolia.id, optimismSepolia.id, baseSepolia.id, arbitrumSepolia.id,
+];
+
+const SUPPORTED_CHAIN_IDS: readonly SupportedChainId[] = [...MAINNET_CHAIN_IDS, ...TESTNET_CHAIN_IDS];
 
 function isSupportedChainId(id: number): id is SupportedChainId {
   return (SUPPORTED_CHAIN_IDS as readonly number[]).includes(id);

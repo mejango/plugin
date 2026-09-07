@@ -22,4 +22,9 @@ describe("creation page validation", () => {
     const machine = { name: "Example", symbol: "EX", ids: { 1: 1 } };
     expect(createIssues({ ...draft, routes: [{ machine, percent: 100, locked: true }] })).toEqual([]);
   });
+  it("requires one network family and accepts Sepolia destinations", () => {
+    expect(createIssues({...draft, chainIds: [11155111, 11155420, 84532, 421614]})).toEqual([]);
+    expect(createIssues({...draft, chainIds: [1, 11155111]})).toEqual([expect.objectContaining({page: 6})]);
+    expect(createIssues({...draft, chainIds: [1, 1]})).toEqual([expect.objectContaining({page: 6})]);
+  });
 });

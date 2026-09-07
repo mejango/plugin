@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { useAccount, useEnsName } from "wagmi";
+import type { Hex } from "viem";
 
 import { createIssues } from "@/lib/plugin/create-flow";
 import styles from "./CreateConsole.module.css";
@@ -16,19 +17,20 @@ import { RoutesPanel } from "@/components/create/RoutesPanel";
 import { FIELD, HINT, LABEL, READOUT, SELECT } from "@/components/create/ui";
 import { SignIn } from "@/components/SignIn";
 import { useDeployMachine } from "@/hooks/useDeployMachine";
-import { CHAIN_LABELS, SUPPORTED_CHAIN_IDS } from "@/lib/chains";
+import { CHAIN_LABELS, MAINNET_CHAIN_IDS, TESTNET_CHAIN_IDS } from "@/lib/chains";
 import { REV_MACHINE } from "@/lib/machines";
 import { DOUBLINGS, KEEPS, DEFAULT_DOUBLING, DEFAULT_KEEP_PERCENT, tokensPerDollarAt, doublingFor } from "@/lib/plugin/house";
 import { buildManual } from "@/lib/plugin/manual";
 import type { MachineDraft, Route } from "@/lib/plugin/types";
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+const DeployApproval = lazy(() => import("./DeployApproval").then(module => ({ default: module.DeployApproval })));
 
 export function CreateForm() {
   const [message, setMessage] = useState("");
   const panel = useRef<HTMLDivElement>(null);
   // Every machine ships routed into REV by default — the network is the point.
-  const [draft, setDraft] = useState<MachineDraft>({
+  const [draftInput, setDraft] = useState<MachineDraft>({
     name: "",
     id: "",
     goal: "",
@@ -36,17 +38,24 @@ export function CreateForm() {
     keepPercent: DEFAULT_KEEP_PERCENT,
     doubling: DEFAULT_DOUBLING,
     routes: [{ machine: REV_MACHINE, percent: 10, locked: false }],
-    chainIds: [...SUPPORTED_CHAIN_IDS],
+    chainIds: [...MAINNET_CHAIN_IDS],
   });
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [manualEdit, setManualEdit] = useState<string | null>(null);
+  const [environment, setEnvironment] = useState<"mainnet" | "testnet">("mainnet");
+  const [executionInputs, setExecutionInputs] = useState<Record<string, Record<number, string>>>({});
   const [hoverDay, setHoverDay] = useState<number | null>(null);
 
   const { address, isConnected } = useAccount();
   const { data: ensName } = useEnsName({ address, chainId: 1, query: { enabled: isConnected && !!address, staleTime: 300_000, retry: false } });
-  const { deploy, steps, busy, error } = useDeployMachine();
+  const { deploy, session, steps, busy, restoring, storageBlocked, error, progress, canClear, clear, approval, answerApproval } = useDeployMachine();
+  const draft = session?.draft ?? draftInput;
+  const locked = busy || restoring || storageBlocked || Boolean(session);
+  const testnet = session ? session.draft.chainIds.some(chainId => TESTNET_CHAIN_IDS.includes(chainId)) : environment === "testnet";
+  const chainIds = testnet ? TESTNET_CHAIN_IDS : MAINNET_CHAIN_IDS;
 
   const set = <K extends keyof MachineDraft>(key: K, value: MachineDraft[K]) => {
+    if (locked) return;
     setMessage("");
     setDraft((prev) => ({ ...prev, [key]: value }));
   };
@@ -59,7 +68,17 @@ export function CreateForm() {
   const issues = createIssues(draft);
   function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (uploadingMedia || busy) return;
+    if (uploadingMedia || busy || restoring || storageBlocked) return;
+    if (session) {
+      const hashes = Object.entries(executionInputs[session.id] ?? {}).filter(([, value]) => value.trim());
+      if (hashes.some(([, value]) => !/^0x[0-9a-fA-F]{64}$/.test(value.trim()))) {
+        setMessage("Enter a complete executed transaction hash, or leave it blank to check the saved transaction.");
+        return;
+      }
+      setMessage("");
+      void deploy(undefined, undefined, Object.fromEntries(hashes.map(([chain, value]) => [chain, value.trim() as Hex])));
+      return;
+    }
     if (issues.length) { setMessage(issues[0].message); panel.current?.scrollTo({top: 0, behavior: "smooth"}); return; }
     void deploy(draft, manualEdit ?? generatedManual);
   }
@@ -71,6 +90,7 @@ export function CreateForm() {
         <div>
           <div className={styles.body}>
             {message && <p role="alert" className={styles.error}>{message}</p>}
+            <fieldset disabled={locked} className="contents">
             <section className={styles.page} aria-label="Identity">
       <div className="grid gap-2">
         <label htmlFor="name" className={LABEL}>Machine&apos;s name</label>
@@ -206,14 +226,15 @@ export function CreateForm() {
             <section className={styles.page} aria-label="Manual">
       <MachineManual
         generated={generatedManual}
-        value={manualEdit ?? generatedManual}
-        dirty={manualEdit !== null}
+        value={session?.manual ?? manualEdit ?? generatedManual}
+        dirty={Boolean(session) || manualEdit !== null}
         onChange={setManualEdit}
         onReset={() => setManualEdit(null)}
       />
 
 
             </section>
+            </fieldset>
             <section className={styles.page} aria-label="Launch">
       <div className={styles.review}>
         <div><span>Machine</span><strong>{draft.name || "Untitled"} / {draft.id.toUpperCase() || "ID"}</strong></div>
@@ -225,20 +246,33 @@ export function CreateForm() {
       </div>
       <div className="flex flex-col items-stretch gap-[.7rem] min-[621px]:items-end">
         <div className="grid w-full gap-2">
+          <label htmlFor="deploy-environment" className={LABEL}>Network environment</label>
+          <select id="deploy-environment" className={SELECT} disabled={locked} value={testnet ? "testnet" : "mainnet"}
+            onChange={event => {
+              const nextChains = event.target.value === "testnet" ? TESTNET_CHAIN_IDS : MAINNET_CHAIN_IDS;
+              if (!locked) {
+                setEnvironment(event.target.value === "testnet" ? "testnet" : "mainnet");
+                setDraft(previous => ({ ...previous, chainIds: [...nextChains],
+                  routes: previous.routes.filter(route => nextChains.some(chainId => route.machine.ids[chainId])) }));
+              }
+            }}>
+            <option value="mainnet">Mainnets</option>
+            <option value="testnet">Sepolia testnets</option>
+          </select>
           <label className={LABEL}>
-            Chains <span className={HINT}>A machine lives everywhere at once — one signature per chain</span>
+            Chains <span className={HINT}>Choose where your machine will launch.</span>
           </label>
           <div className="flex flex-wrap gap-[1.2rem]">
-            {SUPPORTED_CHAIN_IDS.map((chainId) => (
+            {chainIds.map((chainId) => (
               <label key={chainId} className="inline-flex cursor-pointer items-center gap-[.4rem] text-[.9rem]">
                 <input
-                  type="checkbox" disabled={busy} className="m-0 accent-black"
+                  type="checkbox" disabled={locked} className="m-0 accent-black"
                   checked={draft.chainIds.includes(chainId)}
                   onChange={(e) =>
                     set(
                       "chainIds",
                       e.target.checked
-                        ? [...draft.chainIds, chainId].sort((a, b) => SUPPORTED_CHAIN_IDS.indexOf(a) - SUPPORTED_CHAIN_IDS.indexOf(b))
+                        ? [...draft.chainIds, chainId].sort((a, b) => chainIds.indexOf(a) - chainIds.indexOf(b))
                         : draft.chainIds.filter((id) => id !== chainId),
                     )
                   }
@@ -253,13 +287,13 @@ export function CreateForm() {
           <SignIn />
         ) : (
           <>
-          <button
+          {session?.phase !== "done" && <button
             type="submit"
-            disabled={busy || uploadingMedia}
+            disabled={busy || uploadingMedia || restoring || storageBlocked}
             className="display w-full cursor-pointer border-2 border-black bg-black px-[1.7em] py-[.75em] text-[clamp(1.1rem,2.4vw,1.5rem)] tracking-[.03em] text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 min-[621px]:w-auto"
           >
-            {busy ? "Deploying…" : "Deploy"}
-          </button>
+            {restoring ? "Checking saved deployment…" : busy ? "Deploying…" : session ? "Resume deployment" : "Deploy"}
+          </button>}
           {address && <p className="m-0 flex max-w-full items-baseline justify-center gap-1 text-[.8rem] leading-relaxed text-[#555] min-[621px]:justify-end">
             <span className="shrink-0">Signed in as</span>
             <span title={address} aria-label={ensName ? `${ensName}, ${address}` : address} className="min-w-0 max-w-[20rem] truncate font-mono text-black">
@@ -270,8 +304,16 @@ export function CreateForm() {
         )}
 
         <span role={error ? "alert" : undefined} className="text-center text-[.85rem] text-[#555] min-[621px]:text-right">
-          {error ?? `You'll confirm once per chain — ${doublingFor(draft.doubling).label.toLowerCase()} issuance price increases, ${draft.keepPercent}% keep.`}
+          {error ?? progress ?? (session?.phase === "done" ? "Your machine is live on every selected chain."
+            : draft.chainIds.length > 1 ? "Sign each chain's deployment, then choose a Relayr quote and pay once. Contract wallets use direct transactions."
+              : "Review the deployment, then confirm it in your wallet.")}
         </span>
+        {session && <p className="m-0 max-w-full break-all text-sm text-[#555]">
+          Saved deployment wallet: {session.account}
+        </p>}
+        {session && canClear && <button type="button" disabled={busy || restoring}
+          className="cursor-pointer bg-transparent text-sm underline underline-offset-4 disabled:opacity-40"
+          onClick={() => void clear()}>{session.phase === "done" ? "Create another machine" : "Change setup"}</button>}
 
         {steps.length > 0 && (
           <ul className="m-0 grid list-none gap-1 p-0 text-[.8rem] text-[#555]">
@@ -279,6 +321,16 @@ export function CreateForm() {
               <li key={step.chainId}>
                 {step.label}: {step.status}
                 {step.hash ? ` ${step.hash.slice(0, 10)}…` : ""}
+                {session?.transport === "direct" && step.status !== "done" && (step.hash || step.status === "uncertain") && <label className="mt-2 block text-sm">
+                  Executed transaction hash on {step.label}
+                  <span className="mb-1 block text-xs">For a Safe proposal or a wallet transaction already sent, paste its mined hash to check it.</span>
+                  <input type="text" spellCheck={false} autoComplete="off" disabled={busy}
+                    className={`${FIELD} mt-1 font-mono text-xs`} placeholder="0x…"
+                    value={executionInputs[session.id]?.[step.chainId] ?? ""}
+                    onChange={event => setExecutionInputs(previous => ({...previous,
+                      [session.id]: {...previous[session.id], [step.chainId]: event.target.value},
+                    }))} />
+                </label>}
               </li>
             ))}
           </ul>
@@ -288,6 +340,9 @@ export function CreateForm() {
           </div>
         </div>
       </form>
+      {approval && <Suspense fallback={<p role="status">Loading deployment review…</p>}>
+        <DeployApproval key={approval.id} approval={approval} onAnswer={answerApproval} />
+      </Suspense>}
     </div>
   );
 }
