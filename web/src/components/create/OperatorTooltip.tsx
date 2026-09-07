@@ -27,7 +27,7 @@ export function OperatorTooltip() {
             </li>
           ))}
         </ul>
-        <b>It can never</b> rewrite issuance, cash-out rules, or the stage schedule — and never withdraw the
+        <b>It can never</b>{" "}rewrite issuance, cash-out rules, or the stage schedule — and never withdraw the
         machine&apos;s funds.
       </span>
     </span>

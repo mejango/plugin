@@ -217,7 +217,7 @@ export function CreateForm() {
         )}
 
         <span className="text-center text-[.85rem] text-[#555] min-[621px]:text-right">
-          {error ? error : `You'll confirm once per chain — ${doublingFor(draft.doubling).label.toLowerCase()} doublings, ${draft.keepPercent}% keep.`}
+          {error ? error : `You'll confirm once per chain — ${doublingFor(draft.doubling).label.toLowerCase()} issuance price increases, ${draft.keepPercent}% keep.`}
         </span>
 
         {steps.length > 0 && (
