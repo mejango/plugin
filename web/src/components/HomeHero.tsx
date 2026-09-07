@@ -1,16 +1,82 @@
-import Link from "next/link";
-import { CHIP_LG } from "@/components/chip";
+"use client";
 
-// Share the homepage typography and action without blocking the patchboard
-// underneath the large glyphs. Only the button receives pointer events.
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { queryBendystraw } from "@/lib/bendystraw/client";
+import { BendystrawOperations } from "@/lib/bendystraw/operations";
+import { trendingMachines, latestActivity, type LatestData, type TrendingData, type TrendingMachine } from "@/lib/trending-machines";
+import { displayMount, screenLayout } from "@/lib/patchboard/layout";
+import { publishMachineReadout, VIEW_MODES, type ViewMode } from "@/lib/patchboard/readout";
+import styles from "./HomeHero.module.css";
+
 export function HomeHero() {
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [machines, setMachines] = useState<TrendingMachine[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [mode, setMode] = useState<ViewMode>("top");
+  const changeMode = (direction: number) => { setMode(current => VIEW_MODES[(VIEW_MODES.indexOf(current) + direction + VIEW_MODES.length) % VIEW_MODES.length]); setMachines(null); setFailed(false); };
+
+  useEffect(() => {
+    const canvas = document.querySelector("canvas");
+    const resize = () => {
+      const rect = canvas?.getBoundingClientRect();
+      setViewport({ width: rect?.width ?? window.innerWidth, height: rect?.height ?? window.innerHeight });
+    };
+    const observer = new ResizeObserver(resize);
+    if (canvas) observer.observe(canvas);
+    resize();
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => { publishMachineReadout({ machines, failed, mode }); }, [machines, failed, mode]);
+
+  useEffect(() => {
+    let active = true;
+    async function refresh() {
+      try {
+        const rows = mode === "latest"
+          ? latestActivity(await queryBendystraw<LatestData>(BendystrawOperations.LatestMachines))
+          : trendingMachines(await queryBendystraw<TrendingData>(mode === "top" ? BendystrawOperations.TopMachines : mode === "new" ? BendystrawOperations.NewMachines : BendystrawOperations.TrendingMachines));
+        if (active) { setMachines(rows); setFailed(false); }
+      } catch {
+        if (active) setFailed(true);
+      }
+    }
+    void refresh();
+    const timer = setInterval(() => void refresh(), 60_000);
+    return () => { active = false; clearInterval(timer); };
+  }, [retry, mode]);
+
+  const layout = screenLayout(viewport.width || 1440, viewport.height || 1000);
+  const mount = displayMount(layout);
+  const scale = viewport.width / layout.width;
+  const left = (mount.left + layout.width / 2) * scale;
+  const top = (layout.height - mount.top) * scale;
+
   return (
-    <div className="pointer-events-none relative z-[2] flex flex-col items-center">
-      <h1 className="display whitespace-nowrap text-[min(31vw,44vh)] leading-[0.75]">Plug in</h1>
-      {/* Cancel Anton's below-baseline space, keeping a fixed gap to the button. */}
-      <Link href="/create" className={`${CHIP_LG} pointer-events-auto mt-[calc(1.4rem_-_min(1.6vw,2.26vh))] inline-block`}>
-        Now
+    <section className={styles.module} aria-label="Machine terminal" style={{ left, top, width: mount.width * scale, height: mount.height * scale }}>
+      <div className="sr-only">
+        <h1>{mode.toUpperCase()}</h1>
+        <p>{mode === "latest" ? "Latest activity" : `${mode} machines`}</p>
+        <table><thead><tr><th>{mode === "latest" ? "When" : "Ticker"}</th><th>Name</th><th>{mode === "latest" ? "Event" : "Balance"}</th></tr></thead>
+          <tbody>{machines?.map((machine) => <tr key={machine.id}><td>{machine.ticker}</td><td>{machine.name}</td><td>{machine.fullBalance}</td></tr>)}</tbody>
+        </table>
+        <p role="status">{failed ? "Connection lost" : machines ? `${machines.length} ${mode === "latest" ? "events" : "machines"} across all chains` : "Reading machines"}</p>
+      </div>
+      <Link href="/create" className={styles.key} aria-label="Create a new machine" title="Create a new machine"
+        style={{ left: (mount.keyX - mount.keySize / 2 - mount.left) * scale, top: (mount.top - mount.keyY - mount.keySize / 2) * scale, width: mount.keySize * scale, height: mount.keySize * scale }}>
+        <span className="sr-only">Now</span>
       </Link>
-    </div>
+      <button className={styles.mode} type="button" role="slider" aria-label="View mode"
+        aria-valuemin={0} aria-valuemax={3} aria-valuenow={VIEW_MODES.indexOf(mode)} aria-valuetext={mode}
+        title="View mode: Top, Trending, Latest, New. Click or use arrow keys."
+        onClick={() => changeMode(1)}
+        onKeyDown={event => { if (["ArrowRight", "ArrowUp", "ArrowLeft", "ArrowDown"].includes(event.key)) { event.preventDefault(); changeMode(event.key === "ArrowRight" || event.key === "ArrowUp" ? 1 : -1); } }}
+        style={{ left: (mount.modeX - mount.knobRadius * 1.1 - mount.left) * scale, top: (mount.top - mount.modeY - mount.knobRadius * 1.1) * scale, width: mount.knobRadius * 2.2 * scale, height: mount.knobRadius * 2.2 * scale }}>
+        <span className="sr-only">{mode}</span>
+      </button>
+      {failed && <button className={styles.retry} type="button" onClick={() => setRetry((n) => n + 1)}>Retry</button>}
+    </section>
   );
 }

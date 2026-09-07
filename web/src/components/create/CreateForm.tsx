@@ -1,7 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
+
+import Link from "next/link";
+import { createIssues, CREATE_PAGES } from "@/lib/plugin/create-flow";
+import styles from "./CreateConsole.module.css";
 
 import { DoublingChart } from "@/components/create/DoublingChart";
 import { GoalEditor } from "@/components/create/GoalEditor";
@@ -21,7 +25,11 @@ import type { MachineDraft, Route } from "@/lib/plugin/types";
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
-export function CreateForm() {
+export function CreateForm({ screen = false }: { screen?: boolean }) {
+  const [consoleMode, setConsoleMode] = useState(screen);
+  const [page, setPage] = useState(0);
+  const [message, setMessage] = useState("");
+  const panel = useRef<HTMLDivElement>(null);
   // Every machine ships routed into REV by default — the network is the point.
   const [draft, setDraft] = useState<MachineDraft>({
     name: "",
@@ -48,14 +56,44 @@ export function CreateForm() {
   const hoverTokens = hoverDay === null ? null : tokensPerDollarAt(draft.doubling, hoverDay);
   const addressValid = ADDRESS_RE.test(draft.address.trim());
 
+  const issues = createIssues(draft);
+  const changePage = (next: number) => {
+    if (busy || uploadingMedia) return;
+    setPage(Math.max(0, Math.min(CREATE_PAGES.length - 1, next)));
+    setMessage("");
+    requestAnimationFrame(() => { panel.current?.scrollTo(0, 0); panel.current?.focus(); });
+  };
+  function nextPage() {
+    changePage(page + 1);
+  }
   function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (uploadingMedia) return;
+    if (uploadingMedia || busy) return;
+    if (consoleMode && page < CREATE_PAGES.length - 1) { nextPage(); return; }
+    if (issues.length) { changePage(issues[0].page); setMessage(issues[0].message); return; }
     void deploy(draft, manualEdit ?? generatedManual);
   }
 
   return (
-    <form onSubmit={submit} className="mt-[5vh] grid gap-[2.2rem]">
+    <div className={consoleMode ? styles.console : styles.fullForm}>
+      <div className={styles.utility} hidden={consoleMode}>
+        <Link href="/">← Board</Link>
+        <button type="button" disabled={busy || uploadingMedia} onClick={() => setConsoleMode(value => !value)}>{consoleMode ? "Full form" : "Screen view"}</button>
+      </div>
+      {!consoleMode && <header className={styles.fullIntro}><h1 className="display">Plug in</h1><p>Give your machine a money engine so it can fundraise, process revenues, and manage incentives between machines.</p></header>}
+      <form onSubmit={submit} noValidate={consoleMode} className={styles.form}>
+        <div className={styles.screen}>
+          {consoleMode && <header className={styles.titlebar}>
+            <span className={styles.pageNumber}>{String(page + 1).padStart(2, "0")}</span>
+            <h1>{CREATE_PAGES[page].title}</h1>
+            <select aria-label="Creation page" className={styles.pageSelect} value={page} disabled={busy || uploadingMedia} onChange={event => changePage(Number(event.target.value))}>
+              {CREATE_PAGES.map((item, index) => <option key={item.title} value={index}>{index + 1} / 7 · {item.title}</option>)}
+            </select>
+          </header>}
+          <div ref={panel} tabIndex={-1} className={styles.body}>
+
+            {message && <p role="alert" className={styles.error}>{message}</p>}
+            {(!consoleMode || page === 0) && <section key="0" className={styles.page} aria-label="Identity">
       <div className="grid gap-2">
         <label htmlFor="name" className={LABEL}>Machine&apos;s name</label>
         <input
@@ -82,7 +120,7 @@ export function CreateForm() {
             Machine&apos;s address <span className={HINT}><OperatorTooltip /></span>
           </label>
           <input
-            id="machine-address" required spellCheck={false} autoComplete="off"
+            id="machine-address" required pattern="0x[a-fA-F0-9]{40}" spellCheck={false} autoComplete="off"
             className={`${FIELD} font-mono tracking-[.02em]`}
             placeholder="0x…"
             value={draft.address}
@@ -95,6 +133,9 @@ export function CreateForm() {
         </div>
       </div>
 
+
+            </section>}
+            {(!consoleMode || page === 1) && <section key="1" className={styles.page} aria-label="Goal">
       <div className="grid gap-2">
         <label htmlFor="goal" className={LABEL}>
           Goal
@@ -102,6 +143,9 @@ export function CreateForm() {
         <GoalEditor value={draft.goal} onChange={(value) => set("goal", value)} onUploadingChange={setUploadingMedia} />
       </div>
 
+
+            </section>}
+            {(!consoleMode || page === 2) && <section key="2" className={styles.page} aria-label="Issuance">
       <p className="m-0 text-[.75rem] leading-relaxed text-[#555]">
         Set operating rules below. For more control, use{" "}
         <a href="https://revnet.money" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-black">revnet.money</a>
@@ -128,12 +172,15 @@ export function CreateForm() {
               </button>
             ))}
           </div>
-          <div className={`${READOUT} flex flex-col px-[.7rem] pb-[.7rem] pt-[1.7rem]`}>
-            <DoublingChart selected={draft.doubling} tokenWord={tokenWord} onHoverDay={setHoverDay} />
+          <div data-chart className={`${READOUT} flex flex-col px-[.7rem] pb-[.7rem] pt-[1.7rem]`}>
+            <DoublingChart dark={consoleMode} selected={draft.doubling} tokenWord={tokenWord} onHoverDay={setHoverDay} />
           </div>
         </div>
       </div>
 
+
+            </section>}
+            {(!consoleMode || page === 3) && <section key="3" className={styles.page} aria-label="Splits">
       <div className="grid grid-cols-1 gap-[1.4rem] min-[621px]:grid-cols-2">
         <div className="grid content-start gap-2">
           <label htmlFor="cut" className={LABEL}>
@@ -161,8 +208,9 @@ export function CreateForm() {
             onChange={(routes: Route[]) => set("routes", routes)}
           />
         </div>
-        <div className={`${READOUT} grid content-start gap-[.8rem] px-4 pb-4 pt-[1.7rem]`}>
+        <div data-chart className={`${READOUT} grid content-start gap-[.8rem] px-4 pb-4 pt-[1.7rem]`}>
           <IssuancePie
+            dark={consoleMode}
             keepPercent={draft.keepPercent}
             routes={draft.routes.map((r) => ({ name: r.machine.name, percentOfKeep: r.percent }))}
             tokenWord={tokenWord}
@@ -171,8 +219,14 @@ export function CreateForm() {
         </div>
       </div>
 
+
+            </section>}
+            {(!consoleMode || page === 4) && <section key="4" className={styles.page} aria-label="Rules">
       <HouseRules />
 
+
+            </section>}
+            {(!consoleMode || page === 5) && <section key="5" className={styles.page} aria-label="Manual">
       <MachineManual
         generated={generatedManual}
         value={manualEdit ?? generatedManual}
@@ -181,6 +235,17 @@ export function CreateForm() {
         onReset={() => setManualEdit(null)}
       />
 
+
+            </section>}
+            {(!consoleMode || page === 6) && <section key="6" className={styles.page} aria-label="Launch">
+      {consoleMode && <div className={styles.review}>
+        <div><span>Machine</span><strong>{draft.name || "Untitled"} / {draft.id.toUpperCase() || "ID"}</strong></div>
+        <div><span>Operator</span><strong className={styles.address}>{draft.address || "Not set"}</strong></div>
+        <div><span>Issuance</span><strong>{doublingFor(draft.doubling).label} price increases</strong></div>
+        <div><span>Keep / payer</span><strong>{draft.keepPercent}% / {100 - draft.keepPercent}%</strong></div>
+        <div><span>Plug ins</span><strong>{draft.routes.length} · {draft.routes.reduce((sum, route) => sum + route.percent, 0)}% of the keep routed</strong></div>
+        <div><span>Cash-out tax</span><strong>30% stays with remaining holders</strong></div>
+      </div>}
       <div className="flex flex-col items-stretch gap-[.7rem] min-[621px]:items-end">
         <div className="grid w-full gap-2">
           <label className={LABEL}>
@@ -190,7 +255,7 @@ export function CreateForm() {
             {SUPPORTED_CHAIN_IDS.map((chainId) => (
               <label key={chainId} className="inline-flex cursor-pointer items-center gap-[.4rem] text-[.9rem]">
                 <input
-                  type="checkbox" className="m-0 accent-black"
+                  type="checkbox" disabled={busy} className="m-0 accent-black"
                   checked={draft.chainIds.includes(chainId)}
                   onChange={(e) =>
                     set(
@@ -234,6 +299,17 @@ export function CreateForm() {
           </ul>
         )}
       </div>
-    </form>
+            </section>}
+          </div>
+          {consoleMode && <footer className={styles.status}>
+            <Link href="/" aria-label="Return to board">EXIT</Link>
+            <button type="button" disabled={busy || uploadingMedia} onClick={() => setConsoleMode(false)}>FULL FORM</button>
+            <span role="status">{uploadingMedia ? "UPLOADING" : busy ? "SIGNING" : `${page + 1}/7`}</span>
+            <button type="button" disabled={page === 0 || busy || uploadingMedia} onClick={() => changePage(page - 1)}>BACK</button>
+            <button type="button" disabled={page === 6 || busy || uploadingMedia} onClick={nextPage}>NEXT</button>
+          </footer>}
+        </div>
+      </form>
+    </div>
   );
 }

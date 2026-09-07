@@ -4,7 +4,8 @@ import { frameSeconds } from "./clock";
 import { type CableFeel, DEFAULT_FEEL } from "./settings";
 import { panelArtwork } from "./artwork";
 import { cableShadowSpine, PANEL_SHADOW_Z, PATCH_LIGHTS, projectShadow } from "./shadows";
-import { screenLayout } from "./layout";
+import { screenLayout, socketPositions, displayMount } from "./layout";
+import { machineReadout, subscribeMachineReadout } from "./readout";
 import { rubberGrain, RUBBER_TEXTURE_SIZE } from "./material";
 import { pickCord } from "./picking";
 
@@ -118,7 +119,7 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
   const fs = shader(gl.FRAGMENT_SHADER, `
     precision mediump float; varying vec3 tint; varying vec3 norm; varying vec3 pos; varying vec2 rubberUV; uniform vec3 eye; uniform vec3 forward; uniform float orthographic; uniform sampler2D artwork; uniform sampler2D rubber; uniform vec2 panelSize; uniform vec3 lightLeft; uniform vec3 lightRight;
     void main(){vec3 n=normalize(norm);
-    ${angle ? `if(abs(pos.z)<0.003 && n.z>0.9){
+    ${angle ? `if((abs(pos.z)<0.003 || rubberUV.x < -1.5) && n.z>0.9){
       vec3 surface=tint;
       if(abs(pos.x)<panelSize.x*0.5 && pos.y>=0.0 && pos.y<=panelSize.y){vec4 ink=texture2D(artwork,vec2(pos.x/panelSize.x+0.5,1.0-pos.y/panelSize.y));surface*=mix(vec3(1.0),ink.rgb,ink.a);}
       gl_FragColor=vec4(surface,1.0);return;
@@ -219,16 +220,32 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     gl.viewport(0,0,canvas.width,canvas.height);
   };
   const observer=new ResizeObserver(resize);observer.observe(canvas);resize();
+  const engravings=angle?new Image():undefined;
   let board=new Mesh();
   const buildBoard=()=>{
   board=new Mesh();
   if(angle){
     gl.bindTexture(gl.TEXTURE_2D,artwork);
-    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,panelArtwork(world.sockets,layout.width,layout.height,layout.trim));
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,panelArtwork(socketPositions(layout,false),layout.width,layout.height,layout.trim,engravings,{layout,state:machineReadout()}));
     // Extend the presentation surfaces past the viewport; socket spacing and
     // the physical world stay unchanged. The floor remains visible below y=0.
     board.box(v(-100,-0.6,-0.45),v(100,0,8),[0.94,0.94,0.93]);
     board.box(v(-100,0,-0.3),v(100,50,0),[1,1,1]);
+    const mount=displayMount(layout),half=mount.keySize/2;
+    board.box(v(mount.keyX-half,mount.keyY-half,0),v(mount.keyX+half,mount.keyY+half,0.085),[0.08,0.36,0.43]);
+    board.cylinder(v(mount.knobX,mount.knobY,0.003),v(mount.knobX,mount.knobY,0.03),mount.knobRadius*1.08,[0.25,0.27,0.28],48);
+    board.cylinder(v(mount.knobX,mount.knobY,0.031),v(mount.knobX,mount.knobY,0.19),mount.knobRadius,[0.13,0.15,0.16],48,mount.knobRadius*0.95);
+    board.cylinder(v(mount.knobX,mount.knobY,0.191),v(mount.knobX,mount.knobY,0.20),mount.knobRadius*0.95,[0.20,0.22,0.23],48);
+    board.box(v(mount.knobX-0.013,mount.knobY+mount.knobRadius*.48,0.201),v(mount.knobX+0.013,mount.knobY+mount.knobRadius*.82,0.205),[0.86,0.9,0.9]);
+    if (!machineReadout().programming) {
+    board.cylinder(v(mount.modeX,mount.modeY,.003),v(mount.modeX,mount.modeY,.03),mount.knobRadius*1.08,[.25,.27,.28],48);
+    board.cylinder(v(mount.modeX,mount.modeY,.031),v(mount.modeX,mount.modeY,.19),mount.knobRadius,[.13,.15,.16],48,mount.knobRadius*.95);
+    board.cylinder(v(mount.modeX,mount.modeY,.191),v(mount.modeX,mount.modeY,.20),mount.knobRadius*.95,[.20,.22,.23],48);
+    const modeIndex=["top","trending","latest","new"].indexOf(machineReadout().mode??"top"),a=(-135+modeIndex*90)*Math.PI/180;
+    board.cylinder(v(mount.modeX+Math.sin(a)*mount.knobRadius*.5,mount.modeY+Math.cos(a)*mount.knobRadius*.5,.204),v(mount.modeX+Math.sin(a)*mount.knobRadius*.82,mount.modeY+Math.cos(a)*mount.knobRadius*.82,.204),.013,[.86,.9,.9],8);
+    }
+    const keyCorners=[v(mount.keyX-half,mount.keyY-half,0.086),v(mount.keyX+half,mount.keyY-half,0.086),v(mount.keyX+half,mount.keyY+half,0.086),v(mount.keyX-half,mount.keyY+half,0.086)];
+    for(const i of [0,1,2,0,2,3])board.vertex(keyCorners[i],v(0,0,1),[1,1,1],-2);
     for(const p of world.sockets){
       board.cylinder(v(p.x,p.y,0.005),v(p.x,p.y,0.022),0.255,[0.83,0.83,0.83],6);
       board.cylinder(v(p.x,p.y,0.023),v(p.x,p.y,0.028),0.237,[1,1,1],6);
@@ -361,6 +378,11 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
   canvas.addEventListener("pointerup",pointerUp);canvas.addEventListener("pointercancel",pointerUp);canvas.addEventListener("lostpointercapture",pointerUp);
   canvas.addEventListener("wheel",wheel,{passive:false});canvas.addEventListener("contextmenu",context);window.addEventListener("keydown",key);window.addEventListener("blur",cancel);
   let frame=0,last:number|null=null,disposed=false,lastStatus=0;
+  const unsubscribeReadout=angle?subscribeMachineReadout(()=>{if(!disposed)buildBoard();}):()=>{};
+  if(engravings){
+    engravings.onload=()=>{if(!disposed)buildBoard();};
+    engravings.src="/images/board-engravings.png";
+  }
   let timing={physicsMs:0,renderMs:0,frameMs:0,substeps:0,rebuiltCords:[] as number[],uploadedBytes:0,drawCalls:0};
   let uploadedBoard:Mesh|null=null,boardVertices=0,drawnCamera=-1,previousStatus="";
   const visibility=()=>{last=null;if(document.hidden)cancel();};
@@ -507,6 +529,8 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     view:setView,
     configure:(settings)=>{world.configure(settings);},
     dispose:()=>{
+      unsubscribeReadout();
+      if(engravings)engravings.onload=null;
       disposed=true;cancelAnimationFrame(frame);observer.disconnect();overlay.remove();delete debugCanvas.__patchboard;delete debugCanvas.__patchboardTiming;
       document.removeEventListener("visibilitychange",visibility);
       canvas.removeEventListener("pointerdown",pointerDown);canvas.removeEventListener("pointermove",pointerMove);canvas.removeEventListener("pointerup",pointerUp);canvas.removeEventListener("pointercancel",pointerUp);canvas.removeEventListener("lostpointercapture",pointerUp);

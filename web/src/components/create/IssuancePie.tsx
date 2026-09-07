@@ -36,12 +36,14 @@ function amount(n: number): string {
 
 export function IssuancePie({
   keepPercent,
+  dark = false,
   routes,
   tokenWord,
   hoverTokensPerDollar,
 }: {
   /** 0..100 */
   keepPercent: number;
+  dark?: boolean;
   /** each route's share OF THE KEEP, 0..100 */
   routes: Route[];
   tokenWord: string;
@@ -49,7 +51,8 @@ export function IssuancePie({
   hoverTokensPerDollar: number | null;
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const slices = buildSlices(keepPercent, routes);
+  const darkRef = useRef(dark);
+  const slices = buildSlices(keepPercent, routes).map((slice, index) => dark ? { ...slice, color: index === 0 ? "#34485e" : index === 1 ? "#dcecff" : slice.color } : slice);
   const shown = slices.filter((sl) => sl.pct > 0);
   const shownRef = useRef(shown);
 
@@ -84,7 +87,7 @@ export function IssuancePie({
     }
     // seams as clean radius lines — stroking wedge outlines chews up the center
     if (shownRef.current.length > 1) {
-      px.strokeStyle = "#fff";
+      px.strokeStyle = darkRef.current ? "#101a27" : "#fff";
       px.lineWidth = 2 * dpr;
       for (const b of bounds) {
         px.beginPath();
@@ -98,6 +101,7 @@ export function IssuancePie({
   // Latest slices in, fresh paint out — runs after every render.
   useEffect(() => {
     shownRef.current = shown;
+    darkRef.current = dark;
     draw();
   });
 

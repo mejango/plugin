@@ -35,9 +35,11 @@ function amount(n: number): string {
 export function DoublingChart({
   selected,
   tokenWord,
+  dark = false,
   onHoverDay,
 }: {
   selected: DoublingKey;
+  dark?: boolean;
   /** e.g. "FORAGE" or "tokens" — what the tooltip counts. */
   tokenWord: string;
   /** day 0..365 under the cursor, null on leave. */
@@ -46,7 +48,7 @@ export function DoublingChart({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hoverDayRef = useRef<number | null>(null);
   // The draw reads the latest props without re-binding listeners.
-  const propsRef = useRef({ selected, tokenWord });
+  const propsRef = useRef({ selected, tokenWord, dark });
   // Kept in a ref so the pointer listeners never need re-binding.
   const onHoverDayRef = useRef(onHoverDay);
 
@@ -62,7 +64,7 @@ export function DoublingChart({
     const cx = canvas.getContext("2d");
     if (!cx) return;
 
-    const { selected: key, tokenWord: word } = propsRef.current;
+    const { selected: key, tokenWord: word, dark } = propsRef.current;
     const hoverDay = hoverDayRef.current;
 
     const padL = PAD_L * dpr;
@@ -77,8 +79,8 @@ export function DoublingChart({
     cx.clearRect(0, 0, cw, ch);
     // gridlines + y labels at 1x, 16x, 256x, 4096x
     cx.font = 9 * dpr + "px ui-monospace, Menlo, monospace";
-    cx.fillStyle = "#999";
-    cx.strokeStyle = "#eee";
+    cx.fillStyle = (dark ? "#a8bdd3" : "#999");
+    cx.strokeStyle = (dark ? "#293c51" : "#eee");
     cx.lineWidth = 1 * dpr;
     for (const d of [0, 4, 8, 12]) {
       cx.beginPath();
@@ -102,7 +104,7 @@ export function DoublingChart({
     for (const cadence of cadences) {
       const period = cadence.days;
       const sel = cadence.key === key;
-      cx.strokeStyle = sel ? "#000" : "#d4d4d4";
+      cx.strokeStyle = sel ? (dark ? "#dcecff" : "#000") : (dark ? "#455e77" : "#d4d4d4");
       cx.lineWidth = (sel ? 2.5 : 1.5) * dpr;
       cx.beginPath();
       let dbl = 0;
@@ -123,7 +125,7 @@ export function DoublingChart({
       const tokens = tokensPerDollarAt(key, k * period);
       const hx = X(hoverDay);
       const hy = Y(k);
-      cx.strokeStyle = "#bbb";
+      cx.strokeStyle = (dark ? "#7b94ad" : "#bbb");
       cx.lineWidth = 1 * dpr;
       cx.setLineDash([3 * dpr, 3 * dpr]);
       cx.beginPath();
@@ -133,7 +135,7 @@ export function DoublingChart({
       cx.setLineDash([]);
       cx.beginPath();
       cx.arc(hx, hy, 3.5 * dpr, 0, 7);
-      cx.fillStyle = "#000";
+      cx.fillStyle = (dark ? "#dcecff" : "#000");
       cx.fill();
       const l1 = "month " + (hoverDay / MONTH_DAYS).toFixed(1);
       const l2 = amount(tokens) + " " + word + " per $1";
@@ -143,11 +145,11 @@ export function DoublingChart({
       let bxp = hx + 10 * dpr;
       if (bxp + tw > cw - padR) bxp = hx - tw - 10 * dpr; // flip left near the right edge
       const byp = Math.max(padT, Math.min(hy - th / 2, ch - padB - th));
-      cx.fillStyle = "rgba(255,255,255,0.95)";
+      cx.fillStyle = (dark ? "rgba(16,26,39,0.98)" : "rgba(255,255,255,0.95)");
       cx.fillRect(bxp, byp, tw, th);
-      cx.strokeStyle = "#000";
+      cx.strokeStyle = (dark ? "#dcecff" : "#000");
       cx.strokeRect(bxp, byp, tw, th);
-      cx.fillStyle = "#000";
+      cx.fillStyle = (dark ? "#dcecff" : "#000");
       cx.textAlign = "left";
       cx.fillText(l1, bxp + 6 * dpr, byp + 12 * dpr);
       cx.fillText(l2, bxp + 6 * dpr, byp + 24 * dpr);
@@ -156,7 +158,7 @@ export function DoublingChart({
 
   // Latest props in, fresh paint out — runs after every render.
   useEffect(() => {
-    propsRef.current = { selected, tokenWord };
+    propsRef.current = { selected, tokenWord, dark };
     onHoverDayRef.current = onHoverDay;
     draw();
   });

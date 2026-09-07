@@ -5,6 +5,10 @@
  */
 export const BendystrawOperations = {
   SearchProjects: "SearchProjects",
+  TrendingMachines: "TrendingMachines",
+  TopMachines: "TopMachines",
+  NewMachines: "NewMachines",
+  LatestMachines: "LatestMachines",
   SuckerGroup: "SuckerGroup",
   Project: "Project",
 } as const;
@@ -23,6 +27,7 @@ export type ProjectRow = {
   suckerGroupId: string | null;
   name: string | null;
   logoUri?: string | null;
+  deployErc20Events?: { items: { symbol: string }[] };
   tokenSymbol: string | null;
   decimals: number | null;
   isRevnet: boolean | null;

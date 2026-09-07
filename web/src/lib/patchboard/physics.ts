@@ -1,6 +1,6 @@
 import { add, clamp, closest, distance, dot, length, lerp, move, mul, sub, unit, v, type V3 } from "./math";
 import { DEFAULT_FEEL, sanitizeFeel, type CableFeel } from "./settings";
-import { CABLE_COLORS, CABLE_LENGTHS, seededRandom, type SocketLayout } from "./layout";
+import { CABLE_COLORS, CABLE_LENGTHS, seededRandom, socketPositions, type SocketLayout } from "./layout";
 
 export const RADIUS = 0.065;
 export const STEP = 1 / 600;
@@ -81,7 +81,7 @@ export class PatchWorld {
     return state;
   }
 
-  private wake(cord?: Cord) {
+  private wake(cord?: Cord, external = true) {
     const pending=cord?[cord]:[...this.cords],seen=new Set<Cord>();
     for(let i=0;i<pending.length;i++){
       const c=pending[i];if(seen.has(c))continue;seen.add(c);
@@ -90,7 +90,11 @@ export class PatchWorld {
         this.restingSegments.delete(c);
         for(const n of c.nodes)this.sleepingNodes.delete(n);
       }
-      s.sleeping=false;s.quietTime=0;s.idleTime=0;s.probe.length=0;
+      s.sleeping=false;s.quietTime=0;s.probe.length=0;
+      // Contact corrections can wake neighboring cords many times while a
+      // crossing settles. They must not restart the idle damping ramp; only
+      // new input or loss of support begins a fresh motion episode.
+      if(external)s.idleTime=0;
       // Only loose dependents can lose their support when this cable moves.
       // Socketed/floor-supported neighbors wait for an actual contact push;
       // mere membership in a touching chain is not a reason to animate them.
@@ -173,7 +177,7 @@ export class PatchWorld {
 
   constructor(layout?: SocketLayout, initial?: { seed: number; cables: number }) {
     this.initial=initial;
-    if(layout)this.sockets=Array.from({length:layout.columns*layout.rows},(_,i)=>v((i%layout.columns-(layout.columns-1)/2)*layout.gap,layout.top-Math.floor(i/layout.columns)*(layout.rowGap??layout.gap),0.3));
+    if(layout)this.sockets=socketPositions(layout);
     this.reset();
   }
 
@@ -448,8 +452,8 @@ export class PatchWorld {
       // The held cord can press a neighbor even at very low mouse speed.
       const handContact=this.grip!==null&&(a.cord===this.grip.cord||b.cord===this.grip.cord);
       const pushed=oldDistance-c.distance>0.004||gap>0.006||(handContact&&gap>0.0015);
-      if(asleepA&&pushed&&(a.a.mass*(1-c.s)+a.b.mass*c.s)>0){this.wake(ca);asleepA=false;}
-      if(asleepB&&pushed&&(b.a.mass*(1-c.t)+b.b.mass*c.t)>0){this.wake(cb);asleepB=false;}
+      if(asleepA&&pushed&&(a.a.mass*(1-c.s)+a.b.mass*c.s)>0){this.wake(ca,handContact&&this.handStillTime<0.18);asleepA=false;}
+      if(asleepB&&pushed&&(b.a.mass*(1-c.t)+b.b.mass*c.t)>0){this.wake(cb,handContact&&this.handStillTime<0.18);asleepB=false;}
     }
     const n = c.distance > 1e-8 ? mul(sub(c.p, c.q), 1 / c.distance) : unit(sub(lerp(a.a.old, a.b.old, c.s), lerp(b.a.old, b.b.old, c.t)));
     const weights = [1 - c.s, c.s, 1 - c.t, c.t];

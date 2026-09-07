@@ -19,6 +19,7 @@ export type Machine = {
 export const REV_MACHINE: Machine = {
   name: "Revnet",
   symbol: "REV",
+  logoUri: "ipfs://QmS6aZ8q2PAZWPwqzeiYu8oC95agn2sgg65irud99cfbqp",
   ids: { 1: 3, 10: 3, 8453: 3, 42161: 3 },
 };
 
@@ -34,7 +35,7 @@ export async function searchMachines(text: string): Promise<ProjectRow[]> {
     const key = row.suckerGroupId ?? `${row.chainId}:${row.projectId}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    hits.push(row);
+    hits.push({ ...row, tokenSymbol: row.deployErc20Events?.items[0]?.symbol ?? null });
   }
   return hits.slice(0, 5);
 }

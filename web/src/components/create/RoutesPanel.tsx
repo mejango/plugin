@@ -14,15 +14,15 @@ function ticker(symbol: string | null | undefined): string {
 }
 
 function ProjectLogo({ uri, name }: { uri?: string | null; name: string }) {
-  const [failed, setFailed] = useState(false);
-  const src = uri?.startsWith("ipfs://")
-    ? `https://ipfs.io/ipfs/${uri.slice(7).replace(/^ipfs\//, "")}`
-    : uri;
+  const [attempt, setAttempt] = useState(0);
+  const path = uri?.startsWith("ipfs://") ? uri.slice(7).replace(/^ipfs\//, "") : null;
+  const sources = path ? [`https://juicebox.center/ipfs/${path}`, `https://ipfs.io/ipfs/${path}`, `https://dweb.link/ipfs/${path}`] : uri ? [uri] : [];
+  const src = sources[attempt];
 
   return (
     <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden bg-[#f4f4f4]" aria-hidden="true">
-      {src && !failed ? (
-        <Image src={src} alt="" width={40} height={40} unoptimized className="h-full w-full object-contain" onError={() => setFailed(true)} />
+      {src ? (
+        <Image src={src} alt="" width={40} height={40} unoptimized className="h-full w-full object-contain" onError={() => setAttempt((current) => current + 1)} />
       ) : (
         <span className="display text-xl">{name.trim().charAt(0).toUpperCase() || "?"}</span>
       )}

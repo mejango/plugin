@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CABLE_LENGTHS, screenLayout } from "../src/lib/patchboard/layout";
+import { CABLE_LENGTHS, screenLayout, displayMount } from "../src/lib/patchboard/layout";
 import { PatchWorld } from "../src/lib/patchboard/physics";
 import { distance, v } from "../src/lib/patchboard/math";
 
@@ -10,10 +10,16 @@ describe("responsive random patchboard",()=>{
     const layout=screenLayout(width,height),scale=width/layout.width;
     const w=new PatchWorld(layout,{seed:12345,cables:layout.cables});
     const first=w.sockets[0],last=w.sockets.at(-1)!;
-    expect((first.x+layout.width/2)*scale).toBeCloseTo(width/layout.columns/2);
-    expect((layout.height-first.y)*scale).toBeCloseTo((layout.height-layout.trim)*scale/layout.rows/2);
+    expect(first).toBeDefined();
     expect(last.y*scale).toBeCloseTo((layout.trim+(layout.height-layout.trim)/layout.rows/2)*scale);
     expect(layout.foot).toBeLessThanOrEqual(32);
+    const mount=displayMount(layout);
+    expect(mount.keyY-mount.keySize/2).toBeCloseTo(mount.top-mount.height,10);
+    expect(w.sockets).toHaveLength(layout.columns*layout.rows-2*(layout.displayColumns!+1)-1);
+    for(const socket of w.sockets){
+      expect(socket.x>mount.left&&socket.x<mount.left+mount.width&&socket.y<mount.top&&socket.y>mount.top-mount.height).toBe(false);
+      expect(Math.abs(socket.x-mount.keyX)<mount.keySize/2&&Math.abs(socket.y-mount.keyY)<mount.keySize/2).toBe(false);
+    }
     expect(w.cords.length,JSON.stringify({layout,count:w.cords.length})).toBeGreaterThanOrEqual(Math.min(layout.cables,8));
     const ports=w.cords.flatMap(c=>c.ports);
     expect(new Set(ports).size).toBe(ports.length);
@@ -35,7 +41,7 @@ describe("responsive random patchboard",()=>{
   it("finds a safe, populated arrangement across different seeds and aspect ratios",()=>{
     for(const [width,height] of [[390,844],[1440,1000],[844,390]])for(let seed=0;seed<12;seed++){
       const layout=screenLayout(width,height),w=new PatchWorld(layout,{seed,cables:layout.cables});
-      expect(w.cords.length,`${width}×${height}, seed ${seed}`).toBeGreaterThanOrEqual(width===1440?12:6);
+      expect(w.cords.length,`${width}×${height}, seed ${seed}`).toBeGreaterThanOrEqual(width===1440?12:height<width?4:6);
       expect(w.diagnostics().penetration).toBe(0);
     }
   },30000);

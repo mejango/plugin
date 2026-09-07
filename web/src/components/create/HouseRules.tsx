@@ -25,7 +25,7 @@ export function HouseRules() {
   return (
     <div className="border-2 border-black bg-white" aria-label="The house rules">
       <h2 className="display m-0 border-b-2 border-black px-[1.3rem] py-[1.1rem] text-[1.2rem] tracking-[.03em]">
-        Rules
+        How it works
       </h2>
       <ul className="m-0 list-none p-0">
         {RULES.map((rule) => (

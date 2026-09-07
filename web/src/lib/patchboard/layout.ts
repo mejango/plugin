@@ -1,6 +1,6 @@
-import { clamp } from "./math";
+import { clamp, v } from "./math";
 
-export type SocketLayout = { columns: number; rows: number; top: number; gap: number; rowGap?: number };
+export type SocketLayout = { columns: number; rows: number; top: number; gap: number; rowGap?: number; displayColumns?: number };
 export type ScreenLayout = SocketLayout & { width: number; height: number; foot: number; trim: number; cables: number };
 
 // Keep useful, finger-sized sockets on phones instead of shrinking twelve
@@ -12,7 +12,7 @@ export function screenLayout(width: number, height: number): ScreenLayout {
   const boardHeight=(height-foot)*boardWidth/width;
   const trim=Math.min(0.45,boardHeight*0.12);
   const rows=clamp(Math.round((boardHeight-trim)/gap),2,32),rowGap=(boardHeight-trim)/rows;
-  return { columns,rows,gap,rowGap,top:boardHeight-rowGap/2,width:boardWidth,height:boardHeight,foot,trim,cables:clamp(Math.round(columns*rows/6),6,18) };
+  return { columns,rows,gap,rowGap,displayColumns:Math.min(4,columns-1),top:boardHeight-rowGap/2,width:boardWidth,height:boardHeight,foot,trim,cables:clamp(Math.round((columns*rows-2*(Math.min(4,columns-1)+1))/6),rows<=3?4:6,18) };
 }
 
 export function seededRandom(seed: number) {
@@ -32,3 +32,32 @@ export const CABLE_COLORS = [
   [0.23,0.61,0.52], [0.27,0.25,0.25], [0.63,0.31,0.52],
   [0.80,0.78,0.70], [0.41,0.35,0.61], [0.43,0.29,0.22],
 ];
+
+/** Reserve two rows for the display and the neighboring knob/key column. */
+export function socketPositions(layout: SocketLayout, reserveDisplay = true) {
+  return Array.from({ length: layout.columns * layout.rows }, (_, i) => ({
+    row: Math.floor(i / layout.columns), col: i % layout.columns,
+  })).filter(({ row, col }) => !reserveDisplay || !layout.displayColumns ||
+    !(row < 2 && col <= layout.displayColumns) && !(col === Math.min(layout.displayColumns + 1, layout.columns - 1) && row === (layout.columns > layout.displayColumns + 1 ? 0 : 2)))
+    .map(({ row, col }) => v((col - (layout.columns - 1) / 2) * layout.gap, layout.top - row * (layout.rowGap ?? layout.gap), 0.3));
+}
+
+export function displayMount(layout: ScreenLayout) {
+  const rowGap = layout.rowGap ?? layout.gap;
+  const columns = layout.displayColumns ?? 4;
+  const keySize = Math.min(0.68, rowGap * 0.72);
+  return {
+    left: -layout.width / 2 + layout.gap + 0.09,
+    top: layout.height - 0.09,
+    width: columns * layout.gap - 0.18,
+    height: 2 * rowGap - 0.18,
+    keyX: -layout.width / 2 + 0.5 * layout.gap,
+    keyY: layout.height - 2 * rowGap + 0.09 + keySize / 2,
+    keySize,
+    knobX: -layout.width / 2 + 0.5 * layout.gap,
+    knobY: layout.height - rowGap * 0.64,
+    knobRadius: Math.min(0.28, rowGap * 0.28),
+    modeX: -layout.width / 2 + (Math.min(columns + 1, layout.columns - 1) + 0.5) * layout.gap,
+    modeY: layout.height - rowGap * (layout.columns > columns + 1 ? 0.64 : 2.64),
+  };
+}

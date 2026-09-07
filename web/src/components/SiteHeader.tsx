@@ -18,7 +18,7 @@ import { SignIn } from "@/components/SignIn";
 export function SiteHeader({ back = false, floating = false }: { back?: boolean; floating?: boolean }) {
   return (
     <header
-      className={`${floating ? "absolute inset-x-0 top-0" : "relative"} pointer-events-none z-[3] flex items-center justify-between px-[6vw] py-[1.3rem]`}
+      className={`${floating ? "absolute inset-x-0 top-0 max-[599px]:fixed max-[599px]:top-auto max-[599px]:bottom-[4.5rem] max-[599px]:py-0" : "relative"} pointer-events-none z-[3] flex items-center justify-between px-[6vw] py-[1.3rem]`}
     >
       {back ? (
         <Link

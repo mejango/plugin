@@ -7,7 +7,7 @@ The homepage `/` and its `/patchboard-angle` preview use the same physics, with 
 responsive, edge-to-edge socket grid. Desktop uses 12 columns; phones use four,
 with intermediate column counts on tablets. Rows fill the available height
 down to a slim brushed-chrome trim above a 16–32 pixel table foot. The trim
-reserves space below the sockets and carries recessed Revnets and Juicebox lettering. It fills the viewport with white panel surfaces, pale hexagonal
+reserves space below the sockets and carries the supplied “A Revnet design” and “Runs on Juice” engraving artwork. It fills the viewport with white panel surfaces, pale hexagonal
 socket nuts, and a narrow platform lip. The front camera is orthographic so
 seated plugs and socket holes remain concentric at every depth; orbit uses
 perspective. Column spacing stays at 1.05 scene units, while row spacing fits
@@ -39,11 +39,19 @@ grain attached as cables bend or stretch; mipmap filtering avoids sparkling at
 small sizes. The texture is uploaded once and adds no geometry or draw passes.
 Metal, panel artwork, sockets, and shadows keep their existing materials. There
 is no animated noise, physics change, or extra work for sleeping cable meshes.
-The front-on homepage uses `HomeHero` and `SiteHeader`:
-the large PLUG IN text is pointer-transparent, Now links to `/create`, and
-Sign in uses the existing account flow. `PatchboardBackdrop` mounts the public
+The front-on homepage draws a cool-white bitmap display into the board material,
+replacing the first two socket rows across four columns on desktop (three on phones).
+The first column, left of the screen, holds a rotary volume-knob detail above a raised cyan NOW key, with
+PLUG IN printed above it. These cells are removed from the physical socket grid;
+cables can pass naturally in front of the display. The key's visible bottom aligns
+with the display frame. The knob is visual until the site has an audio source.
+`HomeHero` defaults to Top by indexed USD backing, with Trending, New, and Latest activity views matching the Juicebox discovery categories. The View Mode knob sits right of the screen (below it on narrow phones), supports click and arrow keys, and rotates with the selection. It fetches six V6 rows and publishes the readout to the
+renderer, and provides an accessible table plus a matching invisible click target
+for NOW. The renderer uses issued-token tickers and per-currency balances summed
+across chains, with minute refreshes and loading, empty, and retry states. Sign in
+uses the existing account flow. `PatchboardBackdrop` mounts the public
 board in the shared app layout for `/`, `/patchboard-angle`, and `/create`.
-Now opens the creation form over that same canvas and physical world; Back and
+NOW opens the creation form over that same canvas and physical world; Back and
 browser history preserve the exact arrangement, including user-unplugged ends.
 The form has its own fixed, scrollable foreground and translucent white scrim,
 so navigating or scrolling does not resize/rebuild the board. The backdrop is
@@ -60,7 +68,7 @@ Run the browser regression against this variant with
 `PATCHBOARD_URL=http://localhost:3004/ node scripts/patchboard/check.mjs`.
 
 Every page refresh chooses a new random seed and a collision-checked starting
-patch, with roughly 6–18 cables scaled to screen area. Cable stock lengths are
+patch, with roughly 4–18 cables depending on the remaining socket area scaled to screen area. Cable stock lengths are
 3.6, 5.8, and 8.2 scene units (18, 29, and 41 cm); these are real rest lengths,
 not different sag values for an otherwise identical cable. Random socket
 pairs, colors, hanging depths, and subtle coil memory vary the arrangement.
@@ -268,3 +276,14 @@ points alongside Next routes and Vitest tests. The retained `/lab` and `/lab3d`
 routes own their legacy engines directly; the former shared homepage wrapper
 is no longer needed. Production is built by the root Dockerfile on Railway
 when this repository's `main` branch is pushed.
+### Programming a machine
+
+`/create` fills the existing LCD with a seven-page programming flow. Its bounds come from the same display mount and glass inset as the homepage, so NOW never changes the screen or board geometry. The existing
+`CreateForm` owns the draft, uploads, manual edits, and deployment hook in both
+presentations; the Full form / Screen view switch changes only its presentation.
+The draft and manual edits stay in the parent form; only the active page renders inside the LCD.
+The in-screen page selector provides direct navigation; Back and Next stay inside the LCD and allow previewing every page without entering values. Deployment validates the entire draft. Uploads and active
+wallet confirmations lock navigation. The final page includes the configuration,
+chain choices, sign-in, deployment status, and the existing transaction workflow.
+The local heading font is built from the same 5×7 alphabet as the board renderer;
+long form text uses a normal monospace face for readability.

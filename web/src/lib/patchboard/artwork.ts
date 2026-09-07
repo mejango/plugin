@@ -1,8 +1,11 @@
 import type { V3 } from "./math";
+import { displayMount, socketPositions, type ScreenLayout } from "./layout";
+import type { MachineReadout } from "./readout";
+import { drawMachineTerminal } from "./terminal-artwork";
 
 // Printed panel artwork, using the same multilingual signal vocabulary and
 // circuit motifs as patchbay.ts. Uploaded once, not redrawn during simulation.
-export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0) {
+export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0, engravings?: HTMLImageElement, terminal?: { layout: ScreenLayout; state: MachineReadout }) {
   const canvas = document.createElement("canvas");
   const resolution=Math.min(160,2048/Math.max(width,height));
   canvas.width=Math.round(width*resolution);canvas.height=Math.round(height*resolution);
@@ -18,6 +21,16 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0) {
     ctx.strokeStyle = `rgba(45,49,47,${alpha})`; ctx.lineWidth = 1.4;
     ctx.beginPath(); points.forEach(([x, y], i) => { const p = point(x, y); if (i) ctx.lineTo(...p); else ctx.moveTo(...p); }); ctx.stroke();
   };
+  const ports=terminal?new Set(socketPositions(terminal.layout).map(p=>`${p.x}:${p.y}`)):null;
+  const reserved=(p:V3)=>ports!==null&&!ports.has(`${p.x}:${p.y}`);
+  ctx.save();
+  if(terminal){
+    const m=displayMount(terminal.layout),gap=terminal.layout.gap,rowGap=terminal.layout.rowGap??gap;
+    ctx.beginPath();ctx.rect(0,0,canvas.width,canvas.height);
+    ctx.rect(0,0,(terminal.layout.displayColumns!+1)*gap*sx,rowGap*2*sy);
+    ctx.rect((m.modeX+width/2-gap/2)*sx,(height-m.modeY-rowGap*.64)*sy,gap*sx,rowGap*sy);
+    ctx.clip("evenodd");
+  }
   const labels = [
     "SIGNAL IN", "信號入", "信号入力", "TÍN HIỆU VÀO", "신호 입력",
     "Σ IN", "⊕ MIX", "金庫", "TREASURY", "∿ OUT",
@@ -29,9 +42,10 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0) {
   const subs = ["−5V ~ +5V", "0V ~ +5V", "USD ~ ETH", "50Ω", "24H ~ 90D", "±∞", "半減"];
   const columns=sockets.filter(s=>s.y===sockets[0].y).length;
   sockets.forEach((s, i) => {
+    if(reserved(s))return;
     text(labels[(i*7+Math.floor(i/columns)) % labels.length], s.x, s.y + 0.34, 14);
     if(i%3!==1)text(subs[i % subs.length], s.x, s.y - 0.36, 10, 0.36);
-    if (i % 5 === 0 && i + columns < sockets.length) {
+    if (i % 5 === 0 && i + columns < sockets.length && !reserved(sockets[i+columns])) {
       const next = sockets[i + columns];
       line([[s.x + 0.3, s.y], [s.x + 0.45, s.y], [s.x + 0.45, next.y], [next.x + 0.3, next.y]]);
       line([[next.x + 0.35, next.y + 0.035], [next.x + 0.3, next.y], [next.x + 0.35, next.y - 0.035]]);
@@ -46,6 +60,7 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0) {
     const chain=chains[(row/2)%chains.length];
     const y=(sockets[row*columns].y+sockets[(row+1)*columns].y)/2;
     for (let col=0;col<columns-1;col+=2) {
+      if([sockets[row*columns+col],sockets[row*columns+col+1],sockets[(row+1)*columns+col],sockets[(row+1)*columns+col+1]].some(reserved))continue;
       const label=chain[(col/2)%chain.length];
       const x=(sockets[row*columns+col].x+sockets[row*columns+col+1].x)/2;
       const [a, b] = label.split(" / ");
@@ -61,14 +76,16 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0) {
     }
   }
   for (let i = 0; i < sockets.length; i+=4) {
+    if(reserved(sockets[i]))continue;
     const x = sockets[i].x+0.43, y = sockets[i].y+0.28;
     const waveform: [number, number][] = Array.from({ length: 25 }, (_, j) => [x - 0.12 + j * 0.01, y + (i % 3 ? (Math.sin(j * 0.5) >= 0 ? 0.04 : -0.04) : Math.sin(j * 0.5) * 0.04)]);
     line(waveform, 0.35);
   }
+  ctx.restore();
   if(trim>0){
     const top=(height-trim)*sy, bandHeight=trim*sy;
     const chrome=ctx.createLinearGradient(0,top,0,canvas.height);
-    for(const [stop,color] of [[0,"#8f969a"],[0.025,"#fafcfd"],[0.08,"#d9dde0"],[0.42,"#b5bcc1"],[0.49,"#949da4"],[0.54,"#e8edef"],[0.82,"#f5f7f8"],[1,"#a1a9ae"]] as const)chrome.addColorStop(stop,color);
+    for(const [stop,color] of [[0,"#929b9f"],[0.025,"#f4f7f8"],[0.12,"#d9dee1"],[0.4,"#e7ebed"],[0.72,"#d0d7db"],[0.95,"#bac3c8"],[1,"#8e989f"]] as const)chrome.addColorStop(stop,color);
     ctx.fillStyle=chrome;ctx.fillRect(0,top,canvas.width,bandHeight);
     // Fine horizontal brushing and a broad reflected highlight in the metal.
     ctx.fillStyle="rgba(255,255,255,.09)";
@@ -76,14 +93,17 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0) {
     const reflection=ctx.createLinearGradient(0,0,canvas.width,0);
     reflection.addColorStop(0,"rgba(255,255,255,0)");reflection.addColorStop(0.32,"rgba(255,255,255,.24)");reflection.addColorStop(0.56,"rgba(255,255,255,0)");reflection.addColorStop(1,"rgba(70,83,95,.1)");
     ctx.fillStyle=reflection;ctx.fillRect(0,top,canvas.width,bandHeight);
-    ctx.font=`500 ${Math.min(bandHeight*.29,19)}px ui-sans-serif, system-ui, sans-serif`;
-    ctx.textBaseline="middle";
-    const inset=Math.max(18,canvas.width*.035),baseline=top+bandHeight*.53;
-    for(const [label,x,align] of [["Revnets",inset,"left"],["Juicebox",canvas.width-inset,"right"]] as const){
-      ctx.textAlign=align;
-      ctx.fillStyle="rgba(255,255,255,.82)";ctx.fillText(label,x,baseline+1);
-      ctx.fillStyle="rgba(59,70,79,.55)";ctx.fillText(label,x,baseline);
+    if(engravings?.complete&&engravings.naturalWidth){
+      const inset=Math.max(18,canvas.width*.045),markWidth=Math.min(canvas.width*.36,bandHeight*4.6);
+      // Preserve the supplied chrome lettering and its bevels in the hardware trim.
+      for(const [sourceX,sourceY,sourceWidth,sourceHeight,x] of [[90,115,1990,260,inset],[320,395,1580,250,canvas.width-inset-markWidth]] as const){
+        const markHeight=markWidth*sourceHeight/sourceWidth,markY=top+(bandHeight-markHeight)/2;
+        ctx.save();ctx.globalAlpha=0.9;
+        ctx.drawImage(engravings,sourceX,sourceY,sourceWidth,sourceHeight,x,markY,markWidth,markHeight);
+        ctx.restore();
+      }
     }
   }
+  if(terminal)drawMachineTerminal(ctx,terminal.layout,sx,sy,terminal.state);
   return canvas;
 }

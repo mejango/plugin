@@ -1,0 +1,6 @@
+.viewport { position: fixed; inset: 0; overflow: hidden; background: #d9ded4; }
+.world { position: absolute; top: 0; left: 0; width: 200vw; height: 100dvh; transform: translate3d(0,0,0); transition: transform 850ms cubic-bezier(.65,0,.2,1); }
+.editing { transform: translate3d(-94vw,0,0); }
+.board { position: absolute; top: 0; left: 0; width: 100vw; height: 100dvh; transform: translateZ(0); }
+.link { position: absolute; top: 0; left: 0; width: 200vw; height: 100dvh; pointer-events: none; z-index: 1; overflow: visible; }
+@media (prefers-reduced-motion: reduce) { .world { transition: none; } }
