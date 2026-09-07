@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 
 import { DoublingChart } from "@/components/create/DoublingChart";
+import { GoalEditor } from "@/components/create/GoalEditor";
 import { HouseRules } from "@/components/create/HouseRules";
 import { IssuancePie } from "@/components/create/IssuancePie";
 import { MachineManual } from "@/components/create/MachineManual";
@@ -96,18 +97,12 @@ export function CreateForm() {
         <label htmlFor="goal" className={LABEL}>
           Goal <span className={HINT}>Markdown supported</span>
         </label>
-        <textarea
-          id="goal" required
-          className={`${FIELD} min-h-[10rem] resize-y`}
-          placeholder="What's your machine's goal? Why should it be funded?"
-          value={draft.goal}
-          onChange={(e) => set("goal", e.target.value)}
-        />
+        <GoalEditor value={draft.goal} onChange={(value) => set("goal", value)} />
       </div>
 
       <div className="grid gap-2">
         <label className={LABEL}>
-          Pace of issuance price increase <span className={HINT}>How often the price to make {draft.id.trim() ? `an ${tokenWord}` : "a token"} doubles</span>
+          Pace of issuance price increase <span className={HINT}>How often the token gets twice as expensive and harder to access.</span>
         </label>
         <div className="grid grid-cols-1 items-stretch gap-[1.4rem] min-[621px]:grid-cols-[1fr_2fr]">
           <div className="grid auto-rows-fr border-2 border-black">

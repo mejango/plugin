@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type { ProjectRow } from "@/lib/bendystraw/operations";
 import { CHAIN_NAMES } from "@/lib/chains";
@@ -45,6 +45,7 @@ export function RoutesPanel({
   keepPercent: number;
   onChange: (routes: Route[]) => void;
 }) {
+  const tooltipId = useId();
   const [term, setTerm] = useState("");
   const [hits, setHits] = useState<{ term: string; rows: ProjectRow[] } | null>(null);
   const [state, setState] = useState<"idle" | "error">("idle");
@@ -136,14 +137,23 @@ export function RoutesPanel({
                 = {Math.round(((keepPercent * route.percent) / 100) * 10) / 10}% of total issuance
               </span>
 
-              <label className="col-start-1 inline-flex cursor-pointer items-center gap-[.35rem] text-[.75rem] text-[#555]">
+              <label className="group relative col-start-1 inline-flex w-fit cursor-pointer items-center gap-[.35rem] text-[.75rem] text-[#555]">
                 <input
                   type="checkbox"
+                  aria-label="Lock forever"
+                  aria-describedby={`${tooltipId}-${index}`}
                   checked={route.locked}
                   onChange={(e) => patch(index, { locked: e.target.checked })}
                   className="m-0 accent-black"
                 />
                 lock forever
+                <span
+                  id={`${tooltipId}-${index}`}
+                  role="tooltip"
+                  className="pointer-events-none absolute bottom-full left-0 z-30 mb-[6px] hidden w-[min(300px,70vw)] border-2 border-black bg-white p-[.7rem_.8rem] text-[.8rem] leading-relaxed text-[#555] shadow-[4px_4px_0_#000] group-hover:block group-focus-within:block"
+                >
+                  Unlocked splits can be changed, but the total set keep % cannot increase.
+                </span>
               </label>
 
               <button
