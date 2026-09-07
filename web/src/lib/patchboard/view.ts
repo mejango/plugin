@@ -236,7 +236,8 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     board.cylinder(v(mount.knobX,mount.knobY,0.003),v(mount.knobX,mount.knobY,0.03),mount.knobRadius*1.08,[0.25,0.27,0.28],48);
     board.cylinder(v(mount.knobX,mount.knobY,0.031),v(mount.knobX,mount.knobY,0.19),mount.knobRadius,[0.13,0.15,0.16],48,mount.knobRadius*0.95);
     board.cylinder(v(mount.knobX,mount.knobY,0.191),v(mount.knobX,mount.knobY,0.20),mount.knobRadius*0.95,[0.20,0.22,0.23],48);
-    board.box(v(mount.knobX-0.013,mount.knobY+mount.knobRadius*.48,0.201),v(mount.knobX+0.013,mount.knobY+mount.knobRadius*.82,0.205),[0.86,0.9,0.9]);
+    const volumeAngle=(-135+270*(machineReadout().volume??0))*Math.PI/180;
+    board.cylinder(v(mount.knobX+Math.sin(volumeAngle)*mount.knobRadius*.5,mount.knobY+Math.cos(volumeAngle)*mount.knobRadius*.5,.204),v(mount.knobX+Math.sin(volumeAngle)*mount.knobRadius*.82,mount.knobY+Math.cos(volumeAngle)*mount.knobRadius*.82,.204),.013,[.86,.9,.9],8);
     if (!machineReadout().programming) {
     board.cylinder(v(mount.modeX,mount.modeY,.003),v(mount.modeX,mount.modeY,.03),mount.knobRadius*1.08,[.25,.27,.28],48);
     board.cylinder(v(mount.modeX,mount.modeY,.031),v(mount.modeX,mount.modeY,.19),mount.knobRadius,[.13,.15,.16],48,mount.knobRadius*.95);

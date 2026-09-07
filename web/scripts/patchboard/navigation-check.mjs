@@ -37,8 +37,7 @@ try{
     await page.getByRole("link",{name:"Create a new machine",exact:true}).click();await page.waitForURL("**/create");
     await page.getByLabel("Machine's name",{exact:true}).fill("Same patchboard");await same();
     assert.ok(await page.evaluate(()=>document.querySelector("canvas").closest("[inert]")),"foreground form owns input");
-    await page.getByRole("heading",{name:"Identity",exact:true}).click();await page.keyboard.press("r");await same();
-    await page.getByRole("button",{name:/full form/i}).click();
+    await page.getByRole("heading",{name:"Plug in",exact:true}).click();await page.keyboard.press("r");await same();
     const scroller=page.locator('[class*="fullForm"]');
     await scroller.evaluate(el=>{el.scrollTop=el.scrollHeight;});
     assert.ok(await scroller.evaluate(el=>el.scrollTop>0),"new page scrolls independently above the board");await same();

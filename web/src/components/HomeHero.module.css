@@ -6,6 +6,8 @@
 .retry { position: absolute; bottom: 5%; left: 4%; width: 25%; height: 12%; pointer-events: auto; color: transparent; cursor: pointer; }
 .retry:focus-visible { outline: 2px solid #b8d9ff; }
 
-.mode { position: absolute; pointer-events: auto; border-radius: 50%; cursor: ew-resize; background: transparent; border: 0; }
+.mode { position: absolute; pointer-events: auto; border-radius: 50%; cursor: grab; touch-action: none; user-select: none; background: transparent; border: 0; }
 .mode:focus-visible { outline: 2px solid #55cce0; outline-offset: 4px; }
 .mode:hover { background: #ffffff12; }
+
+.mode:active { cursor: grabbing; }

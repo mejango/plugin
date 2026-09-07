@@ -1,15 +1,5 @@
 import type { MachineDraft } from "./types";
 
-export const CREATE_PAGES = [
-  { title: "Identity", short: "ID", description: "Name your machine, give its token an ID, and choose the address that will operate it." },
-  { title: "Goal", short: "GOAL", description: "What will this machine produce, and for whom? Write its purpose. Add links and media if they help explain it." },
-  { title: "Issuance", short: "ISSUE", description: "Set the pace. Compare how the issuance price changes over time." },
-  { title: "Splits", short: "SPLIT", description: "Choose the machine’s operating budget and the other machines it will feed." },
-  { title: "How it works", short: "RULES", description: "These are the rules every machine runs on. Read them before you commit." },
-  { title: "Manual", short: "MANUAL", description: "Your settings become instructions. Review, edit, or copy the manual your machine will follow." },
-  { title: "Launch", short: "LAUNCH", description: "Check the configuration, choose chains, then sign in and deploy. Nothing is deployed until you confirm." },
-] as const;
-
 export function createIssues(draft: MachineDraft): { page: number; message: string }[] {
   const issues: { page: number; message: string }[] = [];
   if (!draft.name.trim()) issues.push({ page: 0, message: "Give your machine a name." });

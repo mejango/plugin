@@ -4,3 +4,12 @@
 .board { position: absolute; top: 0; left: 0; width: 100vw; height: 100dvh; transform: translateZ(0); }
 .link { position: absolute; top: 0; left: 0; width: 200vw; height: 100dvh; pointer-events: none; z-index: 1; overflow: visible; }
 @media (prefers-reduced-motion: reduce) { .world { transition: none; } }
+
+.edge { position: absolute; z-index: 2; top: 0; bottom: 32px; right: -18px; width: 26px; pointer-events: none; border-radius: 0 2px 4px 0; border-right: 2px solid #4a5051; background: repeating-linear-gradient(0deg, #ffffff08 0 1px, #00000005 1px 3px), linear-gradient(90deg, #e9eceb 0%, #b4babb 16%, #767e80 25%, #999fa0 44%, #616b6e 88%, #333e41 100%); box-shadow: 5px 5px 6px #12252945, 16px 8px 23px #12252926; }
+.edge::before { content: ""; position: absolute; inset: 0 auto 0 -5px; width: 6px; background: linear-gradient(90deg, #f9faf8, #a1a9a9); border-left: 1px solid #ffffffd9; }
+.edge::after { content: ""; position: absolute; top: 28px; bottom: 28px; right: 5px; width: 2px; background: #303b3d55; box-shadow: 1px 0 #d6dcda66; }
+.edgePort { position: absolute; z-index: 1; top: 76%; right: 1px; width: 21px; height: 62px; transform: translateY(-50%); border: 1px solid #424e4d; border-radius: 4px; background: linear-gradient(90deg, #596360, #a4b0a5 35%, #56615d); box-shadow: inset 1px 0 #e6ead4, 2px 1px 2px #15241e77; }
+.edgePort::before, .edgePort::after { content: ""; position: absolute; left: 7px; width: 5px; height: 5px; border-radius: 50%; background: linear-gradient(135deg,#e0e4dc 40%,#38433e 43% 57%,#b5beb3 60%); box-shadow: 0 1px 1px #172820; }
+.edgePort::before { top: 5px; } .edgePort::after { bottom: 5px; }
+.edgePort i { position: absolute; left: 7px; top: 50%; width: 4px; height: 4px; transform: translateY(-50%); }
+@media (max-width: 700px) { .edge { width: 16px; right: -10px; } .edgePort { width: 15px; } .edgePort i { left: 5px; } .edgePort::before, .edgePort::after { left: 5px; } }

@@ -41,22 +41,22 @@ Metal, panel artwork, sockets, and shadows keep their existing materials. There
 is no animated noise, physics change, or extra work for sleeping cable meshes.
 The front-on homepage draws a cool-white bitmap display into the board material,
 replacing the first two socket rows across four columns on desktop (three on phones).
-The first column, left of the screen, holds a rotary volume-knob detail above a raised cyan NOW key, with
+The first column, left of the screen, holds a continuous volume knob above a raised cyan NOW key, with
 PLUG IN printed above it. These cells are removed from the physical socket grid;
 cables can pass naturally in front of the display. The key's visible bottom aligns
-with the display frame. The knob is visual until the site has an audio source.
-`HomeHero` defaults to Top by indexed USD backing, with Trending, New, and Latest activity views matching the Juicebox discovery categories. The View Mode knob sits right of the screen (below it on narrow phones), supports click and arrow keys, and rotates with the selection. It fetches six V6 rows and publishes the readout to the
+with the display frame. Volume starts at zero, supports dragging and keyboard adjustment, and persists when visiting the workstation. No audio source is currently attached.
+`HomeHero` defaults to Top by indexed USD backing, with Trending, New, and Latest activity views matching the Juicebox discovery categories. The View Mode knob sits right of the screen (below it on narrow phones), supports dragging between four detents, click, and arrow keys, and rotates with the selection. It fetches six V6 rows and publishes the readout to the
 renderer, and provides an accessible table plus a matching invisible click target
 for NOW. The renderer uses issued-token tickers and per-currency balances summed
 across chains, with minute refreshes and loading, empty, and retry states. Sign in
 uses the existing account flow. `PatchboardBackdrop` mounts the public
 board in the shared app layout for `/`, `/patchboard-angle`, and `/create`.
-NOW opens the creation form over that same canvas and physical world; Back and
+NOW pans to a connected computer beside that same canvas and physical world; Back and
 browser history preserve the exact arrangement, including user-unplugged ends.
-The form has its own fixed, scrollable foreground and translucent white scrim,
+The full form scrolls inside the larger monitor,
 so navigating or scrolling does not resize/rebuild the board. The backdrop is
 inert on `/create`, including its keyboard shortcuts, while the form is active.
-Direct entry to `/create` initializes the same public board behind the form.
+Direct entry to `/create` initializes both devices with the camera on the workstation.
 The homepage and creation form replace the former `PatchBay` background and
 ignore saved experiment tuning. The approved defaults
 are bending stiffness 8, settling 30, damping 8, cable grip 0.50, surface grip
@@ -278,12 +278,8 @@ is no longer needed. Production is built by the root Dockerfile on Railway
 when this repository's `main` branch is pushed.
 ### Programming a machine
 
-`/create` fills the existing LCD with a seven-page programming flow. Its bounds come from the same display mount and glass inset as the homepage, so NOW never changes the screen or board geometry. The existing
-`CreateForm` owns the draft, uploads, manual edits, and deployment hook in both
-presentations; the Full form / Screen view switch changes only its presentation.
-The draft and manual edits stay in the parent form; only the active page renders inside the LCD.
-The in-screen page selector provides direct navigation; Back and Next stay inside the LCD and allow previewing every page without entering values. Deployment validates the entire draft. Uploads and active
-wallet confirmations lock navigation. The final page includes the configuration,
-chain choices, sign-in, deployment status, and the existing transaction workflow.
-The local heading font is built from the same 5×7 alphabet as the board renderer;
-long form text uses a normal monospace face for readability.
+`/create` pans the shared scene to a separate monitor connected to the patchboard through fitted plugs and a cable. The board has a beveled metal side rail; neither navigation nor form scrolling resizes its canvas or resets its physics.
+`CreateForm` renders the complete form inside the monitor, including media uploads, charts, routes, operating rules, editable manual, review, chain choices, and deployment. There is no pagination, view toggle, or decorative keyboard. Drafts and manual edits survive returning to the board. Delayed autofocus never steals focus from a field the user has already started editing.
+`node scripts/patchboard/create-check.mjs` checks form editing and narrow-screen overflow. `navigation-check.mjs` checks draft and cable preservation; `knobs-check.mjs` checks drag detents, continuous volume, keyboard input, and persisted knob values.
+
+Pending insertions reserve clearance for the shaft and connector along the socket approach. A crossing cord keeps the plug outside the obstruction; clearing it wakes the blocked insertion once. Normal capsule collisions still govern all hand movement and insertion steps.

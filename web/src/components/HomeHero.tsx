@@ -6,7 +6,8 @@ import { queryBendystraw } from "@/lib/bendystraw/client";
 import { BendystrawOperations } from "@/lib/bendystraw/operations";
 import { trendingMachines, latestActivity, type LatestData, type TrendingData, type TrendingMachine } from "@/lib/trending-machines";
 import { displayMount, screenLayout } from "@/lib/patchboard/layout";
-import { publishMachineReadout, VIEW_MODES, type ViewMode } from "@/lib/patchboard/readout";
+import { machineReadout, publishMachineReadout, VIEW_MODES, type ViewMode } from "@/lib/patchboard/readout";
+import { BoardKnob } from "./BoardKnob";
 import styles from "./HomeHero.module.css";
 
 export function HomeHero() {
@@ -14,8 +15,9 @@ export function HomeHero() {
   const [machines, setMachines] = useState<TrendingMachine[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [mode, setMode] = useState<ViewMode>("top");
-  const changeMode = (direction: number) => { setMode(current => VIEW_MODES[(VIEW_MODES.indexOf(current) + direction + VIEW_MODES.length) % VIEW_MODES.length]); setMachines(null); setFailed(false); };
+  const [mode, setMode] = useState<ViewMode>(() => machineReadout().mode ?? "top");
+  const [volume, setVolume] = useState(() => machineReadout().volume ?? 0);
+  const changeMode = (index: number) => { const next=VIEW_MODES[index];if(next===mode)return;setMode(next);setMachines(null);setFailed(false); };
 
   useEffect(() => {
     const canvas = document.querySelector("canvas");
@@ -29,7 +31,7 @@ export function HomeHero() {
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => { publishMachineReadout({ machines, failed, mode }); }, [machines, failed, mode]);
+  useEffect(() => { publishMachineReadout({ machines, failed, mode, volume }); }, [machines, failed, mode, volume]);
 
   useEffect(() => {
     let active = true;
@@ -68,14 +70,10 @@ export function HomeHero() {
         style={{ left: (mount.keyX - mount.keySize / 2 - mount.left) * scale, top: (mount.top - mount.keyY - mount.keySize / 2) * scale, width: mount.keySize * scale, height: mount.keySize * scale }}>
         <span className="sr-only">Now</span>
       </Link>
-      <button className={styles.mode} type="button" role="slider" aria-label="View mode"
-        aria-valuemin={0} aria-valuemax={3} aria-valuenow={VIEW_MODES.indexOf(mode)} aria-valuetext={mode}
-        title="View mode: Top, Trending, Latest, New. Click or use arrow keys."
-        onClick={() => changeMode(1)}
-        onKeyDown={event => { if (["ArrowRight", "ArrowUp", "ArrowLeft", "ArrowDown"].includes(event.key)) { event.preventDefault(); changeMode(event.key === "ArrowRight" || event.key === "ArrowUp" ? 1 : -1); } }}
-        style={{ left: (mount.modeX - mount.knobRadius * 1.1 - mount.left) * scale, top: (mount.top - mount.modeY - mount.knobRadius * 1.1) * scale, width: mount.knobRadius * 2.2 * scale, height: mount.knobRadius * 2.2 * scale }}>
-        <span className="sr-only">{mode}</span>
-      </button>
+      <BoardKnob label="View mode" value={VIEW_MODES.indexOf(mode)} max={3} step={1} text={mode} cycle onChange={changeMode}
+        style={{ left: (mount.modeX - mount.knobRadius * 1.1 - mount.left) * scale, top: (mount.top - mount.modeY - mount.knobRadius * 1.1) * scale, width: mount.knobRadius * 2.2 * scale, height: mount.knobRadius * 2.2 * scale }} />
+      <BoardKnob label="Volume" value={volume} max={1} step={0} text={`${Math.round(volume*100)}%`} onChange={setVolume}
+        style={{ left: (mount.knobX - mount.knobRadius * 1.1 - mount.left) * scale, top: (mount.top - mount.knobY - mount.knobRadius * 1.1) * scale, width: mount.knobRadius * 2.2 * scale, height: mount.knobRadius * 2.2 * scale }} />
       {failed && <button className={styles.retry} type="button" onClick={() => setRetry((n) => n + 1)}>Retry</button>}
     </section>
   );

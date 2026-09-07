@@ -95,8 +95,8 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0, engrav
     ctx.fillStyle=reflection;ctx.fillRect(0,top,canvas.width,bandHeight);
     if(engravings?.complete&&engravings.naturalWidth){
       const inset=Math.max(18,canvas.width*.045),markWidth=Math.min(canvas.width*.36,bandHeight*4.6);
-      // Preserve the supplied chrome lettering and its bevels in the hardware trim.
-      for(const [sourceX,sourceY,sourceWidth,sourceHeight,x] of [[90,115,1990,260,inset],[320,395,1580,250,canvas.width-inset-markWidth]] as const){
+      // Render the supplied lettering as dark markings recessed into the trim.
+      for(const [sourceX,sourceY,sourceWidth,sourceHeight,x] of [[120,105,1930,240,inset],[120,405,1930,240,canvas.width-inset-markWidth]] as const){
         const markHeight=markWidth*sourceHeight/sourceWidth,markY=top+(bandHeight-markHeight)/2;
         ctx.save();ctx.globalAlpha=0.9;
         ctx.drawImage(engravings,sourceX,sourceY,sourceWidth,sourceHeight,x,markY,markWidth,markHeight);

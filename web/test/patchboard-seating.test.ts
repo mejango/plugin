@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { PatchWorld } from "../src/lib/patchboard/physics";
+import { PatchWorld, PLUG_RADIUS, RADIUS } from "../src/lib/patchboard/physics";
 import { add, distance, lerp, v } from "../src/lib/patchboard/math";
 import { FEEL_PRESETS } from "../src/lib/patchboard/settings";
 
@@ -92,3 +92,31 @@ it.each(Object.entries(FEEL_PRESETS))("fully inserts an angled plug under cable 
   expect(w.docking).toHaveLength(0);
   expect(w.diagnostics().penetration).toBeLessThan(0.004);
 });
+
+
+it("keeps a blocked insertion clear of a crossing and retries when it clears",()=>{
+  const w=new PatchWorld();w.cords=w.cords.slice(0,2);
+  const [plug,obstruction]=w.cords,socket=w.sockets[1];
+  obstruction.ports=[null,null];
+  obstruction.nodes=obstruction.nodes.slice(0,9);
+  obstruction.nodes.forEach((n,i)=>{
+    n.p=v(socket.x-.4+.8*i/(obstruction.nodes.length-1),socket.y-1,.16);
+    n.old={...n.p};n.velocity=v();n.mass=0;
+    n.radius=RADIUS;
+  });
+  obstruction.rest=obstruction.nodes.slice(1).map((n,i)=>distance(n.p,obstruction.nodes[i].p));
+  obstruction.bend=obstruction.nodes.slice(2).map((n,i)=>distance(n.p,obstruction.nodes[i].p));
+  w.grab(0,0);w.grip!.target={...socket,z:1};
+  for(let i=0;i<60;i++)w.advance(1/60);
+  obstruction.nodes.forEach(n=>{n.p.y+=1;n.old={...n.p};});
+  w.release(1,true);
+  for(let i=0;i<240;i++)w.advance(1/60);
+  expect(plug.ports[0]).toBeNull();
+  expect(w.docking).toHaveLength(1);
+  expect(plug.nodes[0].p.z).toBeGreaterThanOrEqual(.16+RADIUS+PLUG_RADIUS+.03);
+  expect(w.diagnostics().penetration).toBeLessThan(.004);
+  obstruction.nodes.forEach(n=>{n.p.y-=1;n.old={...n.p};});
+  for(let i=0;i<180&&plug.ports[0]===null;i++)w.advance(1/60);
+  expect(plug.ports[0],JSON.stringify(w.diagnostics())).toBe(1);
+  expect(w.diagnostics().penetration).toBeLessThan(.004);
+},30000);

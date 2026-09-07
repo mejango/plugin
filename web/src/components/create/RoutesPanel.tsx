@@ -33,7 +33,7 @@ function ProjectLogo({ uri, name }: { uri?: string | null; name: string }) {
 function chainsLine(ids: Record<number, number>): string {
   return Object.entries(ids)
     .map(([chainId, projectId]) => `${CHAIN_NAMES[Number(chainId)] ?? chainId} #${projectId}`)
-    .join(" · ");
+    .join(", ");
 }
 
 export function RoutesPanel({
@@ -111,7 +111,7 @@ export function RoutesPanel({
                   <span className="mt-[.15rem] flex items-baseline gap-[.45rem]">
                     <span className="font-mono text-[.8rem] text-[#555]">{ticker(route.machine.symbol)}</span>
                     <span className="text-[.75rem] text-[#ccc]">|</span>
-                    <span className="whitespace-nowrap text-[.7rem] tracking-[.04em] text-[#aaa]">
+                    <span className="text-[.7rem] tracking-[.04em] text-[#aaa]">
                       {chainsLine(route.machine.ids)}
                     </span>
                   </span>

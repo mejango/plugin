@@ -68,6 +68,7 @@ export class PatchWorld {
   private restingBroadphase: { segments: Segment[]; pairs: [Segment,Segment][]; maxX: number[] } | null = null;
   private sleepingNodes = new Set<Particle>();
   private memoryTime = 0;
+  private dockTargets = new Map<Grip,V3>();
   private handTarget: V3 | null = null;
   private handStillTime = 0;
   private advancing = false;
@@ -476,9 +477,33 @@ export class PatchWorld {
     }
   }
 
+  private updateDockTargets() {
+    const previous=this.dockTargets;
+    this.dockTargets=new Map();
+    if(!this.docking.length)return;
+    const segments=this.segments();
+    for(const dock of this.docking){
+      const socket=this.sockets[dock.dock!],cord=this.cords[dock.cord];
+      let z=socket.z;
+      // Reserve clearance for the complete connector, including the shaft
+      // that will occupy the socket. Keep a blocked insertion outside the
+      // crossing instead of parking the tip almost flush with the panel.
+      for(const segment of segments){
+        if(segment.cord===dock.cord)continue;
+        const hit=closest(v(socket.x,socket.y,0),v(socket.x,socket.y,Math.max(socket.z,cord.nodes[dock.index].p.z)+PLUG_RADIUS),segment.a.p,segment.b.p);
+        if(hit.distance<PLUG_RADIUS+segment.radius+.015)
+          z=Math.max(z,hit.q.z+segment.radius+PLUG_RADIUS+.035);
+      }
+      this.dockTargets.set(dock,{...socket,z});
+      // A resting, blocked plug should retry after its obstruction is moved.
+      if(this.isResting(cord)&&z===socket.z&&(previous.get(dock)?.z??socket.z)>socket.z)this.wake(cord);
+    }
+  }
+
   advance(duration: number) {
     // Observe the actual mouse target once per display frame, before the
     // collision-safe interpolation below. Interpolated substeps are not input.
+    this.updateDockTargets();
     this.trackHand(duration);
     this.wakeExternalChanges();
     this.advancing=true;
@@ -518,7 +543,7 @@ export class PatchWorld {
 
   step(dt = STEP, pausedHand = false): boolean {
     this.steps++;
-    if(!this.advancing&&!pausedHand){this.trackHand(dt);this.wakeExternalChanges();}
+    if(!this.advancing&&!pausedHand){this.updateDockTargets();this.trackHand(dt);this.wakeExternalChanges();}
     if(this.sleeping){
       if(this.grip&&this.handStillTime<0.18)this.wake(this.cords[this.grip.cord]);
       else{this.simulationTime+=dt;return true;}
@@ -550,7 +575,8 @@ export class PatchWorld {
     for (const drive of drives) {
       if(this.restState(this.cords[drive.cord]).sleeping)continue;
       const p = this.cords[drive.cord].nodes[drive.index];
-      const d = sub(drive.target, p.p);
+      const target=drive.dock!==null?(this.dockTargets.get(drive)??drive.target):drive.target;
+      const d = sub(target, p.p);
       move(p.p, d, Math.min(drive === g && held ? 1 : drive.dock !== null ? 0.22 : this.feel.grip, TRAVEL / (length(d) || 1)));
       if (drive === g && held) {
         held.p.y = Math.max(held.radius + 0.001, held.p.y);
@@ -561,7 +587,7 @@ export class PatchWorld {
       }
       if (drive.dock !== null) {
         const neighbour = this.cords[drive.cord].nodes[drive.index === 0 ? 1 : this.cords[drive.cord].nodes.length - 2];
-        const align = sub(add(this.sockets[drive.dock], v(0, 0, 0.22)), neighbour.p);
+        const align = sub(add(target, v(0, 0, 0.22)), neighbour.p);
         move(neighbour.p, align, Math.min(0.22, TRAVEL / (length(align) || 1)));
         // Alignment is a bounded placement of the rigid connector, not a
         // soft spring that cable tension can hold permanently half-seated.
