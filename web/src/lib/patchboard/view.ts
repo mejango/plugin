@@ -247,7 +247,7 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
       board.cylinder(v(x,y,.209),v(x,y,.214),r*.91,[.19,.22,.21],64);
       const point=(distance:number,z:number)=>v(x+Math.sin(rotation)*r*distance,y+Math.cos(rotation)*r*distance,z);
       board.cylinder(point(.49,.217),point(.82,.217),.017,[.08,.10,.10],8);
-      board.cylinder(point(.51,.219),point(.80,.219),.011,[.84,.91,.85],8);
+      board.cylinder(point(.51,.235),point(.80,.235),.011,[.84,.91,.85],8);
     };
     rotary(mount.knobX,mount.knobY,(-135+270*(machineReadout().volume??0))*Math.PI/180);
     if (!machineReadout().programming) {
