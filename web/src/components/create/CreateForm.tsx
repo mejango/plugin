@@ -33,6 +33,7 @@ export function CreateForm() {
     routes: [{ machine: REV_MACHINE, percent: 10, locked: false }],
     chainIds: [...SUPPORTED_CHAIN_IDS],
   });
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [manualEdit, setManualEdit] = useState<string | null>(null);
   const [hoverDay, setHoverDay] = useState<number | null>(null);
 
@@ -49,6 +50,7 @@ export function CreateForm() {
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (uploadingMedia) return;
     void deploy(draft, manualEdit ?? generatedManual);
   }
 
@@ -97,7 +99,7 @@ export function CreateForm() {
         <label htmlFor="goal" className={LABEL}>
           Goal
         </label>
-        <GoalEditor value={draft.goal} onChange={(value) => set("goal", value)} />
+        <GoalEditor value={draft.goal} onChange={(value) => set("goal", value)} onUploadingChange={setUploadingMedia} />
       </div>
 
       <div className="grid gap-2">
@@ -209,7 +211,7 @@ export function CreateForm() {
         ) : (
           <button
             type="submit"
-            disabled={busy}
+            disabled={busy || uploadingMedia}
             className="display w-full cursor-pointer border-2 border-black bg-black px-[1.7em] py-[.75em] text-[clamp(1.1rem,2.4vw,1.5rem)] tracking-[.03em] text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 min-[621px]:w-auto"
           >
             {busy ? "Deploying…" : "Deploy"}
