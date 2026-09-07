@@ -1,4 +1,4 @@
-.module { position: fixed; pointer-events: none; }
+.module { position: absolute; z-index: 3; pointer-events: none; transform-origin: 0 0; }
 .key { position: absolute; display: block; pointer-events: auto; border-radius: 3px; }
 .key:hover { background: #ffffff0c; }
 .key:active { background: #00000025; }
@@ -16,11 +16,11 @@
 @keyframes now-glow { 0%, 100% { opacity: .65; box-shadow: 0 0 2px #baffad, 0 0 5px #55ef7155; } 50% { opacity: 1; box-shadow: 0 0 4px #d7ffbf, 0 0 11px #55ef71b3, 0 0 18px #45dd5159; } }
 @media (prefers-reduced-motion: reduce) { .nowLight { animation: none; } }
 
-.navigation { position: absolute; pointer-events: auto; display: grid; grid-template: repeat(3,1fr) / repeat(3,1fr); gap: 3px; }
+.navigation { position: absolute; pointer-events: auto; display: grid; grid-template: repeat(3,1fr) / repeat(6,1fr); gap: 3px; }
 .navigation button { border: 1px solid #252c2d; border-radius: 4px; color: #dbe5df; background: linear-gradient(145deg,#606967,#303938 70%); box-shadow: inset 1px 1px 0 #ffffff4d,inset -1px -2px 0 #0008,1px 3px 2px #0004; font-size: clamp(10px,1vw,17px); padding: 0; cursor: pointer; }
 .navigation button:active { transform: translateY(2px); box-shadow: inset 0 1px 3px #0008; }
 .navigation button:focus-visible { outline: 2px solid #38b6c9; outline-offset: 2px; }
-.navigation [data-direction="up"] { grid-area: 1 / 2; }
-.navigation [data-direction="left"] { grid-area: 2 / 1; }
-.navigation [data-direction="right"] { grid-area: 2 / 3; }
-.navigation [data-direction="down"] { grid-area: 3 / 2; }
+.navigation [data-direction="up"] { grid-area: 1 / 3 / 2 / 5; }
+.navigation [data-direction="left"] { grid-area: 2 / 1 / 3 / 4; }
+.navigation [data-direction="right"] { grid-area: 2 / 4 / 3 / 7; }
+.navigation [data-direction="down"] { grid-area: 3 / 3 / 4 / 5; }

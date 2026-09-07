@@ -7,6 +7,7 @@ import { cableShadowSpine, PANEL_SHADOW_Z, PATCH_LIGHTS, projectShadow } from ".
 import { screenLayout, socketPositions, displayMount } from "./layout";
 import { machineReadout, subscribeMachineReadout } from "./readout";
 import { rubberGrain, RUBBER_TEXTURE_SIZE } from "./material";
+import { planeTransform } from "./plane-transform";
 import { pickCord } from "./picking";
 
 type Color = number[];
@@ -503,6 +504,17 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
       gl.uniform1f(uniforms.aspect,width/height);
       bindMesh(buffer);gl.drawArrays(gl.TRIANGLES,0,boardVertices);drawCalls++;
       for(const mesh of meshes){bindMesh(mesh.buffer);gl.drawArrays(gl.TRIANGLES,0,mesh.vertices);drawCalls++;}
+      if(angle){
+        const terminal=canvas.closest('[data-camera]')?.querySelector<HTMLElement>('[data-board-terminal]');
+        if(terminal){
+          const m=displayMount(layout),scale=width/layout.width;
+          terminal.style.left="0px";terminal.style.top="0px";
+          terminal.style.transform=planeTransform(m.width*scale,m.height*scale,[
+            project(v(m.left,m.top,0)),project(v(m.left+m.width,m.top,0)),
+            project(v(m.left+m.width,m.top-m.height,0)),project(v(m.left,m.top-m.height,0)),
+          ]);
+        }
+      }
       drawnCamera=cameraRevision;
     }
     ctx.clearRect(0,0,width,height);ctx.textAlign="center";ctx.font="10px ui-monospace, monospace";ctx.fillStyle="#73736b";

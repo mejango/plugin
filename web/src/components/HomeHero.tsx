@@ -111,7 +111,7 @@ export function HomeHero() {
   const top = (layout.height - mount.top) * scale;
 
   return (
-    <section className={styles.module} aria-label="Machine terminal" style={{ left, top, width: mount.width * scale, height: mount.height * scale }}>
+    <section data-board-terminal className={styles.module} aria-label="Machine terminal" style={{ left, top, width: mount.width * scale, height: mount.height * scale }}>
       <div className="sr-only">
         <h1>{opened?opened.name:`${mode.toUpperCase()} PLUG INS`}</h1>
         <p>{mode === "latest" ? "Latest activity" : `${mode} machines`}</p>

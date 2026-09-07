@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { PatchboardExperience } from "@/lib/patchboard/experience";
+import { HomeHero } from "./HomeHero";
 import { Workstation } from "@/components/Workstation";
 import styles from "./PatchboardBackdrop.module.css";
 
@@ -39,6 +40,7 @@ export function PatchboardBackdrop() {
     <div ref={world} className={`${styles.world} ${editing ? styles.editing : ""}`} data-camera={editing ? "workstation" : "patchboard"}>
       <div className={styles.board} inert={editing}>
         <PatchboardExperience angle />
+        {pathname!=="/patchboard-angle" && <HomeHero />}
         <div className={styles.edge} aria-hidden="true"><div className={styles.edgePort}><i data-board-link /></div></div>
       </div>
       <Workstation active={editing} />
