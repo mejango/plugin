@@ -111,6 +111,27 @@ export function drawMachineTerminal(ctx: CanvasRenderingContext2D, layout: Scree
     ctx.lineTo(mx+Math.sin(a)*radius*1.38,my-Math.cos(a)*radius*1.38);ctx.stroke();
   }
   ctx.fillStyle="#303a32";ctx.fillText("VIEW MODE",mx,my-radius*1.9);
+  // Draw the keycaps into the board surface so the cable depth buffer covers
+  // them, just as it covers the display. HTML supplies transparent hit targets.
+  const ns=mount.navSize*sx,nx=(mount.navX+layout.width/2)*sx-ns/2,ny=(layout.height-mount.navY)*sy-ns/2;
+  const gap=ns*.02,kw=(ns-gap)/2,kh=(ns-2*gap)/3;
+  for(const [col,row,rotation] of [[.5,0,0],[0,1,-Math.PI/2],[1,1,Math.PI/2],[.5,2,Math.PI]] as const){
+    const bx=nx+col*(kw+gap),by=ny+row*(kh+gap),r=ns*.025;
+    ctx.shadowColor="#0006";ctx.shadowBlur=ns*.018;ctx.shadowOffsetY=ns*.02;
+    ctx.beginPath();ctx.roundRect(bx,by,kw,kh,r);ctx.fillStyle="#252c2d";ctx.fill();
+    ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+    const face=ctx.createLinearGradient(bx,by,bx+kw,by+kh);
+    face.addColorStop(0,"#606967");face.addColorStop(.7,"#303938");
+    ctx.beginPath();ctx.roundRect(bx+1,by+1,kw-2,kh-2,r);ctx.fillStyle=face;ctx.fill();
+    ctx.strokeStyle="#ffffff4d";ctx.lineWidth=ns*.007;ctx.stroke();
+    ctx.beginPath();ctx.moveTo(bx+r,by+kh-2);ctx.lineTo(bx+kw-r,by+kh-2);
+    ctx.strokeStyle="#0008";ctx.lineWidth=ns*.014;ctx.stroke();
+    ctx.save();ctx.translate(bx+kw/2,by+kh/2);ctx.rotate(rotation);
+    const a=ns*.043;
+    ctx.beginPath();ctx.moveTo(0,-a);ctx.lineTo(a,a*.8);ctx.lineTo(-a,a*.8);ctx.closePath();
+    ctx.fillStyle="#dbe5df";ctx.fill();ctx.restore();
+  }
+
   }
 
   ctx.restore();
