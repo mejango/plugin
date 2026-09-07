@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { PatchboardExperience } from "@/lib/patchboard/experience";
+import { juiceboxProjectUrl } from "@/lib/juicebox-project";
 import { BoardAudio } from "./BoardAudio";
 import { HomeHero } from "./HomeHero";
 import { Workstation } from "@/components/Workstation";
@@ -35,8 +36,9 @@ export function PatchboardBackdrop() {
     const observer=new ResizeObserver(place);observer.observe(scene);observer.observe(from);observer.observe(to);
     place();return()=>observer.disconnect();
   },[pathname]);
-  if(!BOARD_ROUTES.has(pathname))return null;
-  const editing=pathname==="/create";
+  const projectUrl=juiceboxProjectUrl(pathname);
+  if(!BOARD_ROUTES.has(pathname)&&!projectUrl)return null;
+  const editing=pathname==="/create"||!!projectUrl;
   return <div className={styles.viewport}>
     <BoardAudio active={pathname==="/"} />
     <div ref={world} className={`${styles.world} ${editing ? styles.editing : ""}`} data-camera={editing ? "workstation" : "patchboard"}>
@@ -45,7 +47,7 @@ export function PatchboardBackdrop() {
         {pathname!=="/patchboard-angle" && <HomeHero />}
         <div className={styles.edge} aria-hidden="true"><div className={styles.edgePort}><i data-board-link /></div></div>
       </div>
-      <Workstation active={editing} />
+      <Workstation active={editing} projectUrl={projectUrl} />
       <svg ref={cable} className={styles.link} viewBox="0 0 2000 1000" preserveAspectRatio="none" aria-hidden="true">
         <defs>
           <linearGradient id="link-metal" x1="0" y1="0" x2="0" y2="1">

@@ -53,7 +53,7 @@ export function drawMachineTerminal(ctx: CanvasRenderingContext2D, layout: Scree
     });
     screen.fillStyle="#536379";screen.fillRect(8,178,464,1);
     pixels(screen,"< BACK",10,184,2);
-    const footer=state.detailFailed?"RETRY >":"ALL CHAINS";
+    const footer=state.detailFailed?"RETRY >":"JUICEBOX >";
     pixels(screen,footer,470-footer.length*12,184,2);
   }else{
     screen.fillStyle="#213044";screen.fillRect(8,34,464,21);

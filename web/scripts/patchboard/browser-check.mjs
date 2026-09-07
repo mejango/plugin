@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import {existsSync} from 'node:fs';import {homedir} from 'node:os';import {pathToFileURL} from 'node:url';
+const root=[process.env.PLAYWRIGHT_CORE,`${homedir()}/.claude/skills/gstack/node_modules/playwright-core`].find(p=>p&&existsSync(`${p}/index.mjs`));
+const {chromium}=await import(pathToFileURL(`${root}/index.mjs`).href);
+const browser=await chromium.launch({headless:true,args:['--enable-unsafe-swiftshader']});
+try{
+ const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ // Owned fixture tests frame interaction; it does not test or bypass Juicebox's live CSP.
+ await page.route('https://juicebox.money/**',route=>route.fulfill({contentType:'text/html',body:'<h1>Project fixture</h1><input aria-label="Amount"><button onclick="document.querySelector(\'output\').textContent=\'Ready\'">Preview</button><output></output><div style="height:2000px">Scrollable project</div>'}));
+ const project={projectId:7,chainId:1,name:'Markee',balance:'1000000000000000000',tokenSymbol:'ETH',decimals:18,currency:'61166',tokenSupply:'1000000000000000000',volumeUsd:'1000000000000000000',paymentsCount:2,deployErc20Events:{items:[{symbol:'MARKEE'}]}};
+ await page.route('**/api/bendystraw/mainnet/query',route=>{const {operation}=route.request().postDataJSON();return route.fulfill({json:{data:operation==='SuckerGroup'?{suckerGroup:{projects:{items:[project]}}}:{suckerGroups:{totalCount:1,items:[{id:'markee',projects:{items:[project]}}]}}}});});
+ await page.goto('http://localhost:3004/create',{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>document.querySelector('canvas')?.__patchboard);await page.locator('#name').fill('Keep this draft');
+ await page.getByRole('link',{name:'← Board',exact:true}).click();await page.waitForURL('http://localhost:3004/');
+ await page.getByRole('cell',{name:'Markee',exact:true}).waitFor();await page.getByRole('button',{name:'Open selected project',exact:true}).click();
+ await page.getByRole('link',{name:'View project on Juicebox'}).click();await page.waitForURL('**/browse/eth/7');
+ const frame=page.frameLocator('iframe[title="Juicebox project"]');await frame.getByRole('heading',{name:'Project fixture'}).waitFor();
+ assert.equal(await page.locator('iframe').getAttribute('src'),'https://juicebox.money/eth:7');
+ await frame.getByRole('textbox',{name:'Amount'}).fill('25');await frame.getByRole('button',{name:'Preview'}).click();assert.equal(await frame.locator('output').innerText(),'Ready');
+ await frame.locator('body').evaluate(el=>{el.ownerDocument.defaultView.scrollTo(0,500);});assert(await frame.locator('body').evaluate(el=>el.ownerDocument.defaultView.scrollY)>0);
+ await page.getByRole('button',{name:'Reload Juicebox'}).click();await frame.getByRole('heading',{name:'Project fixture'}).waitFor();
+ await page.getByRole('link',{name:'← Board',exact:true}).click();await page.waitForURL('http://localhost:3004/');await page.getByRole('link',{name:'View project on Juicebox'}).waitFor();
+ await page.evaluate(()=>document.activeElement.blur());await page.keyboard.press('ArrowRight');await page.waitForURL('**/browse/eth/7');
+ await page.getByRole('link',{name:'← Board',exact:true}).click();await page.waitForURL('http://localhost:3004/');await page.getByRole('link',{name:'Create a new machine'}).click();await page.waitForURL('**/create');assert.equal(await page.locator('#name').inputValue(),'Keep this draft');
+ console.log('PASS: monitor browsing with owned fixture, frame typing/clicks/scrolling/reload, right-arrow launch, board return, and draft preservation. Live Juicebox CSP permission remains required.');
+}finally{await browser.close();}

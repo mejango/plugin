@@ -1,5 +1,7 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { projectBrowserPath } from "@/lib/juicebox-project";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { queryBendystraw } from "@/lib/bendystraw/client";
@@ -12,6 +14,7 @@ import { BoardKnob } from "./BoardKnob";
 import styles from "./HomeHero.module.css";
 
 export function HomeHero() {
+  const router=useRouter();
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [machines, setMachines] = useState<TrendingMachine[] | null>(null);
   const [offset,setOffset]=useState(0);
@@ -79,10 +82,12 @@ export function HomeHero() {
     void read();return()=>{active=false;};
   },[opened,retry]);
 
+  const browserPath=projectBrowserPath(opened?.chainId,opened?.projectId);
   const navigate=useCallback((direction:"up"|"down"|"left"|"right")=>{
     if(opened){
       if(direction==="left"){setOpened(null);setDetail(null);setDetailFailed(false);}
       else if(direction==="right"&&detailFailed){setDetailFailed(false);setRetry(n=>n+1);}
+      else if(direction==="right"&&browserPath)router.push(browserPath);
       return;
     }
     if(!machines?.length)return;
@@ -92,7 +97,7 @@ export function HomeHero() {
     if(next>=0&&next<machines.length){setSelected(next);return;}
     if(next<0&&offset>0){setOffset(n=>Math.max(0,n-6));setSelected(5);setMachines(null);}
     else if(next>=machines.length&&totalCount!==null&&offset+machines.length<totalCount){setOffset(n=>n+6);setSelected(0);setMachines(null);}
-  },[opened,detailFailed,machines,selected,offset,totalCount]);
+  },[opened,detailFailed,machines,selected,offset,totalCount,browserPath,router]);
   useEffect(()=>{
     const handler=(event:KeyboardEvent)=>{
       if(event.defaultPrevented||location.pathname!=="/"||event.altKey||event.metaKey||event.ctrlKey)return;
@@ -133,6 +138,7 @@ export function HomeHero() {
       <div className={styles.navigation} role="group" aria-label="Screen navigation" style={{left:(mount.navX-mount.navSize/2-mount.left)*scale,top:(mount.top-mount.navY-mount.navSize/2)*scale,width:mount.navSize*scale,height:mount.navSize*scale}}>
         {(["up","left","right","down"] as const).map(direction=><button key={direction} type="button" data-direction={direction} aria-label={({up:"Previous row",down:"Next row",left:"Back to plug ins",right:detailFailed?"Retry project stats":"Open selected project"})[direction]} onClick={()=>navigate(direction)}>{({up:"▲",down:"▼",left:"◀",right:"▶"})[direction]}</button>)}
       </div>
+      {opened&&browserPath&&!detailFailed&&<Link href={browserPath} className={styles.projectLink} aria-label="View project on Juicebox"><span className="sr-only">View project on Juicebox</span></Link>}
       {failed && <button className={styles.retry} type="button" onClick={() => setRetry((n) => n + 1)}>Retry</button>}
     </section>
   );
