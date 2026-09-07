@@ -94,7 +94,7 @@ export function CreateForm() {
 
       <div className="grid gap-2">
         <label htmlFor="goal" className={LABEL}>
-          Goal <span className={HINT}>markdown supported</span>
+          Goal <span className={HINT}>Markdown supported</span>
         </label>
         <textarea
           id="goal" required
@@ -107,7 +107,7 @@ export function CreateForm() {
 
       <div className="grid gap-2">
         <label className={LABEL}>
-          Issuance price doublings <span className={HINT}>the pace of changes favoring earlier contributions</span>
+          Pace of issuance price increase <span className={HINT}>How often the price to make {draft.id.trim() ? `an ${tokenWord}` : "a token"} doubles</span>
         </label>
         <div className="grid grid-cols-1 items-stretch gap-[1.4rem] min-[621px]:grid-cols-[1fr_2fr]">
           <div className="grid auto-rows-fr border-2 border-black">
@@ -133,7 +133,7 @@ export function CreateForm() {
       <div className="grid grid-cols-1 gap-[1.4rem] min-[621px]:grid-cols-2">
         <div className="grid content-start gap-2">
           <label htmlFor="cut" className={LABEL}>
-            Machine&apos;s keep <span className={HINT}>its cut of issuance</span>
+            Machine&apos;s keep <span className={HINT}>Its cut of issuance</span>
           </label>
           <select
             id="cut" className={SELECT}
@@ -149,7 +149,7 @@ export function CreateForm() {
           </p>
 
           <label className={`${LABEL} mt-[1.4rem]`}>
-            Plug ins <span className={HINT}>the split of keep to other machines</span>
+            Plug ins <span className={HINT}>The split of keep to other machines</span>
           </label>
           <RoutesPanel
             routes={draft.routes}
@@ -180,7 +180,7 @@ export function CreateForm() {
       <div className="flex flex-col items-stretch gap-[.7rem] min-[621px]:items-end">
         <div className="grid w-full gap-2">
           <label className={LABEL}>
-            Chains <span className={HINT}>a machine lives everywhere at once — one signature per chain</span>
+            Chains <span className={HINT}>A machine lives everywhere at once — one signature per chain</span>
           </label>
           <div className="flex flex-wrap gap-[1.2rem]">
             {SUPPORTED_CHAIN_IDS.map((chainId) => (

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ProjectRow } from "@/lib/bendystraw/operations";
@@ -7,6 +8,27 @@ import { CHAIN_NAMES } from "@/lib/chains";
 import { resolveChainIds, searchMachines } from "@/lib/machines";
 import type { Route } from "@/lib/plugin/types";
 import { FIELD, LINK_BTN } from "@/components/create/ui";
+
+function ticker(symbol: string | null | undefined): string {
+  return symbol?.trim().replace(/^\$+/, "").trim() || "—";
+}
+
+function ProjectLogo({ uri, name }: { uri?: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const src = uri?.startsWith("ipfs://")
+    ? `https://ipfs.io/ipfs/${uri.slice(7).replace(/^ipfs\//, "")}`
+    : uri;
+
+  return (
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden bg-[#f4f4f4]" aria-hidden="true">
+      {src && !failed ? (
+        <Image src={src} alt="" width={40} height={40} unoptimized className="h-full w-full object-contain" onError={() => setFailed(true)} />
+      ) : (
+        <span className="display text-xl">{name.trim().charAt(0).toUpperCase() || "?"}</span>
+      )}
+    </span>
+  );
+}
 
 function chainsLine(ids: Record<number, number>): string {
   return Object.entries(ids)
@@ -60,7 +82,7 @@ export function RoutesPanel({
     onChange([
       ...routes,
       {
-        machine: { name: row.name ?? `Project #${row.projectId}`, symbol: row.tokenSymbol ?? "", ids },
+        machine: { name: row.name ?? `Project #${row.projectId}`, symbol: row.tokenSymbol ?? "", logoUri: row.logoUri, ids },
         percent: 10,
         locked: false,
       },
@@ -81,13 +103,16 @@ export function RoutesPanel({
               key={JSON.stringify(route.machine.ids)}
               className="grid grid-cols-[1fr_auto] gap-x-[.8rem] gap-y-[.6rem] border border-[#e5e5e5] bg-white px-[.8rem] py-[.7rem]"
             >
-              <span className="col-span-full block">
-                <b className="display block leading-tight font-normal tracking-[.01em]">{route.machine.name}</b>
-                <span className="mt-[.15rem] flex items-baseline gap-[.45rem]">
-                  <span className="font-mono text-[.8rem] text-[#555]">{route.machine.symbol || "—"}</span>
-                  <span className="text-[.75rem] text-[#ccc]">|</span>
-                  <span className="whitespace-nowrap text-[.7rem] tracking-[.04em] text-[#aaa]">
-                    {chainsLine(route.machine.ids)}
+              <span className="col-span-full flex items-center gap-[.65rem]">
+                <ProjectLogo key={route.machine.logoUri} uri={route.machine.logoUri} name={route.machine.name} />
+                <span className="min-w-0">
+                  <b className="display block leading-tight font-normal tracking-[.01em]">{route.machine.name}</b>
+                  <span className="mt-[.15rem] flex items-baseline gap-[.45rem]">
+                    <span className="font-mono text-[.8rem] text-[#555]">{ticker(route.machine.symbol)}</span>
+                    <span className="text-[.75rem] text-[#ccc]">|</span>
+                    <span className="whitespace-nowrap text-[.7rem] tracking-[.04em] text-[#aaa]">
+                      {chainsLine(route.machine.ids)}
+                    </span>
                   </span>
                 </span>
               </span>
@@ -156,10 +181,13 @@ export function RoutesPanel({
                   key={`${row.chainId}:${row.projectId}`}
                   type="button"
                   onClick={() => void add(row)}
-                  className="block w-full cursor-pointer border border-t-0 border-[#e5e5e5] bg-white px-[.8rem] py-[.55rem] text-left first:border-t hover:bg-[#f4f4f4]"
+                  className="flex w-full items-center gap-[.65rem] cursor-pointer border border-t-0 border-[#e5e5e5] bg-white px-[.8rem] py-[.55rem] text-left first:border-t hover:bg-[#f4f4f4]"
                 >
-                  <b className="display block leading-tight font-normal">{row.name ?? `Project #${row.projectId}`}</b>
-                  <span className="font-mono text-[.8rem] text-[#555]">{row.tokenSymbol ?? "—"}</span>
+                  <ProjectLogo key={row.logoUri} uri={row.logoUri} name={row.name ?? `Project #${row.projectId}`} />
+                  <span className="min-w-0">
+                    <b className="display block leading-tight font-normal">{row.name ?? `Project #${row.projectId}`}</b>
+                    <span className="font-mono text-[.8rem] text-[#555]">{ticker(row.tokenSymbol)}</span>
+                  </span>
                 </button>
               ))
             )}

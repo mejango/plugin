@@ -11,6 +11,7 @@ import {
 export type Machine = {
   name: string;
   symbol: string;
+  logoUri?: string | null;
   ids: ChainProjectIds;
 };
 

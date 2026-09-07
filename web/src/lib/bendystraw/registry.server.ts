@@ -10,7 +10,7 @@ const DOCUMENTS: Record<BendystrawOperation, string> = {
   [BendystrawOperations.SearchProjects]: `
     query SearchProjects($where: projectFilter!, $limit: Int) {
       projects(where: $where, orderBy: "volume", orderDirection: "desc", limit: $limit) {
-        items { projectId chainId suckerGroupId name tokenSymbol decimals isRevnet version }
+        items { projectId chainId suckerGroupId name logoUri tokenSymbol decimals isRevnet version }
       }
     }
   `,

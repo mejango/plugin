@@ -22,6 +22,7 @@ export type ProjectRow = {
   chainId: number;
   suckerGroupId: string | null;
   name: string | null;
+  logoUri?: string | null;
   tokenSymbol: string | null;
   decimals: number | null;
   isRevnet: boolean | null;

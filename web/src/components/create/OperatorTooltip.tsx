@@ -14,7 +14,7 @@ const POWERS = [
 export function OperatorTooltip() {
   return (
     <span tabIndex={0} className="group relative cursor-help underline decoration-dotted underline-offset-2 outline-none">
-      privileges
+      Privileges
       <span
         role="tooltip"
         className="pointer-events-none absolute left-0 top-[calc(100%+6px)] z-10 hidden w-[min(340px,80vw)] border-2 border-black bg-white p-[.9rem_1rem] text-[.8rem] leading-relaxed normal-case tracking-normal shadow-[4px_4px_0_#000] group-hover:block group-focus:block group-focus-within:block"
