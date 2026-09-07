@@ -259,12 +259,13 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     const keyCorners=[v(mount.keyX-half,mount.keyY-half,0.086),v(mount.keyX+half,mount.keyY-half,0.086),v(mount.keyX+half,mount.keyY+half,0.086),v(mount.keyX-half,mount.keyY+half,0.086)];
     for(const i of [0,1,2,0,2,3])board.vertex(keyCorners[i],v(0,0,1),[1,1,1],-2);
     for(const p of world.sockets){
-      board.cylinder(v(p.x,p.y,0.005),v(p.x,p.y,0.022),0.255,[0.83,0.83,0.83],6);
-      board.cylinder(v(p.x,p.y,0.023),v(p.x,p.y,0.028),0.237,[1,1,1],6);
-      board.cylinder(v(p.x,p.y,0.029),v(p.x,p.y,0.04),0.181,[0.9,0.9,0.9],32);
-      board.cylinder(v(p.x,p.y,0.041),v(p.x,p.y,0.05),0.152,[0.63,0.63,0.63],32);
-      board.cylinder(v(p.x,p.y,0.051),v(p.x,p.y,0.06),0.132,[0.95,0.95,0.95],32);
-      board.cylinder(v(p.x,p.y,0.061),v(p.x,p.y,0.07),0.091,[0.4,0.4,0.4],32);
+      // Tarnished nickel hardware, with a worn lip and a dark recessed bore.
+      board.cylinder(v(p.x,p.y,0.005),v(p.x,p.y,0.022),0.255,[0.34,0.37,0.33],6);
+      board.cylinder(v(p.x,p.y,0.023),v(p.x,p.y,0.028),0.237,[0.50,0.52,0.46],6);
+      board.cylinder(v(p.x,p.y,0.029),v(p.x,p.y,0.04),0.181,[0.57,0.59,0.52],32);
+      board.cylinder(v(p.x,p.y,0.041),v(p.x,p.y,0.05),0.152,[0.30,0.33,0.29],32);
+      board.cylinder(v(p.x,p.y,0.051),v(p.x,p.y,0.06),0.132,[0.62,0.63,0.54],32);
+      board.cylinder(v(p.x,p.y,0.061),v(p.x,p.y,0.07),0.091,[0.13,0.15,0.13],32);
     }
   }else{
   board.box(v(-7,-0.2,-0.45),v(7,0,8),[0.79,0.78,0.73]);

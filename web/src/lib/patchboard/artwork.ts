@@ -9,7 +9,7 @@ function agedMetal(width: number, height: number) {
   const plate=document.createElement("canvas");plate.width=width;plate.height=height;
   const ctx=plate.getContext("2d")!;
   const finish=ctx.createLinearGradient(0,0,width,height);
-  for(const [stop,color] of [[0,"#777b72"],[.18,"#575e58"],[.48,"#656b62"],[.72,"#484f4b"],[1,"#62685d"]] as const)finish.addColorStop(stop,color);
+  for(const [stop,color] of [[0,"#b1b4a8"],[.18,"#999e93"],[.48,"#a7ab9e"],[.72,"#888f83"],[1,"#a2a798"]] as const)finish.addColorStop(stop,color);
   ctx.fillStyle=finish;ctx.fillRect(0,0,width,height);
   let seed=7429;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
   // Brushing follows the sheet, so it stays still while the hardware moves.
@@ -22,7 +22,7 @@ function agedMetal(width: number, height: number) {
     ctx.fillRect(random()*width,random()*height,3+random()*width*.045,.5);
   }
   const patina=ctx.createRadialGradient(width*.48,height*.36,0,width*.5,height*.5,Math.max(width,height)*.68);
-  patina.addColorStop(0,"rgba(0,0,0,0)");patina.addColorStop(.6,"rgba(18,25,19,.04)");patina.addColorStop(1,"rgba(10,16,12,.4)");
+  patina.addColorStop(0,"rgba(0,0,0,0)");patina.addColorStop(.6,"rgba(18,25,19,.04)");patina.addColorStop(1,"rgba(10,16,12,.18)");
   ctx.fillStyle=patina;ctx.fillRect(0,0,width,height);
   metalTexture=plate;return plate;
 }
@@ -66,11 +66,11 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0, engrav
   const point = (x: number, y: number) => [(x + width/2) * sx, (height - y) * sy] as const;
   const text = (label: string, x: number, y: number, size = 15, alpha = 0.8) => {
     ctx.font = `500 ${size*resolution/158}px ui-sans-serif, system-ui, sans-serif`;
-    ctx.fillStyle = `rgba(231,232,211,${alpha})`; ctx.textAlign = "center";
+    ctx.fillStyle = `rgba(38,45,39,${alpha})`; ctx.textAlign = "center";
     ctx.fillText(label, ...point(x, y));
   };
   const line = (points: [number, number][], alpha = 0.23) => {
-    ctx.strokeStyle = `rgba(231,232,211,${alpha})`; ctx.lineWidth = 1.4;
+    ctx.strokeStyle = `rgba(38,45,39,${alpha})`; ctx.lineWidth = 1.4;
     ctx.beginPath(); points.forEach(([x, y], i) => { const p = point(x, y); if (i) ctx.lineTo(...p); else ctx.moveTo(...p); }); ctx.stroke();
   };
   const ports=terminal?new Set(socketPositions(terminal.layout).map(p=>`${p.x}:${p.y}`)):null;
