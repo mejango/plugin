@@ -393,7 +393,7 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
   const unsubscribeReadout=angle?subscribeMachineReadout(()=>{if(!disposed)buildBoard();}):()=>{};
   if(engravings){
     engravings.onload=()=>{if(!disposed)buildBoard();};
-    engravings.src="/images/board-engravings-v2.png";
+    engravings.src="/images/board-engravings-bronze.png";
   }
   let timing={physicsMs:0,renderMs:0,frameMs:0,substeps:0,rebuiltCords:[] as number[],uploadedBytes:0,drawCalls:0};
   let audioSignature="";

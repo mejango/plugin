@@ -53,7 +53,7 @@ export function drawMachineTerminal(ctx: CanvasRenderingContext2D, layout: Scree
     });
     screen.fillStyle="#536379";screen.fillRect(8,178,464,1);
     pixels(screen,"< BACK",10,184,2);
-    const footer=state.detailFailed?"RETRY >":"JUICEBOX >";
+    const footer=state.detailFailed?"RETRY >":"VIEW >";
     pixels(screen,footer,470-footer.length*12,184,2);
   }else{
     screen.fillStyle="#213044";screen.fillRect(8,34,464,21);
@@ -93,15 +93,15 @@ export function drawMachineTerminal(ctx: CanvasRenderingContext2D, layout: Scree
   ctx.beginPath();ctx.moveTo(kx+size*.47,ky-size*.45);ctx.lineTo(kx+size*.47,ky+size*.45);ctx.lineTo(kx-size*.45,ky+size*.45);ctx.stroke();
   ctx.fillStyle="#c7f7ff";ctx.fillRect(kx-size*.32,ky-size*.32,size*.18,Math.max(1,size*.035));
   ctx.font=`600 ${size*.2}px ui-sans-serif, system-ui, sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillStyle="#153d4b";ctx.fillText("NEW",kx,ky+size*.08);
-  ctx.fillStyle="#666";ctx.font=`500 ${Math.max(8,size*.17)}px ui-sans-serif, system-ui, sans-serif`;ctx.fillText("PLUG IN",kx,ky-size*.72);
+  ctx.fillStyle="#e1e3cf";ctx.font=`500 ${Math.max(8,size*.17)}px ui-sans-serif, system-ui, sans-serif`;ctx.fillText("PLUG IN",kx,ky-size*.72);
   const knobX=(mount.knobX+layout.width/2)*sx,knobY=(layout.height-mount.knobY)*sy,radius=mount.knobRadius*sx;
-  ctx.strokeStyle="rgba(58,68,72,.42)";ctx.lineWidth=Math.max(0.8,sx*.008);
+  ctx.strokeStyle="rgba(228,232,214,.65)";ctx.lineWidth=Math.max(0.8,sx*.008);
   for(let i=0;i<=10;i++){
     const a=(-225+i*27)*Math.PI/180;
     ctx.beginPath();ctx.moveTo(knobX+Math.cos(a)*radius*1.22,knobY+Math.sin(a)*radius*1.22);
     ctx.lineTo(knobX+Math.cos(a)*radius*1.38,knobY+Math.sin(a)*radius*1.38);ctx.stroke();
   }
-  ctx.fillStyle="#666";ctx.font=`500 ${Math.max(8,radius*.4)}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.fillStyle="#e1e3cf";ctx.font=`500 ${Math.max(8,radius*.4)}px ui-sans-serif, system-ui, sans-serif`;
   ctx.fillText("VOLUME",knobX,y+Math.max(8,radius*.4)*0.6);
   if (!state.programming) {
   const mx=(mount.modeX+layout.width/2)*sx,my=(layout.height-mount.modeY)*sy;
@@ -110,7 +110,7 @@ export function drawMachineTerminal(ctx: CanvasRenderingContext2D, layout: Scree
     ctx.beginPath();ctx.moveTo(mx+Math.sin(a)*radius*1.22,my-Math.cos(a)*radius*1.22);
     ctx.lineTo(mx+Math.sin(a)*radius*1.38,my-Math.cos(a)*radius*1.38);ctx.stroke();
   }
-  ctx.fillStyle="#666";ctx.fillText("VIEW MODE",mx,my-radius*1.9);
+  ctx.fillStyle="#e1e3cf";ctx.fillText("VIEW MODE",mx,my-radius*1.9);
   }
 
   ctx.restore();
