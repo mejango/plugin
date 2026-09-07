@@ -1,9 +1,8 @@
 /**
- * The house rules, in one place. These mirror PluginDeployer's enums exactly —
- * the contract is the authority, this is its vocabulary for the UI.
+ * House rules shared by the form, charts and direct Revnet deployment builder.
  */
 
-/** PluginKeep. Order IS the enum's order; the index is what goes onchain. */
+/** The supported keep options. */
 export const KEEPS = [
   { percent: 0, label: "0% — keeps nothing" },
   { percent: 10, label: "10% — just a bit" },
@@ -13,12 +12,12 @@ export const KEEPS = [
   { percent: 90, label: "90% — all but a bit" },
 ] as const;
 
-/** PluginDoubling. Order IS the enum's order. */
+/** Issuance intervals; a quarter is 90 days, matching the house configuration. */
 export const DOUBLINGS = [
   { key: "1d", label: "Daily", days: 1, word: "day" },
   { key: "1w", label: "Weekly", days: 7, word: "week" },
   { key: "1m", label: "Monthly", days: 30, word: "month" },
-  { key: "3m", label: "Quarterly", days: 91, word: "quarter" },
+  { key: "3m", label: "Quarterly", days: 90, word: "quarter" },
 ] as const;
 
 export type DoublingKey = (typeof DOUBLINGS)[number]["key"];
@@ -35,7 +34,7 @@ export function keepIndex(percent: number): number {
   return i;
 }
 
-export function doublingIndex(key: DoublingKey): number {
+function doublingIndex(key: DoublingKey): number {
   const i = DOUBLINGS.findIndex((d) => d.key === key);
   if (i < 0) throw new Error(`no doubling option for ${key}`);
   return i;

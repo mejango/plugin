@@ -59,7 +59,7 @@ export function HomeHero() {
   return (
     <section className={styles.module} aria-label="Machine terminal" style={{ left, top, width: mount.width * scale, height: mount.height * scale }}>
       <div className="sr-only">
-        <h1>{mode.toUpperCase()}</h1>
+        <h1>{mode.toUpperCase()} PLUG INS</h1>
         <p>{mode === "latest" ? "Latest activity" : `${mode} machines`}</p>
         <table><thead><tr><th>{mode === "latest" ? "When" : "Ticker"}</th><th>Name</th><th>{mode === "latest" ? "Event" : "Balance"}</th></tr></thead>
           <tbody>{machines?.map((machine) => <tr key={machine.id}><td>{machine.ticker}</td><td>{machine.name}</td><td>{machine.fullBalance}</td></tr>)}</tbody>
@@ -68,7 +68,7 @@ export function HomeHero() {
       </div>
       <Link href="/create" className={styles.key} aria-label="Create a new machine" title="Create a new machine"
         style={{ left: (mount.keyX - mount.keySize / 2 - mount.left) * scale, top: (mount.top - mount.keyY - mount.keySize / 2) * scale, width: mount.keySize * scale, height: mount.keySize * scale }}>
-        <span className={styles.nowLight} aria-hidden="true" /><span className="sr-only">Now</span>
+        <span className={styles.nowLight} aria-hidden="true" /><span className="sr-only">New</span>
       </Link>
       <BoardKnob label="View mode" value={VIEW_MODES.indexOf(mode)} max={3} step={1} text={mode} cycle onChange={changeMode}
         style={{ left: (mount.modeX - mount.knobRadius * 1.1 - mount.left) * scale, top: (mount.top - mount.modeY - mount.knobRadius * 1.1) * scale, width: mount.knobRadius * 2.2 * scale, height: mount.knobRadius * 2.2 * scale }} />

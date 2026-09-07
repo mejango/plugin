@@ -1,12 +1,9 @@
 "use client";
 
-import {
-  MappableAsset,
-  jbProjectsAbi,
-  parseSuckerDeployerConfig,
-} from "@bananapus/nana-sdk-core";
+import { jbProjectsAbi, revDeployerAbi } from "@bananapus/nana-sdk-core";
 import {
   readContract,
+  getBytecode,
   simulateContract,
   switchChain,
   waitForTransactionReceipt,
@@ -16,16 +13,14 @@ import { useCallback, useState } from "react";
 import type { Hex } from "viem";
 import { useAccount, useConfig } from "wagmi";
 
-import { CHAIN_LABELS, assertSupportedChainId } from "@/lib/chains";
-import { pluginDeployerAbi } from "@/lib/plugin/abi";
-import { JB_PROJECTS, buildPitchUri, deployerFor, type SuckerConfig } from "@/lib/plugin/deploy";
-import { keepIndex, doublingIndex } from "@/lib/plugin/house";
+import { CHAIN_LABELS } from "@/lib/chains";
+import { buildPitchUri, buildDeployArgs, deployerFor, projectsFor } from "@/lib/plugin/deploy";
 import type { MachineDraft } from "@/lib/plugin/types";
 
 export type DeployStep = {
   chainId: number;
   label: string;
-  status: "pending" | "signing" | "confirming" | "done" | "failed";
+  status: "pending" | "signing" | "confirming" | "done" | "failed" | "skipped";
   hash?: Hex;
   error?: string;
 };
@@ -57,6 +52,7 @@ export function useDeployMachine() {
   const deploy = useCallback(
     async (draft: MachineDraft, manual: string) => {
       setError(null);
+      setSteps([]);
       if (!isConnected || !address) {
         setError("Connect a wallet first.");
         return;
@@ -75,50 +71,28 @@ export function useDeployMachine() {
         })),
       );
 
-      const salt = randomSalt();
-      const startsAtOrAfter = Math.floor(Date.now() / 1000) + 600;
-      const pitchUri = buildPitchUri(draft, manual);
-
+      let activeChainId: number | null = null;
       try {
+        const salt = randomSalt();
+        const startsAtOrAfter = Math.floor(Date.now() / 1000) + 600;
+        const pitchUri = buildPitchUri(draft, manual);
+        const prepared=new Map(draft.chainIds.map(chainId=>[chainId,buildDeployArgs(draft,pitchUri,chainId,salt,startsAtOrAfter)]));
+        // Confirm every selected chain is reachable and has the SDK's deployer
+        // before asking for the first signature in a multi-chain deployment.
+        for(const chainId of draft.chainIds){
+          activeChainId=chainId;
+          const code=await getBytecode(config,{chainId,address:deployerFor(chainId)});
+          if(!code||code==="0x")throw new Error(`Revnet deployment is unavailable on ${CHAIN_LABELS[chainId]}.`);
+        }
         for (const chainId of draft.chainIds) {
+          activeChainId=chainId;
           const to = deployerFor(chainId);
           await switchChain(config, { chainId });
-
-          // Suckers bridge this chain to every other chain in the set.
-          const suckers = (
-            draft.chainIds.length > 1
-              ? parseSuckerDeployerConfig(
-                  assertSupportedChainId(chainId),
-                  draft.chainIds.map(assertSupportedChainId),
-                  [MappableAsset.NATIVE, MappableAsset.USDC],
-                  { salt, version: 6, bridge: "ccip" },
-                )
-              : { deployerConfigurations: [], salt }
-          ) as SuckerConfig;
-
-          const machine = {
-            name: draft.name.trim(),
-            id: draft.id.trim().toUpperCase(),
-            pitchUri,
-            machine: draft.address.trim() as Hex,
-            keep: keepIndex(draft.keepPercent),
-            doubling: doublingIndex(draft.doubling),
-            startsAtOrAfter,
-            salt,
-            // Each chain gets that chain's own twin of every routed project.
-            routes: draft.routes
-              .map((route) => ({
-                projectId: BigInt(route.machine.ids[chainId] ?? 0),
-                percentOfKeep: route.percent,
-                locked: route.locked,
-              }))
-              .filter((route) => route.projectId !== 0n),
-          };
 
           // The creation fee is exact-equality and per-chain — never reuse one.
           const value = (await readContract(config, {
             chainId,
-            address: JB_PROJECTS,
+            address: projectsFor(chainId),
             abi: jbProjectsAbi,
             functionName: "creationFee",
           })) as bigint;
@@ -131,15 +105,16 @@ export function useDeployMachine() {
             chainId,
             account: address,
             address: to,
-            abi: pluginDeployerAbi,
-            functionName: "startEngine",
-            args: [machine, suckers] as never,
+            abi: revDeployerAbi,
+            functionName: "deployFor",
+            args: prepared.get(chainId)!,
             value,
           });
 
           const hash = await writeContract(config, request);
           update(chainId, { status: "confirming", hash });
-          await waitForTransactionReceipt(config, { chainId, hash });
+          const receipt=await waitForTransactionReceipt(config, { chainId, hash });
+          if(receipt.status!=="success")throw new Error(`Deployment reverted on ${CHAIN_LABELS[chainId]??chainId}.`);
           update(chainId, { status: "done", hash });
         }
       } catch (err) {
@@ -147,7 +122,7 @@ export function useDeployMachine() {
           err instanceof Error ? (err as { shortMessage?: string }).shortMessage ?? err.message : String(err);
         setError(message);
         setSteps((prev) =>
-          prev.map((s) => (s.status === "signing" || s.status === "confirming" ? { ...s, status: "failed", error: message } : s)),
+          prev.map((s) => s.chainId===activeChainId ? { ...s, status: "failed", error: message } : s.status==="pending" ? {...s,status:"skipped"} : s),
         );
       } finally {
         setBusy(false);

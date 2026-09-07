@@ -233,17 +233,26 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     board.box(v(-100,0,-0.3),v(100,50,0),[1,1,1]);
     const mount=displayMount(layout),half=mount.keySize/2;
     board.box(v(mount.keyX-half,mount.keyY-half,0),v(mount.keyX+half,mount.keyY+half,0.085),[0.08,0.36,0.43]);
-    board.cylinder(v(mount.knobX,mount.knobY,0.003),v(mount.knobX,mount.knobY,0.03),mount.knobRadius*1.08,[0.25,0.27,0.28],48);
-    board.cylinder(v(mount.knobX,mount.knobY,0.031),v(mount.knobX,mount.knobY,0.19),mount.knobRadius,[0.13,0.15,0.16],48,mount.knobRadius*0.95);
-    board.cylinder(v(mount.knobX,mount.knobY,0.191),v(mount.knobX,mount.knobY,0.20),mount.knobRadius*0.95,[0.20,0.22,0.23],48);
-    const volumeAngle=(-135+270*(machineReadout().volume??0))*Math.PI/180;
-    board.cylinder(v(mount.knobX+Math.sin(volumeAngle)*mount.knobRadius*.5,mount.knobY+Math.cos(volumeAngle)*mount.knobRadius*.5,.204),v(mount.knobX+Math.sin(volumeAngle)*mount.knobRadius*.82,mount.knobY+Math.cos(volumeAngle)*mount.knobRadius*.82,.204),.013,[.86,.9,.9],8);
+    const rotary=(x:number,y:number,rotation:number)=>{
+      const r=mount.knobRadius;
+      board.cylinder(v(x,y,.003),v(x,y,.022),r*1.12,[.16,.18,.18],64);
+      board.cylinder(v(x,y,.023),v(x,y,.043),r*1.07,[.49,.52,.51],64,r*1.03);
+      board.cylinder(v(x,y,.044),v(x,y,.19),r,[.10,.12,.12],64,r*.98);
+      // Narrow molded grip ribs catch the light around the rubber skirt.
+      for(let i=0;i<40;i++){
+        const a=i*Math.PI/20+rotation,px=x+Math.sin(a)*r*.99,py=y+Math.cos(a)*r*.99;
+        board.cylinder(v(px,py,.06),v(px,py,.176),r*.017,[.23,.25,.24],5);
+      }
+      board.cylinder(v(x,y,.191),v(x,y,.208),r*.98,[.36,.39,.38],64,r*.91);
+      board.cylinder(v(x,y,.209),v(x,y,.214),r*.91,[.19,.22,.21],64);
+      const point=(distance:number,z:number)=>v(x+Math.sin(rotation)*r*distance,y+Math.cos(rotation)*r*distance,z);
+      board.cylinder(point(.49,.217),point(.82,.217),.017,[.08,.10,.10],8);
+      board.cylinder(point(.51,.219),point(.80,.219),.011,[.84,.91,.85],8);
+    };
+    rotary(mount.knobX,mount.knobY,(-135+270*(machineReadout().volume??0))*Math.PI/180);
     if (!machineReadout().programming) {
-    board.cylinder(v(mount.modeX,mount.modeY,.003),v(mount.modeX,mount.modeY,.03),mount.knobRadius*1.08,[.25,.27,.28],48);
-    board.cylinder(v(mount.modeX,mount.modeY,.031),v(mount.modeX,mount.modeY,.19),mount.knobRadius,[.13,.15,.16],48,mount.knobRadius*.95);
-    board.cylinder(v(mount.modeX,mount.modeY,.191),v(mount.modeX,mount.modeY,.20),mount.knobRadius*.95,[.20,.22,.23],48);
-    const modeIndex=["top","trending","latest","new"].indexOf(machineReadout().mode??"top"),a=(-135+modeIndex*90)*Math.PI/180;
-    board.cylinder(v(mount.modeX+Math.sin(a)*mount.knobRadius*.5,mount.modeY+Math.cos(a)*mount.knobRadius*.5,.204),v(mount.modeX+Math.sin(a)*mount.knobRadius*.82,mount.modeY+Math.cos(a)*mount.knobRadius*.82,.204),.013,[.86,.9,.9],8);
+      const modeIndex=["top","trending","latest","new"].indexOf(machineReadout().mode??"top");
+      rotary(mount.modeX,mount.modeY,(-135+modeIndex*90)*Math.PI/180);
     }
     const keyCorners=[v(mount.keyX-half,mount.keyY-half,0.086),v(mount.keyX+half,mount.keyY-half,0.086),v(mount.keyX+half,mount.keyY+half,0.086),v(mount.keyX-half,mount.keyY+half,0.086)];
     for(const i of [0,1,2,0,2,3])board.vertex(keyCorners[i],v(0,0,1),[1,1,1],-2);

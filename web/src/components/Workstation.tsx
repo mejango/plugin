@@ -27,7 +27,7 @@ export function Workstation({ active }: { active: boolean }) {
         <div className={styles.chin} aria-hidden="true">
           <span className={styles.vents} /><span className={styles.power}><i /> ONLINE</span>
         </div>
-        <div className={styles.socket} aria-hidden="true"><i data-patch-link /><span>PATCH LINK</span></div>
+        <div className={styles.socket} aria-hidden="true"><i data-patch-link /></div>
       </div>
       <div className={styles.stand} aria-hidden="true" />
     </main>

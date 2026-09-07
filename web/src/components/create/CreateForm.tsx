@@ -42,11 +42,13 @@ export function CreateForm() {
   const [manualEdit, setManualEdit] = useState<string | null>(null);
   const [hoverDay, setHoverDay] = useState<number | null>(null);
 
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const { deploy, steps, busy, error } = useDeployMachine();
 
-  const set = <K extends keyof MachineDraft>(key: K, value: MachineDraft[K]) =>
+  const set = <K extends keyof MachineDraft>(key: K, value: MachineDraft[K]) => {
+    setMessage("");
     setDraft((prev) => ({ ...prev, [key]: value }));
+  };
 
   const generatedManual = useMemo(() => buildManual(draft), [draft]);
   const tokenWord = draft.id.trim() ? draft.id.trim().toUpperCase() : "tokens";
@@ -63,7 +65,7 @@ export function CreateForm() {
 
   return (
     <div ref={panel} className={styles.fullForm}>
-      <header className={styles.fullIntro}><h1 className="display">Plug in</h1><p>Give your machine a money engine so it can fundraise, process revenues, and manage incentives between machines.</p></header>
+      <header className={styles.fullIntro}><h1 className="display">New plug in</h1><p>Give your machine a money engine so it can fundraise, process revenues, and manage incentives between machines.</p></header>
       <form onSubmit={submit} noValidate className={styles.form}>
         <div>
           <div className={styles.body}>
@@ -249,6 +251,10 @@ export function CreateForm() {
         {!isConnected ? (
           <SignIn />
         ) : (
+          <>
+          {address && <p className="m-0 max-w-full text-[.8rem] leading-relaxed text-[#555] min-[621px]:text-right">
+            Signed in as <span className="break-all font-mono text-black">{address}</span>
+          </p>}
           <button
             type="submit"
             disabled={busy || uploadingMedia}
@@ -256,10 +262,11 @@ export function CreateForm() {
           >
             {busy ? "Deploying…" : "Deploy"}
           </button>
+          </>
         )}
 
-        <span className="text-center text-[.85rem] text-[#555] min-[621px]:text-right">
-          {error ? error : `You'll confirm once per chain — ${doublingFor(draft.doubling).label.toLowerCase()} issuance price increases, ${draft.keepPercent}% keep.`}
+        <span role={error ? "alert" : undefined} className="text-center text-[.85rem] text-[#555] min-[621px]:text-right">
+          {error ?? `You'll confirm once per chain — ${doublingFor(draft.doubling).label.toLowerCase()} issuance price increases, ${draft.keepPercent}% keep.`}
         </span>
 
         {steps.length > 0 && (

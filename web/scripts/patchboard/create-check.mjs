@@ -10,7 +10,7 @@ try {
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 await page.goto('http://localhost:3004/create',{waitUntil:'domcontentloaded'});
 await page.waitForFunction(()=>document.querySelector('canvas')?.__patchboard);
-await page.getByRole('heading',{name:'Plug in',exact:true}).waitFor();
+await page.getByRole('heading',{name:'New plug in',exact:true}).waitFor();
 assert.equal(await page.getByRole('combobox',{name:'Creation page'}).count(),0);
 assert.equal(await page.getByRole('button',{name:'Screen view',exact:true}).count(),0);
 for(const label of ['Identity','Goal','Issuance','Splits','How it works','Manual','Launch'])

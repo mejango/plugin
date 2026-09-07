@@ -14,7 +14,6 @@
     "test": "vitest run",
     "check:unused": "knip",
     "check": "npm run typecheck && npm run lint && npm run check:unused && npm run test",
-    "gen:abi": "node scripts/gen-abi.mjs",
     "test:patchbay": "node scripts/patchbay/run.mjs"
   },
   "dependencies": {

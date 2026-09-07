@@ -124,9 +124,9 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0, engrav
     reflection.addColorStop(0,"rgba(255,255,255,0)");reflection.addColorStop(0.32,"rgba(255,255,255,.24)");reflection.addColorStop(0.56,"rgba(255,255,255,0)");reflection.addColorStop(1,"rgba(70,83,95,.1)");
     ctx.fillStyle=reflection;ctx.fillRect(0,top,canvas.width,bandHeight);
     if(engravings?.complete&&engravings.naturalWidth){
-      const inset=Math.max(18,canvas.width*.045),markWidth=Math.min(canvas.width*.36,bandHeight*4.6);
+      const left=(Math.min(...sockets.map(p=>p.x))+width/2)*sx,right=(Math.max(...sockets.map(p=>p.x))+width/2)*sx,markWidth=Math.min(canvas.width*.36,bandHeight*4.6);
       // Recess the supplied silhouettes into the metal, with an inner shadow and lower lip.
-      for(const [sourceX,sourceY,sourceWidth,sourceHeight,x] of [[120,105,1930,240,inset],[120,405,1930,240,canvas.width-inset-markWidth]] as const){
+      for(const [sourceX,sourceY,sourceWidth,sourceHeight,x] of [[120,105,1930,240,left],[120,405,1930,240,right-markWidth]] as const){
         const markHeight=markWidth*sourceHeight/sourceWidth,markY=top+(bandHeight-markHeight)/2;
         const mark=engravedMark(engravings,[sourceX,sourceY,sourceWidth,sourceHeight],markWidth,markHeight);
         ctx.drawImage(mark,x-2,markY-2);

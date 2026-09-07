@@ -20,7 +20,7 @@ try{
   for(const [width,height] of [[1440,1000],[390,844],[844,390]]){
     await page.setViewportSize({width,height});await page.waitForTimeout(300);
     assert.equal(await page.locator("details, main footer, main [aria-live]").count(),0,"homepage has no tuning menu or diagnostic footer");
-    const title=page.getByRole("heading",{name:"TOP",exact:true}),now=page.getByRole("link",{name:"Create a new machine",exact:true}),signIn=page.getByRole("button",{name:"Sign in",exact:true});
+    const title=page.getByRole("heading",{name:"TOP PLUG INS",exact:true}),now=page.getByRole("link",{name:"Create a new machine",exact:true}),signIn=page.getByRole("button",{name:"Sign in",exact:true});
     assert.ok(await title.isVisible());assert.equal(await now.getAttribute("href"),"/create");
     await now.click({trial:true});assert.equal(await signIn.count(),0,"sign in appears only in the form CTA");
     const box=await title.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=width);
