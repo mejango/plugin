@@ -22,7 +22,7 @@ try{
     assert.equal(await page.locator("details, main footer, main [aria-live]").count(),0,"homepage has no tuning menu or diagnostic footer");
     const title=page.getByRole("heading",{name:"TOP",exact:true}),now=page.getByRole("link",{name:"Create a new machine",exact:true}),signIn=page.getByRole("button",{name:"Sign in",exact:true});
     assert.ok(await title.isVisible());assert.equal(await now.getAttribute("href"),"/create");
-    await now.click({trial:true});await signIn.click({trial:true});
+    await now.click({trial:true});assert.equal(await signIn.count(),0,"sign in appears only in the form CTA");
     const box=await title.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=width);
     const terminal=await page.getByRole("region",{name:"Machine terminal"}).boundingBox();assert.ok(terminal.x>=0&&terminal.x+terminal.width<=width,"hardware fits the viewport");
     const before=(await state()).sockets.map(s=>s.hole);

@@ -3,7 +3,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 
-import Link from "next/link";
 import { createIssues } from "@/lib/plugin/create-flow";
 import styles from "./CreateConsole.module.css";
 
@@ -64,9 +63,6 @@ export function CreateForm() {
 
   return (
     <div ref={panel} className={styles.fullForm}>
-      <div className={styles.utility}>
-        <Link href="/">← Board</Link>
-      </div>
       <header className={styles.fullIntro}><h1 className="display">Plug in</h1><p>Give your machine a money engine so it can fundraise, process revenues, and manage incentives between machines.</p></header>
       <form onSubmit={submit} noValidate className={styles.form}>
         <div>

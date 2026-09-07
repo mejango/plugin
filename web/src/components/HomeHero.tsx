@@ -68,7 +68,7 @@ export function HomeHero() {
       </div>
       <Link href="/create" className={styles.key} aria-label="Create a new machine" title="Create a new machine"
         style={{ left: (mount.keyX - mount.keySize / 2 - mount.left) * scale, top: (mount.top - mount.keyY - mount.keySize / 2) * scale, width: mount.keySize * scale, height: mount.keySize * scale }}>
-        <span className="sr-only">Now</span>
+        <span className={styles.nowLight} aria-hidden="true" /><span className="sr-only">Now</span>
       </Link>
       <BoardKnob label="View mode" value={VIEW_MODES.indexOf(mode)} max={3} step={1} text={mode} cycle onChange={changeMode}
         style={{ left: (mount.modeX - mount.knobRadius * 1.1 - mount.left) * scale, top: (mount.top - mount.modeY - mount.knobRadius * 1.1) * scale, width: mount.knobRadius * 2.2 * scale, height: mount.knobRadius * 2.2 * scale }} />

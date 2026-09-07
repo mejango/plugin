@@ -3,6 +3,36 @@ import { displayMount, socketPositions, type ScreenLayout } from "./layout";
 import type { MachineReadout } from "./readout";
 import { drawMachineTerminal } from "./terminal-artwork";
 
+const engravingCache = new WeakMap<HTMLImageElement, Map<string, HTMLCanvasElement>>();
+
+function engravedMark(image: HTMLImageElement, source: number[], width: number, height: number) {
+  let cache=engravingCache.get(image);
+  if(!cache){cache=new Map();engravingCache.set(image,cache);}
+  const w=Math.ceil(width),h=Math.ceil(height),key=[...source,w,h].join(":");
+  const cached=cache.get(key);if(cached)return cached;
+  const mask=document.createElement("canvas");mask.width=w+4;mask.height=h+4;
+  const m=mask.getContext("2d")!;
+  m.drawImage(image,source[0],source[1],source[2],source[3],2,2,w,h);
+  const mark=document.createElement("canvas");mark.width=mask.width;mark.height=mask.height;
+  const ink=mark.getContext("2d")!;
+  // A bright lower lip catches the same light as the chrome around the cut.
+  ink.drawImage(mask,0,1);ink.globalCompositeOperation="source-in";
+  ink.fillStyle="#f8fbfc";ink.fillRect(0,0,mark.width,mark.height);
+  ink.globalCompositeOperation="source-over";
+  m.globalCompositeOperation="source-in";
+  const metal=m.createLinearGradient(0,0,0,h);
+  metal.addColorStop(0,"#7d898f");metal.addColorStop(.38,"#a4afb5");metal.addColorStop(.65,"#87949d");metal.addColorStop(1,"#76858d");
+  m.fillStyle=metal;m.fillRect(0,0,mask.width,mask.height);
+  ink.drawImage(mask,0,0);
+  // Remove the shifted silhouette to isolate the inner upper edge.
+  const edge=document.createElement("canvas");edge.width=mask.width;edge.height=mask.height;
+  const e=edge.getContext("2d")!;e.drawImage(mask,0,0);
+  e.globalCompositeOperation="destination-out";e.drawImage(mask,.35,1);
+  e.globalCompositeOperation="source-in";e.fillStyle="#46575f";e.fillRect(0,0,edge.width,edge.height);
+  ink.globalAlpha=.75;ink.drawImage(edge,0,0);
+  cache.set(key,mark);return mark;
+}
+
 // Printed panel artwork, using the same multilingual signal vocabulary and
 // circuit motifs as patchbay.ts. Uploaded once, not redrawn during simulation.
 export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0, engravings?: HTMLImageElement, terminal?: { layout: ScreenLayout; state: MachineReadout }) {
@@ -95,12 +125,11 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0, engrav
     ctx.fillStyle=reflection;ctx.fillRect(0,top,canvas.width,bandHeight);
     if(engravings?.complete&&engravings.naturalWidth){
       const inset=Math.max(18,canvas.width*.045),markWidth=Math.min(canvas.width*.36,bandHeight*4.6);
-      // Render the supplied lettering as dark markings recessed into the trim.
+      // Recess the supplied silhouettes into the metal, with an inner shadow and lower lip.
       for(const [sourceX,sourceY,sourceWidth,sourceHeight,x] of [[120,105,1930,240,inset],[120,405,1930,240,canvas.width-inset-markWidth]] as const){
         const markHeight=markWidth*sourceHeight/sourceWidth,markY=top+(bandHeight-markHeight)/2;
-        ctx.save();ctx.globalAlpha=0.9;
-        ctx.drawImage(engravings,sourceX,sourceY,sourceWidth,sourceHeight,x,markY,markWidth,markHeight);
-        ctx.restore();
+        const mark=engravedMark(engravings,[sourceX,sourceY,sourceWidth,sourceHeight],markWidth,markHeight);
+        ctx.drawImage(mark,x-2,markY-2);
       }
     }
   }

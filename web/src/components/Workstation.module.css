@@ -1,11 +1,10 @@
-.workstation { position: absolute; left: 100vw; top: 0; width: 100vw; height: 100dvh; display: flex; align-items: center; flex-direction: column; padding: 3vh 11vw 2vh 3vw; color: #414943; background: radial-gradient(ellipse at 45% 32%, #f5f4e9 0%, #e2e4dc 52%, #c6cdc6 100%); }
+.workstation { position: absolute; left: 100vw; top: 0; width: 100vw; height: 100dvh; display: flex; align-items: center; flex-direction: column; padding: 3vh 11vw 2vh max(92px, 3vw); color: #414943; background: radial-gradient(ellipse at 45% 32%, #f5f4e9 0%, #e2e4dc 52%, #c6cdc6 100%); }
 .bench { position: absolute; left: 0; right: 0; bottom: 0; height: 20%; background: linear-gradient(#bcc4bd, #d5d9cc 4%, #b7c0b7); border-top: 1px solid #a4aea5; }
 .device { position: relative; z-index: 2; width: min(100%, 1060px); height: 89dvh; min-height: 0; flex-shrink: 0; display: flex; flex-direction: column; padding: 14px 24px 0; border: 2px solid #8b9387; border-top-color: #fbfff1; border-left-color: #e7eddf; border-radius: 18px 18px 12px 12px; background: linear-gradient(110deg, #e3e6d7, #bdc5b7 78%, #a3aea1); box-shadow: inset 0 0 0 3px #edf0e155, 6px 8px 0 #858f82, 14px 20px 28px #263c3630; }
 .topline { display: flex; justify-content: space-between; padding: 1px 5px 12px; color: #606c5c; font: 600 10px/1.3 monospace; letter-spacing: .11em; text-shadow: 0 1px #ffffff9c; }
 .monitor { flex: 1; min-height: 0; display: flex; padding: 14px; border: 3px solid #808e7e; border-bottom-color: #e5eadf; border-right-color: #e0e7da; border-radius: 9px; background: linear-gradient(135deg, #121c20, #263036); box-shadow: inset 3px 4px 8px #0009; }
 .glass { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; border-radius: 4px; background: #090e16; box-shadow: 0 0 0 2px #000, inset 0 0 20px #0009; }
 .chin { height: 45px; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-inline: 6px; }
-.brand { color: #687460; font: italic 14px/1 Georgia, serif; text-shadow: 0 1px #f1f5e9; }
 .vents { width: 90px; height: 16px; background: repeating-linear-gradient(90deg, #616e5b 0 2px, transparent 2px 6px); opacity: .55; }
 .power { display: flex; align-items: center; gap: 8px; font: 9px/1 monospace; letter-spacing: .12em; }
 .power i { width: 6px; height: 6px; border-radius: 50%; background: #b5ed87; box-shadow: 0 0 7px #b5ff69; }
@@ -16,14 +15,18 @@
 .socket span { position: absolute; top: -24px; right: 0; white-space: nowrap; font: 8px/1 monospace; letter-spacing: .08em; color: #63705c; text-shadow: 0 1px #eff3e4; }
 .stand { position: relative; z-index: 0; height: 3vh; min-height: 16px; width: 24%; background: linear-gradient(90deg, #8d9989, #c3cbba, #8b9785); box-shadow: 4px 3px #6f7c6c; }
 @media (max-width: 700px) {
-  .workstation { padding: 3vh 6vw 2vh 28px; }
+  .workstation { padding: 3vh 6vw 2vh 52px; }
   .device { width: 100%; height: 89dvh; padding: 8px 9px 0; border-radius: 12px; box-shadow: 3px 5px 0 #858f82, 8px 10px 18px #263c3630; }
   .topline { font-size: 7px; letter-spacing: .03em; padding-bottom: 8px; }
   .monitor { padding: 6px; border-width: 2px; }
   .chin { height: 30px; gap: 6px; padding: 0; }
-  .brand { font-size: 10px; }
   .vents { width: 35px; height: 10px; }
   .power { font-size: 7px; gap: 4px; }
   .socket span { display: none; }
 }
 @media (max-height: 550px) and (min-width: 701px) { .device { height: 88dvh; } .stand { display: none; } .topline { padding-bottom: 5px; } .chin { height: 25px; } }
+
+.back { position: absolute; left: -84px; top: 56px; display: flex; align-items: center; justify-content: center; gap: 6px; width: 68px; min-height: 36px; border: 1px solid #aab2a6; border-radius: 3px; background: #f7f8f2; color: #475246; font: 13px/1.2 ui-sans-serif, system-ui, sans-serif; text-decoration: none; box-shadow: 0 2px 4px #3447361a; }
+.back:hover { background: #fff; border-color: #788774; }
+.back:focus-visible { outline: 2px solid #388e91; outline-offset: 3px; }
+@media (max-width: 700px) { .back { left: -39px; top: 38px; width: 32px; min-height: 36px; font-size: 20px; } .backText { display: none; } }
