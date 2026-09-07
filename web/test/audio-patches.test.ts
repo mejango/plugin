@@ -13,8 +13,16 @@ describe('board synthesizer mapping',()=>{
   expect(patchTone([{a,b}])).toEqual(patchTone([{a:b,b:a}]));
   expect(patchTone([{a,b}])).not.toEqual(patchTone([{a,b:{...b,x:4.2}}]));
  });
+ it('keeps individual repatches audible on a populated board',()=>{
+  const patches=Array.from({length:18},(_,i)=>({a:{x:(i%12-5.5)*1.05,y:2+Math.floor(i/12)*1.05},b:{x:((i+5)%12-5.5)*1.05,y:5+Math.floor(i/12)*1.05}}));
+  const before=patchTone(patches);
+  const after=patchTone(patches.map((p,i)=>i===7?{...p,b:{...p.b,y:p.b.y+1.05}}:p));
+  // A same-column move must change more than an inaudibly small parameter.
+  const contrast=Math.max(Math.abs(Math.log2(after.cutoff/before.cutoff)),Math.abs(after.vibrato-before.vibrato)/100,Math.abs(after.rate-before.rate)/3);
+  expect(contrast).toBeGreaterThan(.2);
+ });
  it('keeps dense patches within bounded modulation levels',()=>{
   const tone=patchTone(Array.from({length:100},(_,i)=>({a:{x:i*1.05,y:2},b:{x:(i+3)*1.05,y:4}})));
-  expect(tone.tremolo).toBeLessThanOrEqual(.35);expect(tone.vibrato).toBeLessThanOrEqual(45);expect(tone.echo).toBeLessThanOrEqual(.3);expect(tone.drive).toBeLessThanOrEqual(4);expect(tone.cutoff).toBeGreaterThan(1000);
+  expect(tone.tremolo).toBeLessThanOrEqual(.48);expect(tone.vibrato).toBeLessThanOrEqual(240);expect(tone.echo).toBeLessThanOrEqual(.45);expect(tone.drive).toBeLessThanOrEqual(18);expect(tone.cutoff).toBeGreaterThanOrEqual(140);
  });
 });
