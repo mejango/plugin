@@ -9,11 +9,11 @@ const RULES = [
   },
   {
     title: "Splits",
-    body: "The machine's keep and its plug ins are carved from issuance as splits, enforced by the revnet on every mint. The rest of each mint goes to the payer.",
+    body: "The machine's keep is split from issuance, enforced by the revnet on every new issuance. The rest goes to the payer.",
   },
   {
     title: "Issuance doublings",
-    body: "Funding the machine issues its tokens. The price to issue doubles at your chosen interval. Early funders get more for less.",
+    body: "Funding the machine issues its tokens. The price to issue doubles at your chosen interval. Earlier funders get more for their money, earlier splits get more too.",
   },
   {
     title: "Cash out anytime",
