@@ -9,12 +9,12 @@ function agedMetal(width: number, height: number) {
   const plate=document.createElement("canvas");plate.width=width;plate.height=height;
   const ctx=plate.getContext("2d")!;
   const finish=ctx.createLinearGradient(0,0,width,height);
-  for(const [stop,color] of [[0,"#b1b4a8"],[.18,"#999e93"],[.48,"#a7ab9e"],[.72,"#888f83"],[1,"#a2a798"]] as const)finish.addColorStop(stop,color);
+  for(const [stop,color] of [[0,"#d0d3cc"],[.18,"#bec3bb"],[.48,"#cbd0c6"],[.72,"#b3bbb0"],[1,"#c5cbbf"]] as const)finish.addColorStop(stop,color);
   ctx.fillStyle=finish;ctx.fillRect(0,0,width,height);
   let seed=7429;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
   // Brushing follows the sheet, so it stays still while the hardware moves.
   for(let y=0;y<height;y++){
-    ctx.fillStyle=random()>.5?`rgba(234,234,211,${random()*.045})`:`rgba(12,20,17,${random()*.065})`;
+    ctx.fillStyle=random()>.5?`rgba(242,245,237,${random()*.045})`:`rgba(12,20,17,${random()*.045})`;
     ctx.fillRect(0,y,width,1);
   }
   for(let i=0;i<220;i++){
@@ -22,7 +22,7 @@ function agedMetal(width: number, height: number) {
     ctx.fillRect(random()*width,random()*height,3+random()*width*.045,.5);
   }
   const patina=ctx.createRadialGradient(width*.48,height*.36,0,width*.5,height*.5,Math.max(width,height)*.68);
-  patina.addColorStop(0,"rgba(0,0,0,0)");patina.addColorStop(.6,"rgba(18,25,19,.04)");patina.addColorStop(1,"rgba(10,16,12,.18)");
+  patina.addColorStop(0,"rgba(0,0,0,0)");patina.addColorStop(.6,"rgba(18,25,19,.025)");patina.addColorStop(1,"rgba(10,16,12,.11)");
   ctx.fillStyle=patina;ctx.fillRect(0,0,width,height);
   metalTexture=plate;return plate;
 }
