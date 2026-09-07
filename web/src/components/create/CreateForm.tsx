@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useEnsName } from "wagmi";
 
 import { createIssues } from "@/lib/plugin/create-flow";
 import styles from "./CreateConsole.module.css";
@@ -43,6 +43,7 @@ export function CreateForm() {
   const [hoverDay, setHoverDay] = useState<number | null>(null);
 
   const { address, isConnected } = useAccount();
+  const { data: ensName } = useEnsName({ address, chainId: 1, query: { enabled: isConnected && !!address, staleTime: 300_000, retry: false } });
   const { deploy, steps, busy, error } = useDeployMachine();
 
   const set = <K extends keyof MachineDraft>(key: K, value: MachineDraft[K]) => {
@@ -252,9 +253,6 @@ export function CreateForm() {
           <SignIn />
         ) : (
           <>
-          {address && <p className="m-0 max-w-full text-[.8rem] leading-relaxed text-[#555] min-[621px]:text-right">
-            Signed in as <span className="break-all font-mono text-black">{address}</span>
-          </p>}
           <button
             type="submit"
             disabled={busy || uploadingMedia}
@@ -262,6 +260,12 @@ export function CreateForm() {
           >
             {busy ? "Deploying…" : "Deploy"}
           </button>
+          {address && <p className="m-0 flex max-w-full items-baseline justify-center gap-1 text-[.8rem] leading-relaxed text-[#555] min-[621px]:justify-end">
+            <span className="shrink-0">Signed in as</span>
+            <span title={address} aria-label={ensName ? `${ensName}, ${address}` : address} className="min-w-0 max-w-[20rem] truncate font-mono text-black">
+              {ensName || `${address.slice(0, 6)}…${address.slice(-4)}`}
+            </span>
+          </p>}
           </>
         )}
 

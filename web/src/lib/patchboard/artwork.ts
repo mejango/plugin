@@ -127,7 +127,7 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0, engrav
     if(engravings?.complete&&engravings.naturalWidth){
       const left=(Math.min(...sockets.map(p=>p.x))+width/2)*sx,right=(Math.max(...sockets.map(p=>p.x))+width/2)*sx,markWidth=Math.min(canvas.width*.36,bandHeight*4.6);
       // Recess the supplied silhouettes into the metal, with an inner shadow and lower lip.
-      for(const [sourceX,sourceY,sourceWidth,sourceHeight,x] of [[120,105,1930,240,left],[120,405,1930,240,right-markWidth]] as const){
+      for(const [sourceX,sourceY,sourceWidth,sourceHeight,x] of [[205,270,1290,160,left],[193,541,1310,165,right-markWidth]] as const){
         const markHeight=markWidth*sourceHeight/sourceWidth,markY=top+(bandHeight-markHeight)/2;
         const mark=engravedMark(engravings,[sourceX,sourceY,sourceWidth,sourceHeight],markWidth,markHeight);
         ctx.drawImage(mark,x-2,markY-2);

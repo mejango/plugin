@@ -44,14 +44,14 @@ replacing the first two socket rows across four columns on desktop (three on pho
 The first column, left of the screen, holds a continuous volume knob above a raised cyan NEW key, with
 PLUG IN printed above it. These cells are removed from the physical socket grid;
 cables can pass naturally in front of the display. The key's visible bottom aligns
-with the display frame. Volume starts at zero, supports dragging and keyboard adjustment, and persists when visiting the workstation. No audio source is currently attached.
+with the display frame. Volume starts at zero, supports dragging and keyboard adjustment, and persists when visiting the workstation. The homepage keyboard plays a sine synth through cable-controlled filter, pitch, amplitude, drive, and echo modulation.
 `HomeHero` defaults to Top by indexed USD backing, with Trending, New, and Latest activity views matching the Juicebox discovery categories. The View Mode knob sits right of the screen (below it on narrow phones), supports dragging between four detents, click, and arrow keys, and rotates with the selection. It fetches six V6 rows and publishes the readout to the
 renderer, and provides an accessible table plus a matching invisible click target
-for NOW. The renderer uses issued-token tickers and per-currency balances summed
+for NEW. The renderer uses issued-token tickers and per-currency balances summed
 across chains, with minute refreshes and loading, empty, and retry states. Sign in
 uses the existing account flow. `PatchboardBackdrop` mounts the public
 board in the shared app layout for `/`, `/patchboard-angle`, and `/create`.
-NOW pans to a connected computer beside that same canvas and physical world; Back and
+NEW pans to a connected computer beside that same canvas and physical world; Back and
 browser history preserve the exact arrangement, including user-unplugged ends.
 The full form scrolls inside the larger monitor,
 so navigating or scrolling does not resize/rebuild the board. The backdrop is
@@ -285,3 +285,5 @@ when this repository's `main` branch is pushed.
 Pending insertions reserve clearance for the shaft and connector along the socket approach. A crossing cord keeps the plug outside the obstruction; clearing it wakes the blocked insertion once. Normal capsule collisions still govern all hand movement and insertion steps.
 
 The socket below View Mode is reserved for four directional keys. Up/down select rows and fetch six-row pages; right opens cross-chain project stats and left returns to the same selection. Keyboard arrows work without focusing the terminal, while form fields and focused knobs retain their own keys. Footer counts come from the indexer totalCount. Run `node scripts/patchboard/terminal-check.mjs` for desktop/mobile navigation, pagination, stats, and retry checks.
+
+Audio starts only on a musical key press. A W S E D F T G Y H U J K O L P ; and quote form a chromatic keyboard; Z/X shift octave, Escape stops notes. Eight voices use attack/release ramps, smooth parameter changes, bounded modulation, and a master volume after compression. Only fully seated cable pairs contribute; cable animation does not modulate sound. Blur, hidden tabs, and leaving the homepage close audio. F/O/R camera shortcuts remain available on the standalone diagnostic board; homepage letters belong to the instrument. `node scripts/patchboard/audio-check.mjs` measures real browser output, silence, cable modulation, and cleanup.

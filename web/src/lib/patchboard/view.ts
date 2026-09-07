@@ -7,6 +7,7 @@ import { cableShadowSpine, PANEL_SHADOW_Z, PATCH_LIGHTS, projectShadow } from ".
 import { screenLayout, socketPositions, displayMount } from "./layout";
 import { machineReadout, subscribeMachineReadout } from "./readout";
 import { rubberGrain, RUBBER_TEXTURE_SIZE } from "./material";
+import { publishAudioPatches } from "./audio-patches";
 import { planeTransform } from "./plane-transform";
 import { pickCord } from "./picking";
 
@@ -379,9 +380,9 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
     if(canvas.closest("[inert]"))return;
     if((e.target as HTMLElement)?.matches("input,button,select,textarea"))return;
     if(e.key==="Escape"){if(!down&&!world.grip)world.cancelDocking();cancel();}
-    if(e.key.toLowerCase()==="r")reset();
-    if(e.key.toLowerCase()==="f")setView(true);
-    if(e.key.toLowerCase()==="o")setView(false);
+    if(!angle&&e.key.toLowerCase()==="r")reset();
+    if(!angle&&e.key.toLowerCase()==="f")setView(true);
+    if(!angle&&e.key.toLowerCase()==="o")setView(false);
     if(down&&(e.key==="ArrowUp"||e.key==="ArrowDown")){e.preventDefault();adjustDepth(e.key==="ArrowUp"?0.15:-0.15);}
   };
   const context=(e:Event)=>e.preventDefault();
@@ -392,9 +393,10 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
   const unsubscribeReadout=angle?subscribeMachineReadout(()=>{if(!disposed)buildBoard();}):()=>{};
   if(engravings){
     engravings.onload=()=>{if(!disposed)buildBoard();};
-    engravings.src="/images/board-engravings.png";
+    engravings.src="/images/board-engravings-v2.png";
   }
   let timing={physicsMs:0,renderMs:0,frameMs:0,substeps:0,rebuiltCords:[] as number[],uploadedBytes:0,drawCalls:0};
+  let audioSignature="";
   let uploadedBoard:Mesh|null=null,boardVertices=0,drawnCamera=-1,previousStatus="";
   const visibility=()=>{last=null;if(document.hidden)cancel();};
   document.addEventListener("visibilitychange",visibility);
@@ -495,6 +497,13 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
       const data=new Float32Array(board.data);
       gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,data,gl.STATIC_DRAW);
       uploadedBytes+=data.byteLength;uploadedBoard=board;boardVertices=data.length/VERTEX_FLOATS;sceneChanged=true;
+    }
+    if(angle){
+      const signature=world.cords.map(c=>c.ports.join(",")).join(";")+`:${layout.width}:${layout.height}`;
+      if(signature!==audioSignature){
+        audioSignature=signature;
+        publishAudioPatches(world.cords.flatMap(c=>c.ports[0]!==null&&c.ports[1]!==null?[{a:world.sockets[c.ports[0]],b:world.sockets[c.ports[1]]}]:[]));
+      }
     }
     if(sceneChanged||drawnCamera!==cameraRevision){
       gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);

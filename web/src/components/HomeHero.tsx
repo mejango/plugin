@@ -114,6 +114,7 @@ export function HomeHero() {
     <section data-board-terminal className={styles.module} aria-label="Machine terminal" style={{ left, top, width: mount.width * scale, height: mount.height * scale }}>
       <div className="sr-only">
         <h1>{opened?opened.name:`${mode.toUpperCase()} PLUG INS`}</h1>
+        <p>Play notes with A W S E D F T G Y H U J K. Z/X change octave. Turn up Volume to hear. Escape stops notes.</p>
         <p>{mode === "latest" ? "Latest activity" : `${mode} machines`}</p>
         <table aria-label="Plug ins" hidden={!!opened}><thead><tr><th>{mode === "latest" ? "When" : "Ticker"}</th><th>Name</th><th>{mode === "latest" ? "Event" : "Balance"}</th></tr></thead>
           <tbody>{machines?.map((machine,i) => <tr key={machine.id} aria-selected={i===selected}><td>{machine.ticker}</td><td>{machine.name}</td><td>{machine.fullBalance}</td></tr>)}</tbody>

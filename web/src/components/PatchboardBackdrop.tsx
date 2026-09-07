@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { PatchboardExperience } from "@/lib/patchboard/experience";
+import { BoardAudio } from "./BoardAudio";
 import { HomeHero } from "./HomeHero";
 import { Workstation } from "@/components/Workstation";
 import styles from "./PatchboardBackdrop.module.css";
@@ -37,6 +38,7 @@ export function PatchboardBackdrop() {
   if(!BOARD_ROUTES.has(pathname))return null;
   const editing=pathname==="/create";
   return <div className={styles.viewport}>
+    <BoardAudio active={pathname==="/"} />
     <div ref={world} className={`${styles.world} ${editing ? styles.editing : ""}`} data-camera={editing ? "workstation" : "patchboard"}>
       <div className={styles.board} inert={editing}>
         <PatchboardExperience angle />
