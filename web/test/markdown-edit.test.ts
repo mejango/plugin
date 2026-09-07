@@ -18,6 +18,18 @@ describe("Goal Markdown formatting", () => {
     expect(edit.value.slice(edit.start, edit.end)).toBe("https://example.com");
   });
 
+  it("inserts image Markdown and selects its URL", () => {
+    const edit = formatMarkdown("See demo here", 4, 8, "media");
+    expect(edit.value).toBe("See ![demo](https://example.com/image.png) here");
+    expect(edit.value.slice(edit.start, edit.end)).toBe("https://example.com/image.png");
+  });
+
+  it("uses an image description when no text is selected", () => {
+    const edit = formatMarkdown("", 0, 0, "media");
+    expect(edit.value).toBe("![Image description](https://example.com/image.png)");
+    expect(edit.value.slice(edit.start, edit.end)).toBe("https://example.com/image.png");
+  });
+
   it("numbers whole selected lines without including the following line", () => {
     const value = "Intro\nFirst\nSecond\nOutro";
     const edit = formatMarkdown(value, 8, 19, "number");

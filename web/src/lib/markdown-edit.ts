@@ -1,4 +1,4 @@
-export type MarkdownAction = "bold" | "italic" | "heading" | "link" | "bullet" | "number" | "quote" | "code";
+export type MarkdownAction = "bold" | "italic" | "heading" | "link" | "bullet" | "number" | "quote" | "code" | "media";
 
 /** Return the edited Markdown and the text to select when focus returns. */
 export function formatMarkdown(value: string, start: number, end: number, action: MarkdownAction) {
@@ -16,14 +16,16 @@ export function formatMarkdown(value: string, start: number, end: number, action
     return { value: value.slice(0, lineStart) + formatted + value.slice(lineEnd), start: lineStart, end: lineStart + formatted.length };
   }
 
-  const text = value.slice(start, end) || (action === "link" ? "Link text" : action === "code" ? "code" : "text");
-  const marker = action === "bold" ? "**" : action === "italic" ? "*" : action === "code" ? "`" : "[";
-  const suffix = action === "link" ? "](https://example.com)" : marker;
+  const hasUrl = action === "link" || action === "media";
+  const url = action === "media" ? "https://example.com/image.png" : "https://example.com";
+  const text = value.slice(start, end) || (action === "media" ? "Image description" : action === "link" ? "Link text" : action === "code" ? "code" : "text");
+  const marker = action === "bold" ? "**" : action === "italic" ? "*" : action === "code" ? "`" : action === "media" ? "![" : "[";
+  const suffix = hasUrl ? `](${url})` : marker;
   const formatted = marker + text + suffix;
-  const selectionStart = action === "link" ? start + marker.length + text.length + 2 : start + marker.length;
+  const selectionStart = hasUrl ? start + marker.length + text.length + 2 : start + marker.length;
   return {
     value: value.slice(0, start) + formatted + value.slice(end),
     start: selectionStart,
-    end: selectionStart + (action === "link" ? "https://example.com".length : text.length),
+    end: selectionStart + (hasUrl ? url.length : text.length),
   };
 }

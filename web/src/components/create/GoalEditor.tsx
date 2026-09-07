@@ -10,6 +10,7 @@ const ACTIONS: { action: MarkdownAction; label: string; text: string }[] = [
   { action: "italic", label: "Italic", text: "I" },
   { action: "heading", label: "Heading", text: "H" },
   { action: "link", label: "Link", text: "Link" },
+  { action: "media", label: "Add media (image URL)", text: "Media" },
   { action: "bullet", label: "Bulleted list", text: "• List" },
   { action: "number", label: "Numbered list", text: "1. List" },
   { action: "quote", label: "Quote", text: "Quote" },

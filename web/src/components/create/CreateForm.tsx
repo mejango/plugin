@@ -95,14 +95,20 @@ export function CreateForm() {
 
       <div className="grid gap-2">
         <label htmlFor="goal" className={LABEL}>
-          Goal <span className={HINT}>Markdown supported</span>
+          Goal
         </label>
         <GoalEditor value={draft.goal} onChange={(value) => set("goal", value)} />
       </div>
 
       <div className="grid gap-2">
+        <p className="m-0 mb-2 text-[.75rem] leading-relaxed text-[#555]">
+          For more control over your machine&apos;s rules, use{" "}
+          <a href="https://revnet.money" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-black">revnet.money</a>
+          {" "}or{" "}
+          <a href="https://juicebox.money" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-black">juicebox.money</a>
+        </p>
         <label className={LABEL}>
-          Pace of issuance price increase <span className={HINT}>How often the token gets twice as expensive and harder to access.</span>
+          Pace of issuance price increase <span className={HINT}>How often the token gets twice as expensive and harder to access more of.</span>
         </label>
         <div className="grid grid-cols-1 items-stretch gap-[1.4rem] min-[621px]:grid-cols-[1fr_2fr]">
           <div className="grid auto-rows-fr border-2 border-black">

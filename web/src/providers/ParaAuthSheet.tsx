@@ -418,7 +418,7 @@ export default function ParaAuthSheet({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="display text-[1.6rem]">Sign in</h2>
-          <p className="mt-1 text-[.85rem] text-[#555]">You will receive a code.</p>
+          <p className="mt-1 text-[.85rem] text-[#555]">You will receive a code from Juicebox.</p>
         </div>
         {closeButton}
       </div>

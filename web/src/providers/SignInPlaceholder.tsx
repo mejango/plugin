@@ -45,7 +45,7 @@ export function SignInPlaceholder({
     <div className="flex h-full w-full items-center justify-center overflow-y-auto bg-black/70 p-6">
       <div className="w-full max-w-sm border-2 border-black bg-white p-6">
         <h2 className="display text-[1.6rem]">Sign in</h2>
-        <p className="mt-1 text-[.85rem] text-[#555]">You will receive a code.</p>
+        <p className="mt-1 text-[.85rem] text-[#555]">You will receive a code from Juicebox.</p>
         <input
           type="text"
           value={entry}
