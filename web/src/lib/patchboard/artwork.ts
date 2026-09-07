@@ -2,7 +2,7 @@ import type { V3 } from "./math";
 
 // Printed panel artwork, using the same multilingual signal vocabulary and
 // circuit motifs as patchbay.ts. Uploaded once, not redrawn during simulation.
-export function panelArtwork(sockets: V3[], width=13, height=8.5) {
+export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0) {
   const canvas = document.createElement("canvas");
   const resolution=Math.min(160,2048/Math.max(width,height));
   canvas.width=Math.round(width*resolution);canvas.height=Math.round(height*resolution);
@@ -64,6 +64,26 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5) {
     const x = sockets[i].x+0.43, y = sockets[i].y+0.28;
     const waveform: [number, number][] = Array.from({ length: 25 }, (_, j) => [x - 0.12 + j * 0.01, y + (i % 3 ? (Math.sin(j * 0.5) >= 0 ? 0.04 : -0.04) : Math.sin(j * 0.5) * 0.04)]);
     line(waveform, 0.35);
+  }
+  if(trim>0){
+    const top=(height-trim)*sy, bandHeight=trim*sy;
+    const chrome=ctx.createLinearGradient(0,top,0,canvas.height);
+    for(const [stop,color] of [[0,"#8f969a"],[0.025,"#fafcfd"],[0.08,"#d9dde0"],[0.42,"#b5bcc1"],[0.49,"#949da4"],[0.54,"#e8edef"],[0.82,"#f5f7f8"],[1,"#a1a9ae"]] as const)chrome.addColorStop(stop,color);
+    ctx.fillStyle=chrome;ctx.fillRect(0,top,canvas.width,bandHeight);
+    // Fine horizontal brushing and a broad reflected highlight in the metal.
+    ctx.fillStyle="rgba(255,255,255,.09)";
+    for(let y=top+2;y<canvas.height;y+=2)ctx.fillRect(0,y,canvas.width,0.5);
+    const reflection=ctx.createLinearGradient(0,0,canvas.width,0);
+    reflection.addColorStop(0,"rgba(255,255,255,0)");reflection.addColorStop(0.32,"rgba(255,255,255,.24)");reflection.addColorStop(0.56,"rgba(255,255,255,0)");reflection.addColorStop(1,"rgba(70,83,95,.1)");
+    ctx.fillStyle=reflection;ctx.fillRect(0,top,canvas.width,bandHeight);
+    ctx.font=`500 ${Math.min(bandHeight*.29,19)}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.textBaseline="middle";
+    const inset=Math.max(18,canvas.width*.035),baseline=top+bandHeight*.53;
+    for(const [label,x,align] of [["Revnets",inset,"left"],["Juicebox",canvas.width-inset,"right"]] as const){
+      ctx.textAlign=align;
+      ctx.fillStyle="rgba(255,255,255,.82)";ctx.fillText(label,x,baseline+1);
+      ctx.fillStyle="rgba(59,70,79,.55)";ctx.fillText(label,x,baseline);
+    }
   }
   return canvas;
 }

@@ -1,17 +1,18 @@
 import { clamp } from "./math";
 
 export type SocketLayout = { columns: number; rows: number; top: number; gap: number; rowGap?: number };
-export type ScreenLayout = SocketLayout & { width: number; height: number; foot: number; cables: number };
+export type ScreenLayout = SocketLayout & { width: number; height: number; foot: number; trim: number; cables: number };
 
 // Keep useful, finger-sized sockets on phones instead of shrinking twelve
-// columns into a miniature board. The last row reaches the small table foot.
+// columns into a miniature board. Reserve a chrome trim below the last row.
 export function screenLayout(width: number, height: number): ScreenLayout {
   width=Math.max(1,width);height=Math.max(1,height);
   const columns=clamp(Math.floor(width/100),4,12),gap=1.05;
   const foot=Math.min(32,height*0.04),boardWidth=columns*gap;
   const boardHeight=(height-foot)*boardWidth/width;
-  const rows=clamp(Math.round(boardHeight/gap),2,32),rowGap=boardHeight/rows;
-  return { columns,rows,gap,rowGap,top:boardHeight-rowGap/2,width:boardWidth,height:boardHeight,foot,cables:clamp(Math.round(columns*rows/6),6,18) };
+  const trim=Math.min(0.45,boardHeight*0.12);
+  const rows=clamp(Math.round((boardHeight-trim)/gap),2,32),rowGap=(boardHeight-trim)/rows;
+  return { columns,rows,gap,rowGap,top:boardHeight-rowGap/2,width:boardWidth,height:boardHeight,foot,trim,cables:clamp(Math.round(columns*rows/6),6,18) };
 }
 
 export function seededRandom(seed: number) {

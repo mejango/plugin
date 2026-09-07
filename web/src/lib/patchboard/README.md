@@ -6,7 +6,8 @@ with `/lab3d`. No additional runtime dependencies.
 The homepage `/` and its `/patchboard-angle` preview use the same physics, with a
 responsive, edge-to-edge socket grid. Desktop uses 12 columns; phones use four,
 with intermediate column counts on tablets. Rows fill the available height
-down to a 16–32 pixel table foot. It fills the viewport with white panel surfaces, pale hexagonal
+down to a slim brushed-chrome trim above a 16–32 pixel table foot. The trim
+reserves space below the sockets and carries recessed Revnets and Juicebox lettering. It fills the viewport with white panel surfaces, pale hexagonal
 socket nuts, and a narrow platform lip. The front camera is orthographic so
 seated plugs and socket holes remain concentric at every depth; orbit uses
 perspective. Column spacing stays at 1.05 scene units, while row spacing fits

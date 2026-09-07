@@ -102,13 +102,14 @@ export function CreateForm() {
         <GoalEditor value={draft.goal} onChange={(value) => set("goal", value)} onUploadingChange={setUploadingMedia} />
       </div>
 
+      <p className="m-0 text-[.75rem] leading-relaxed text-[#555]">
+        Set operating rules below. For more control, use{" "}
+        <a href="https://revnet.money" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-black">revnet.money</a>
+        {" "}or{" "}
+        <a href="https://juicebox.money" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-black">juicebox.money</a>
+      </p>
+
       <div className="grid gap-2">
-        <p className="m-0 mb-2 text-[.75rem] leading-relaxed text-[#555]">
-          For more control over your machine&apos;s rules, use{" "}
-          <a href="https://revnet.money" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-black">revnet.money</a>
-          {" "}or{" "}
-          <a href="https://juicebox.money" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-black">juicebox.money</a>
-        </p>
         <label className={LABEL}>
           Pace of issuance price increase <span className={HINT}>How often the token gets twice as expensive and harder to access more of.</span>
         </label>

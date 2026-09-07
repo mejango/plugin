@@ -11,8 +11,8 @@ describe("responsive random patchboard",()=>{
     const w=new PatchWorld(layout,{seed:12345,cables:layout.cables});
     const first=w.sockets[0],last=w.sockets.at(-1)!;
     expect((first.x+layout.width/2)*scale).toBeCloseTo(width/layout.columns/2);
-    expect((layout.height-first.y)*scale).toBeCloseTo((height-layout.foot)/layout.rows/2);
-    expect(last.y*scale).toBeCloseTo((height-layout.foot)/layout.rows/2);
+    expect((layout.height-first.y)*scale).toBeCloseTo((layout.height-layout.trim)*scale/layout.rows/2);
+    expect(last.y*scale).toBeCloseTo((layout.trim+(layout.height-layout.trim)/layout.rows/2)*scale);
     expect(layout.foot).toBeLessThanOrEqual(32);
     expect(w.cords.length,JSON.stringify({layout,count:w.cords.length})).toBeGreaterThanOrEqual(Math.min(layout.cables,8));
     const ports=w.cords.flatMap(c=>c.ports);

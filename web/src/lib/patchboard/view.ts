@@ -224,7 +224,7 @@ export function startPatchboard(canvas: HTMLCanvasElement, onStatus: (status: Bo
   board=new Mesh();
   if(angle){
     gl.bindTexture(gl.TEXTURE_2D,artwork);
-    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,panelArtwork(world.sockets,layout.width,layout.height));
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,panelArtwork(world.sockets,layout.width,layout.height,layout.trim));
     // Extend the presentation surfaces past the viewport; socket spacing and
     // the physical world stay unchanged. The floor remains visible below y=0.
     board.box(v(-100,-0.6,-0.45),v(100,0,8),[0.94,0.94,0.93]);
