@@ -38,7 +38,7 @@ export function socketPositions(layout: SocketLayout, reserveDisplay = true) {
   return Array.from({ length: layout.columns * layout.rows }, (_, i) => ({
     row: Math.floor(i / layout.columns), col: i % layout.columns,
   })).filter(({ row, col }) => !reserveDisplay || !layout.displayColumns ||
-    !(row < 2 && col <= layout.displayColumns) && !(col === Math.min(layout.displayColumns + 1, layout.columns - 1) && row === (layout.columns > layout.displayColumns + 1 ? 0 : 2)))
+    !(row < 2 && col <= layout.displayColumns) && !(col === Math.min(layout.displayColumns + 1, layout.columns - 1) && (row === (layout.columns > layout.displayColumns + 1 ? 0 : 2) || row === (layout.columns > layout.displayColumns + 1 ? 1 : 3))))
     .map(({ row, col }) => v((col - (layout.columns - 1) / 2) * layout.gap, layout.top - row * (layout.rowGap ?? layout.gap), 0.3));
 }
 
@@ -58,6 +58,9 @@ export function displayMount(layout: ScreenLayout) {
     knobY: layout.height - rowGap * 0.64,
     knobRadius: Math.min(0.28, rowGap * 0.28),
     modeX: -layout.width / 2 + (Math.min(columns + 1, layout.columns - 1) + 0.5) * layout.gap,
+    navX: -layout.width / 2 + (Math.min(columns + 1, layout.columns - 1) + 0.5) * layout.gap,
+    navY: layout.top - rowGap * (layout.columns > columns + 1 ? 1 : 3),
+    navSize: Math.min(layout.gap * .9, rowGap * .85),
     modeY: layout.height - rowGap * (layout.columns > columns + 1 ? 0.64 : 2.64),
   };
 }

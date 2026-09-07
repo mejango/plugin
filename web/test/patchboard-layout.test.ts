@@ -15,9 +15,10 @@ describe("responsive random patchboard",()=>{
     expect(layout.foot).toBeLessThanOrEqual(32);
     const mount=displayMount(layout);
     expect(mount.keyY-mount.keySize/2).toBeCloseTo(mount.top-mount.height,10);
-    expect(w.sockets).toHaveLength(layout.columns*layout.rows-2*(layout.displayColumns!+1)-1);
+    expect(w.sockets).toHaveLength(layout.columns*layout.rows-2*(layout.displayColumns!+1)-2);
     for(const socket of w.sockets){
       expect(socket.x>mount.left&&socket.x<mount.left+mount.width&&socket.y<mount.top&&socket.y>mount.top-mount.height).toBe(false);
+      expect(Math.abs(socket.x-mount.navX)<mount.navSize/2&&Math.abs(socket.y-mount.navY)<mount.navSize/2).toBe(false);
       expect(Math.abs(socket.x-mount.keyX)<mount.keySize/2&&Math.abs(socket.y-mount.keyY)<mount.keySize/2).toBe(false);
     }
     expect(w.cords.length,JSON.stringify({layout,count:w.cords.length})).toBeGreaterThanOrEqual(Math.min(layout.cables,8));
@@ -41,7 +42,8 @@ describe("responsive random patchboard",()=>{
   it("finds a safe, populated arrangement across different seeds and aspect ratios",()=>{
     for(const [width,height] of [[390,844],[1440,1000],[844,390]])for(let seed=0;seed<12;seed++){
       const layout=screenLayout(width,height),w=new PatchWorld(layout,{seed,cables:layout.cables});
-      expect(w.cords.length,`${width}×${height}, seed ${seed}`).toBeGreaterThanOrEqual(width===1440?12:height<width?4:6);
+      // The D-pad replaces one more socket; short landscape boards can fit three safe cables.
+      expect(w.cords.length,`${width}×${height}, seed ${seed}`).toBeGreaterThanOrEqual(width===1440?12:height<width?3:6);
       expect(w.diagnostics().penetration).toBe(0);
     }
   },30000);

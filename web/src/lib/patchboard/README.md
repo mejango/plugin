@@ -41,7 +41,7 @@ Metal, panel artwork, sockets, and shadows keep their existing materials. There
 is no animated noise, physics change, or extra work for sleeping cable meshes.
 The front-on homepage draws a cool-white bitmap display into the board material,
 replacing the first two socket rows across four columns on desktop (three on phones).
-The first column, left of the screen, holds a continuous volume knob above a raised cyan NOW key, with
+The first column, left of the screen, holds a continuous volume knob above a raised cyan NEW key, with
 PLUG IN printed above it. These cells are removed from the physical socket grid;
 cables can pass naturally in front of the display. The key's visible bottom aligns
 with the display frame. Volume starts at zero, supports dragging and keyboard adjustment, and persists when visiting the workstation. No audio source is currently attached.
@@ -283,3 +283,5 @@ when this repository's `main` branch is pushed.
 `node scripts/patchboard/create-check.mjs` checks form editing and narrow-screen overflow. `navigation-check.mjs` checks draft and cable preservation; `knobs-check.mjs` checks drag detents, continuous volume, keyboard input, and persisted knob values.
 
 Pending insertions reserve clearance for the shaft and connector along the socket approach. A crossing cord keeps the plug outside the obstruction; clearing it wakes the blocked insertion once. Normal capsule collisions still govern all hand movement and insertion steps.
+
+The socket below View Mode is reserved for four directional keys. Up/down select rows and fetch six-row pages; right opens cross-chain project stats and left returns to the same selection. Keyboard arrows work without focusing the terminal, while form fields and focused knobs retain their own keys. Footer counts come from the indexer totalCount. Run `node scripts/patchboard/terminal-check.mjs` for desktop/mobile navigation, pagination, stats, and retry checks.

@@ -11,9 +11,9 @@ export type TrendingProject = {
   deployErc20Events: { items: { symbol: string }[] };
 };
 export type TrendingData = {
-  suckerGroups: { items: { id: string; projects: { items: TrendingProject[] } }[] };
+  suckerGroups: { totalCount?: number; items: { id: string; projects: { items: TrendingProject[] } }[] };
 };
-export type TrendingMachine = { id: string; name: string; ticker: string; balance: string; fullBalance: string };
+export type TrendingMachine = { id: string; name: string; ticker: string; balance: string; fullBalance: string; projectId?: number; chainId?: number; groupId?: string };
 
 export function trendingMachines(data: TrendingData): TrendingMachine[] {
   return data.suckerGroups.items.flatMap((group) => {
@@ -43,7 +43,7 @@ export function trendingMachines(data: TrendingData): TrendingMachine[] {
       return `${formatted} ${symbol}`;
     }).join(" + ");
     return [{
-      id: group.id,
+      id: group.id, groupId: group.id, projectId: project.projectId, chainId: project.chainId,
       name: projects.find((p) => p.name)?.name ?? `Project #${project.projectId}`,
       ticker,
       balance: missingBalance ? "—" : balance || "—",
@@ -52,8 +52,8 @@ export function trendingMachines(data: TrendingData): TrendingMachine[] {
   });
 }
 
-export type LatestData = { activityEvents: { items: {
-  id: string; projectId: number; timestamp: number; project: { name: string | null } | null;
+export type LatestData = { activityEvents: { totalCount?: number; items: {
+  id: string; projectId: number; chainId?: number; timestamp: number; project: { name: string | null; suckerGroupId?: string | null } | null;
   payEvent: object | null; cashOutTokensEvent: object | null; swapEvent: { direction: string } | null;
   sendPayoutsEvent: object | null; rulesetQueuedEvent: object | null;
   projectCreateEvent: object | null; addToBalanceEvent: object | null;
@@ -64,6 +64,6 @@ export function latestActivity(data: LatestData, now = Date.now() / 1000): Trend
     const age = Math.max(0, Math.floor(now - event.timestamp));
     const when = age < 60 ? "NOW" : age < 3600 ? `${Math.floor(age / 60)}M` : age < 86400 ? `${Math.floor(age / 3600)}H` : `${Math.floor(age / 86400)}D`;
     const action = event.payEvent ? "PAID TO ISSUE" : event.cashOutTokensEvent ? "CASH OUT" : event.swapEvent ? "PAID TO SWAP" : event.sendPayoutsEvent ? "PAYOUT" : event.rulesetQueuedEvent ? "RULES QUEUED" : event.projectCreateEvent ? "CREATED" : "BACKING ADDED";
-    return { id: event.id, name: event.project?.name ?? `Project #${event.projectId}`, ticker: when, balance: action, fullBalance: `${action}, ${when === "NOW" ? "just now" : when + " ago"}` };
+    return { id: event.id, projectId: event.projectId, chainId: event.chainId, groupId: event.project?.suckerGroupId??undefined, name: event.project?.name ?? `Project #${event.projectId}`, ticker: when, balance: action, fullBalance: `${action}, ${when === "NOW" ? "just now" : when + " ago"}` };
   });
 }

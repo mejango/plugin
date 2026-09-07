@@ -8,8 +8,9 @@ import { BendystrawOperations, type BendystrawOperation } from "./operations";
  */
 const DOCUMENTS: Record<BendystrawOperation, string> = {
   [BendystrawOperations.TrendingMachines]: `
-    query TrendingMachines {
-      suckerGroups(where: { version: 6, trendingScore_gt: "0" }, orderBy: "trendingScore", orderDirection: "desc", limit: 6) {
+    query TrendingMachines($offset: Int = 0) {
+      suckerGroups(where: { version: 6, trendingScore_gt: "0" }, orderBy: "trendingScore", orderDirection: "desc", limit: 6, offset: $offset) {
+        totalCount
         items {
           id
           projects(limit: 20, orderBy: "chainId", orderDirection: "asc") {
@@ -23,8 +24,9 @@ const DOCUMENTS: Record<BendystrawOperation, string> = {
     }
   `,
   [BendystrawOperations.TopMachines]: `
-    query TopMachines {
-      suckerGroups(where: { version: 6 }, orderBy: "balanceUsd", orderDirection: "desc", limit: 6) {
+    query TopMachines($offset: Int = 0) {
+      suckerGroups(where: { version: 6 }, orderBy: "balanceUsd", orderDirection: "desc", limit: 6, offset: $offset) {
+        totalCount
         items {
           id
           projects(limit: 20, orderBy: "chainId", orderDirection: "asc") {
@@ -38,8 +40,9 @@ const DOCUMENTS: Record<BendystrawOperation, string> = {
     }
   `,
   [BendystrawOperations.NewMachines]: `
-    query NewMachines {
-      suckerGroups(where: { version: 6 }, orderBy: "createdAt", orderDirection: "desc", limit: 6) {
+    query NewMachines($offset: Int = 0) {
+      suckerGroups(where: { version: 6 }, orderBy: "createdAt", orderDirection: "desc", limit: 6, offset: $offset) {
+        totalCount
         items {
           id
           projects(limit: 20, orderBy: "chainId", orderDirection: "asc") {
@@ -53,14 +56,15 @@ const DOCUMENTS: Record<BendystrawOperation, string> = {
     }
   `,
   [BendystrawOperations.LatestMachines]: `
-    query LatestMachines {
+    query LatestMachines($offset: Int = 0) {
       activityEvents(where: { version: 6, OR: [
         { payEvent_not: null }, { cashOutTokensEvent_not: null }, { swapEvent_not: null },
         { sendPayoutsEvent_not: null }, { rulesetQueuedEvent_not: null },
         { projectCreateEvent_not: null }, { addToBalanceEvent_not: null }
-      ] }, orderBy: "timestamp", orderDirection: "desc", limit: 6) {
+      ] }, orderBy: "timestamp", orderDirection: "desc", limit: 6, offset: $offset) {
+        totalCount
         items {
-          id projectId timestamp project { name }
+          id projectId chainId timestamp project { name suckerGroupId }
           payEvent { amount } cashOutTokensEvent { reclaimAmount }
           swapEvent { direction } sendPayoutsEvent { amount }
           rulesetQueuedEvent { cycleNumber } projectCreateEvent { from }
@@ -80,7 +84,7 @@ const DOCUMENTS: Record<BendystrawOperation, string> = {
     query SuckerGroup($id: String!) {
       suckerGroup(id: $id) {
         id
-        projects { items { chainId projectId tokenSymbol decimals balance tokenSupply } }
+        projects(limit: 100) { items { chainId projectId name tokenSymbol decimals currency balance tokenSupply volumeUsd paymentsCount deployErc20Events(limit: 1) { items { symbol } } } }
       }
     }
   `,

@@ -11,6 +11,7 @@ const GLYPHS: Record<string, string> = {
   4:"1814127f10",5:"2745454539",6:"3c4a494930",7:"0101710907",8:"3649494936",9:"064949291e",
   " ":"0000000000",".":"0060600000",",":"0040200000","-":"0808080808","/":"2010080402",
   ":":"0036360000","+":"08083e0808","'":"0005030000","#":"147f147f14","<":"0814224100",
+  "$":"244a7f4a12",
   ">":"0041221408","?":"0201510906","—":"0808080808","%":"2313086462",
 };
 function pixels(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, scale=2, color="#dcecff", maxWidth=Infinity) {
@@ -42,20 +43,35 @@ export function drawMachineTerminal(ctx: CanvasRenderingContext2D, layout: Scree
   const screen=lcd.getContext("2d")!;
   screen.fillStyle="#090e16";screen.fillRect(0,0,480,200);
   screen.fillStyle="#dcecff";screen.fillRect(8,8,464,23);
-  pixels(screen,`${state.mode??"top"} PLUG INS`,14,12,2,"#090e16");
-  screen.fillStyle="#213044";screen.fillRect(8,34,464,21);
-  screen.fillStyle="#8098b3";screen.fillRect(8,55,464,1);
-  pixels(screen,state.mode==="latest"?"WHEN":"TICKER",10,38,2,"#c4d8ee");pixels(screen,"NAME",106,38,2,"#c4d8ee");pixels(screen,state.mode==="latest"?"EVENT":"BALANCE",386,38,2,"#c4d8ee");
-  state.machines?.slice(0,6).forEach((machine,i)=>{
-    const y=61+i*19;
-    pixels(screen,machine.ticker,10,y,2,"#e0eeff",90);
-    pixels(screen,machine.name,106,y,2,"#dcecff",160);
-    pixels(screen,machine.balance,470-Math.min(machine.balance.length*12,192),y,2,"#dcecff",192);
-  });
-  if(!state.machines?.length)pixels(screen,state.failed?"SIGNAL UNAVAILABLE":state.machines?"NO TRENDING MACHINES":"READING MACHINES...",10,90,2,"#dcecff",460);
-  screen.fillStyle="#536379";screen.fillRect(8,178,464,1);
-  pixels(screen,state.failed?"RETRY >":"ALL CHAINS",10,184,2,"#dcecff");
-  pixels(screen,`${String(state.machines?.length??0).padStart(2,"0")} ${state.mode==="latest"?"EVENTS":"MACHINES"}`,338,184,2,"#dcecff");
+  pixels(screen,state.detail?state.detail.name:`${state.mode??"top"} PLUG INS`,14,12,2,"#090e16",450);
+  if(state.detail){
+    if(state.detailLoading||state.detailFailed)pixels(screen,state.detailFailed?"STATS UNAVAILABLE":"READING PROJECT...",10,80,2,"#dcecff",460);
+    else state.detail.rows.forEach((row,i)=>{
+      const y=43+i*25;
+      pixels(screen,row.label,10,y,2,"#9fb7d2",180);
+      pixels(screen,row.value,470-Math.min(row.value.length*12,264),y,2,"#dcecff",264);
+    });
+    screen.fillStyle="#536379";screen.fillRect(8,178,464,1);
+    pixels(screen,"< BACK",10,184,2);
+    const footer=state.detailFailed?"RETRY >":"ALL CHAINS";
+    pixels(screen,footer,470-footer.length*12,184,2);
+  }else{
+    screen.fillStyle="#213044";screen.fillRect(8,34,464,21);
+    screen.fillStyle="#8098b3";screen.fillRect(8,55,464,1);
+    pixels(screen,state.mode==="latest"?"WHEN":"TICKER",10,38,2,"#c4d8ee");pixels(screen,"NAME",106,38,2,"#c4d8ee");pixels(screen,state.mode==="latest"?"EVENT":"BALANCE",386,38,2,"#c4d8ee");
+    state.machines?.slice(0,6).forEach((machine,i)=>{
+      const y=61+i*19,selected=i===(state.selected??0);
+      if(selected){screen.fillStyle="#36516b";screen.fillRect(8,y-2,464,19);}
+      pixels(screen,machine.ticker,10,y,2,"#e0eeff",90);
+      pixels(screen,machine.name,106,y,2,"#dcecff",160);
+      pixels(screen,machine.balance,470-Math.min(machine.balance.length*12,192),y,2,"#dcecff",192);
+    });
+    if(!state.machines?.length)pixels(screen,state.failed?"SIGNAL UNAVAILABLE":state.machines?"NO PLUG INS":"READING MACHINES...",10,90,2,"#dcecff",460);
+    screen.fillStyle="#536379";screen.fillRect(8,178,464,1);
+    pixels(screen,state.failed?"RETRY >":"ALL CHAINS",10,184,2,"#dcecff");
+    const count=`${state.totalCount==null?"—":state.totalCount.toLocaleString("en-US")} ${state.mode==="latest"?"EVENTS":"MACHINES"}`;
+    pixels(screen,count,470-count.length*12,184,2,"#dcecff");
+  }
   ctx.imageSmoothingEnabled=false;
   ctx.drawImage(lcd,x+pad*1.5,y+pad*1.5,w-pad*3,h-pad*3);
   ctx.imageSmoothingEnabled=true;

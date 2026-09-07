@@ -15,3 +15,12 @@
 .nowLight { position: absolute; left: 18%; top: 18%; width: 18%; height: 3.5%; background: #a9ffb0; border-radius: 1px; box-shadow: 0 0 3px #c1ffb9, 0 0 8px #55ef7180, 0 0 14px #45dd5140; animation: now-glow 2.8s ease-in-out infinite; pointer-events: none; }
 @keyframes now-glow { 0%, 100% { opacity: .65; box-shadow: 0 0 2px #baffad, 0 0 5px #55ef7155; } 50% { opacity: 1; box-shadow: 0 0 4px #d7ffbf, 0 0 11px #55ef71b3, 0 0 18px #45dd5159; } }
 @media (prefers-reduced-motion: reduce) { .nowLight { animation: none; } }
+
+.navigation { position: absolute; pointer-events: auto; display: grid; grid-template: repeat(3,1fr) / repeat(3,1fr); gap: 3px; }
+.navigation button { border: 1px solid #252c2d; border-radius: 4px; color: #dbe5df; background: linear-gradient(145deg,#606967,#303938 70%); box-shadow: inset 1px 1px 0 #ffffff4d,inset -1px -2px 0 #0008,1px 3px 2px #0004; font-size: clamp(10px,1vw,17px); padding: 0; cursor: pointer; }
+.navigation button:active { transform: translateY(2px); box-shadow: inset 0 1px 3px #0008; }
+.navigation button:focus-visible { outline: 2px solid #38b6c9; outline-offset: 2px; }
+.navigation [data-direction="up"] { grid-area: 1 / 2; }
+.navigation [data-direction="left"] { grid-area: 2 / 1; }
+.navigation [data-direction="right"] { grid-area: 2 / 3; }
+.navigation [data-direction="down"] { grid-area: 3 / 2; }

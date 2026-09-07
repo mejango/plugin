@@ -59,6 +59,7 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0, engrav
     ctx.beginPath();ctx.rect(0,0,canvas.width,canvas.height);
     ctx.rect(0,0,(terminal.layout.displayColumns!+1)*gap*sx,rowGap*2*sy);
     ctx.rect((m.modeX+width/2-gap/2)*sx,(height-m.modeY-rowGap*.64)*sy,gap*sx,rowGap*sy);
+    ctx.rect((m.navX+width/2-gap/2)*sx,(height-m.navY-rowGap/2)*sy,gap*sx,rowGap*sy);
     ctx.clip("evenodd");
   }
   const labels = [
