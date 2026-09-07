@@ -43,7 +43,14 @@ function engravedMark(image: HTMLImageElement, source: number[], width: number, 
   ink.drawImage(mask,0,1);ink.globalCompositeOperation="source-in";
   ink.fillStyle="#f8fbfc";ink.fillRect(0,0,mark.width,mark.height);
   ink.globalCompositeOperation="source-over";
-  // Preserve the supplied bronze color and worn metal texture.
+  // The lettering is cut into the same silver stock as the surrounding rail.
+  m.globalCompositeOperation="source-in";
+  const chrome=m.createLinearGradient(0,0,0,h);
+  for(const [stop,color] of [[0,"#8d999f"],[.28,"#b4bfc5"],[.55,"#a4b0b7"],[.8,"#8b999f"],[1,"#a9b4ba"]] as const)chrome.addColorStop(stop,color);
+  m.fillStyle=chrome;m.fillRect(0,0,mask.width,mask.height);
+  m.globalCompositeOperation="source-atop";
+  m.fillStyle="rgba(244,249,251,.12)";
+  for(let y=2;y<mask.height;y+=2)m.fillRect(0,y,mask.width,.5);
   ink.drawImage(mask,0,0);
   // Remove the shifted silhouette to isolate the inner upper edge.
   const edge=document.createElement("canvas");edge.width=mask.width;edge.height=mask.height;
