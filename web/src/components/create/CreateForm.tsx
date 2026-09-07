@@ -125,7 +125,7 @@ export function CreateForm() {
         Set operating rules below. For more control, use{" "}
         <a href="https://revnet.money" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-black">revnet.money</a>
         {" "}or{" "}
-        <a href="https://juicebox.money" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-black">juicebox.money</a>
+        <a href="https://juicebox.money" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-black">juicebox.money</a>.
       </p>
 
       <div className="grid gap-2">
