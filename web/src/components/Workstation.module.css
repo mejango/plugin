@@ -37,3 +37,10 @@
 .browserBar span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browserBar button, .browserBar a { display: grid; place-items: center; min-width: 32px; min-height: 32px; border: 1px solid #889082; background: #f6f7f2; cursor: pointer; font-size: 20px; }
 .browser iframe { width: 100%; flex: 1; min-height: 0; border: 0; background: #fff; }
+
+.browserTabs { display: flex; gap: 3px; padding: 6px 10px 0; background: #d1d7ca; border-bottom: 1px solid #939b90; }
+.browserTabs button { padding: 7px 18px; border: 1px solid #939b90; border-bottom: 0; border-radius: 5px 5px 0 0; background: #bdc5b7; color: #3b4539; font: 12px/1.4 monospace; cursor: pointer; }
+.browserTabs button[aria-selected="true"] { background: #f6f7f2; color: #172017; box-shadow: inset 0 2px #fff; }
+.browserTabs button:focus-visible { outline: 2px solid #397381; outline-offset: -3px; }
+.browserPage { flex: 1; min-height: 0; }
+.browserPage iframe { height: 100%; }
