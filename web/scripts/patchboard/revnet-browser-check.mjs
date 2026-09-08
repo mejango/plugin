@@ -6,7 +6,7 @@ const browser=await chromium.launch({headless:true,args:['--enable-unsafe-swifts
 try{
  const page=await browser.newPage({viewport:{width:1440,height:1000}});
  // Owned fixture tests frame interaction; it does not test or bypass Juicebox's live CSP.
- await page.route(/^https:\/\/(juicebox|revnet)\.money\//,route=>route.fulfill({contentType:'text/html',body:'<h1>Project fixture</h1><input aria-label="Amount"><button onclick="document.querySelector(\'output\').textContent=\'Ready\'">Preview</button><output></output><div style="height:2000px">Scrollable project</div>'}));
+ await page.route(/^https:\/\/(juicebox|revnet|succulent)\.money\//,route=>route.fulfill({contentType:'text/html',body:'<h1>Project fixture</h1><input aria-label="Amount"><button onclick="document.querySelector(\'output\').textContent=\'Ready\'">Preview</button><output></output><div style="height:2000px">Scrollable project</div>'}));
  const project={projectId:7,chainId:1,name:'Markee',balance:'1000000000000000000',tokenSymbol:'ETH',decimals:18,currency:'61166',tokenSupply:'1000000000000000000',volumeUsd:'1000000000000000000',paymentsCount:2,deployErc20Events:{items:[{symbol:'MARKEE'}]}};
  await page.route('**/api/bendystraw/mainnet/query',route=>{const {operation}=route.request().postDataJSON();return route.fulfill({json:{data:operation==='Project'?{project:{isRevnet:route.request().postDataJSON().variables.projectId===7}}:operation==='SuckerGroup'?{suckerGroup:{projects:{items:[project]}}}:{suckerGroups:{totalCount:1,items:[{id:'markee',projects:{items:[project]}}]}}}});});
  await page.goto('http://localhost:3004/create',{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>document.querySelector('canvas')?.__patchboard);await page.locator('#name').fill('Keep this draft');
@@ -27,8 +27,18 @@ try{
  await page.getByRole('button',{name:'Reload Revnet'}).click();await revnet.getByRole('heading',{name:'Project fixture'}).waitFor();assert.equal(await revnet.getByRole('textbox',{name:'Amount'}).inputValue(),'');
  await page.getByRole('tab',{name:'Juicebox',exact:true}).click();
  await page.getByRole('button',{name:'Reload Juicebox'}).click();await frame.getByRole('heading',{name:'Project fixture'}).waitFor();
- await page.getByRole('link',{name:'← Board',exact:true}).click();await page.waitForURL('http://localhost:3004/');await page.getByRole('link',{name:'View project on Juicebox'}).waitFor();
+ await page.getByRole('tab',{name:'Succulent',exact:true}).click();
+ const succulent=page.frameLocator('iframe[title="Succulent project"]');
+ await succulent.getByRole('textbox',{name:'Amount'}).fill('Keep this page');
+ assert.equal(await page.locator('iframe[title="Succulent project"]').getAttribute('src'),'https://succulent.money/eth:7');
+ await page.getByRole('link',{name:'← Board',exact:true}).click();await page.waitForURL('http://localhost:3004/');
+ assert.equal(await page.locator('#manual').isVisible(),false,'returning to board must not reveal create flow');
+ assert.equal(await page.locator('iframe[title="Succulent project"]').count(),1,'active iframe stays mounted while sliding back');
+ assert.equal(await succulent.getByRole('textbox',{name:'Amount'}).inputValue(),'Keep this page');
+ await page.getByRole('link',{name:'View project on Juicebox'}).waitFor();
  await page.evaluate(()=>document.activeElement.blur());await page.keyboard.press('ArrowRight');await page.waitForURL('**/browse/eth/7');
+ assert.equal(await page.getByRole('tab',{name:'Succulent',exact:true}).getAttribute('aria-selected'),'true');
+ assert.equal(await succulent.getByRole('textbox',{name:'Amount'}).inputValue(),'Keep this page');
  await page.getByRole('link',{name:'← Board',exact:true}).click();await page.waitForURL('http://localhost:3004/');await page.getByRole('link',{name:'Create a new machine'}).click();await page.waitForURL('**/create');assert.equal(await page.locator('#name').inputValue(),'Keep this draft');
  await page.goto('http://localhost:3004/browse/eth/8',{waitUntil:'domcontentloaded'});
  await page.frameLocator('iframe[title="Juicebox project"]').getByRole('heading',{name:'Project fixture'}).waitFor();
