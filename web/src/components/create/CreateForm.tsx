@@ -20,7 +20,7 @@ import { useDeployMachine } from "@/hooks/useDeployMachine";
 import { CHAIN_LABELS, MAINNET_CHAIN_IDS, TESTNET_CHAIN_IDS } from "@/lib/chains";
 import { REV_MACHINE } from "@/lib/machines";
 import { DOUBLINGS, KEEPS, DEFAULT_DOUBLING, DEFAULT_KEEP_PERCENT, tokensPerDollarAt, doublingFor } from "@/lib/plugin/house";
-import { buildManual } from "@/lib/plugin/manual";
+import { buildManual, withDeploymentReferences } from "@/lib/plugin/manual";
 import type { MachineDraft, Route } from "@/lib/plugin/types";
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -223,10 +223,12 @@ export function CreateForm() {
 
 
             </section>
+            </fieldset>
             <section className={styles.page} aria-label="Manual">
       <MachineManual
         generated={generatedManual}
-        value={session?.manual ?? manualEdit ?? generatedManual}
+        value={session ? withDeploymentReferences(session.manual, steps) : manualEdit ?? generatedManual}
+        readOnly={locked}
         dirty={Boolean(session) || manualEdit !== null}
         onChange={setManualEdit}
         onReset={() => setManualEdit(null)}
@@ -234,7 +236,6 @@ export function CreateForm() {
 
 
             </section>
-            </fieldset>
             <section className={styles.page} aria-label="Launch">
       <div className={styles.review}>
         <div><span>Machine</span><strong>{draft.name || "Untitled"} / {draft.id.toUpperCase() || "ID"}</strong></div>
@@ -296,9 +297,8 @@ export function CreateForm() {
           </button>}
           {address && <p className="m-0 flex max-w-full items-baseline justify-center gap-1 text-[.8rem] leading-relaxed text-[#555] min-[621px]:justify-end">
             <span className="shrink-0">Signed in as</span>
-            <span title={address} aria-label={ensName ? `${ensName}, ${address}` : address} className="min-w-0 max-w-[20rem] truncate font-mono text-black">
-              {ensName || `${address.slice(0, 6)}…${address.slice(-4)}`}
-            </span>
+            <SignIn switchWallet disabled={busy || restoring} label={ensName || `${address.slice(0, 6)}…${address.slice(-4)}`}
+              className="min-w-0 max-w-[20rem] truncate border-b border-dotted border-[#777] bg-transparent p-0 font-mono text-black hover:border-solid focus-visible:outline-2 focus-visible:outline-offset-4 disabled:cursor-wait" />
           </p>}
           </>
         )}

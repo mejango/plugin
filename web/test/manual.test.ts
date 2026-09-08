@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildManual } from "@/lib/plugin/manual";
+import { buildManual, withDeploymentReferences } from "@/lib/plugin/manual";
 import type { MachineDraft } from "@/lib/plugin/types";
 
 const draft: MachineDraft = {
@@ -22,6 +22,14 @@ describe("buildManual", () => {
     const manual = buildManual(draft);
     expect(manual.startsWith("GOAL\nFind food.")).toBe(true);
     expect(manual).not.toContain("data:image");
+  });
+
+  it("includes the Plug In site and source alongside protocol references", () => {
+    const manual = buildManual(draft);
+    expect(manual).toContain("https://plugin.money");
+    expect(manual).toContain("https://github.com/mejango/plugin");
+    expect(manual).toContain("https://revnet.money");
+    expect(manual).toContain("https://github.com/Bananapus/version-6");
   });
 
   it("upper-cases the ticker and carries the address", () => {
@@ -50,5 +58,29 @@ describe("buildManual", () => {
     expect(manual).toContain("[ID]");
     expect(manual).toContain("[your goal");
     expect(manual).not.toContain("- Route:");
+  });
+});
+
+describe("deployed manual references", () => {
+  it("preserves custom instructions and includes exact chain-specific IDs only after confirmation", () => {
+    const custom = "GOAL\nKeep my custom instructions.";
+    const steps = [
+      { chainId: 1, label: "Ethereum", status: "done" as const, projectId: "9007199254740993" },
+      { chainId: 8453, label: "Base", status: "done" as const, projectId: "27" },
+      { chainId: 10, label: "Optimism", status: "confirming" as const, projectId: "99" },
+    ];
+    const result = withDeploymentReferences(custom, steps);
+    expect(result.startsWith(custom)).toBe(true);
+    expect(result).toContain("Ethereum (chain ID 1): project ID 9007199254740993");
+    expect(result).toContain("https://revnet.money/base:27");
+    expect(result).toContain("Optimism (chain ID 10): deployment not confirmed");
+    expect(result).not.toContain("project ID 99");
+    expect(withDeploymentReferences(custom, [])).toBe(custom);
+  });
+  it("describes only selected chains before deployment and labels the operator correctly", () => {
+    const manual = buildManual({ ...draft, chainIds: [8453] });
+    expect(manual).toContain("operator wallet is 0xabc");
+    expect(manual).toContain("Planned deployment chains: Base (8453)");
+    expect(manual).not.toContain("live on Ethereum");
   });
 });

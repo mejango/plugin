@@ -15,7 +15,9 @@ export function MachineManual({
   dirty,
   onChange,
   onReset,
+  readOnly = false,
 }: {
+  readOnly?: boolean;
   generated: string;
   value: string;
   dirty: boolean;
@@ -42,12 +44,13 @@ export function MachineManual({
       <textarea
         id="manual"
         spellCheck={false}
+        readOnly={readOnly}
         value={dirty ? value : generated}
         onChange={(e) => onChange(e.target.value)}
         className={`${FIELD} min-h-[22rem] resize-y font-mono text-[.78rem] leading-[1.55]`}
       />
       <div className="flex justify-end gap-4">
-        {dirty && (
+        {dirty && !readOnly && (
           <button type="button" onClick={onReset} className={LINK_BTN}>
             reset edits
           </button>

@@ -17,7 +17,7 @@ import { preloadParaHost } from "@/providers/preload-para";
  *
  * `compact` is the header treatment: smaller, quieter, sized to a nav bar.
  */
-export function SignIn({ compact = false }: { compact?: boolean }) {
+export function SignIn({ compact = false, switchWallet = false, label, className, disabled = false }: { compact?: boolean; switchWallet?: boolean; label?: string; className?: string; disabled?: boolean }) {
   const { enabled, requestSignIn } = useParaAuth();
   const { address, isConnected } = useAccount();
   const connectors = useConnectors();
@@ -25,6 +25,7 @@ export function SignIn({ compact = false }: { compact?: boolean }) {
   const { disconnectAsync } = useDisconnect();
   const config = useConfig();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const hydrated = useIsHydrated();
 
@@ -58,9 +59,9 @@ export function SignIn({ compact = false }: { compact?: boolean }) {
     }
   }, [config, disconnectAsync, enabled]);
 
-  const base = compact
+  const base = className ?? (compact
     ? CHIP_SM
-    : "display w-full border-2 border-black bg-white px-[1.7em] py-[.75em] text-[clamp(1.1rem,2.4vw,1.5rem)] tracking-[.03em] hover:bg-black hover:text-white min-[621px]:w-auto";
+    : "display w-full border-2 border-black bg-white px-[1.7em] py-[.75em] text-[clamp(1.1rem,2.4vw,1.5rem)] tracking-[.03em] hover:bg-black hover:text-white min-[621px]:w-auto");
 
   if (!hydrated || !isConnected || !address) {
     return (
@@ -83,19 +84,27 @@ export function SignIn({ compact = false }: { compact?: boolean }) {
   }
 
   return (
+    <>
     <button
       type="button"
-      disabled={busy}
-      title={address}
+      disabled={busy || disabled}
+      title={switchWallet ? `Change wallet (${address})` : address}
+      aria-label={switchWallet ? `Change wallet, signed in as ${label || shortAddress(address)}` : undefined}
       onClick={() => {
-        setBusy(true);
-        void endSession().finally(() => setBusy(false));
+        setBusy(true);setError("");
+        void endSession().then(() => {
+          if (!switchWallet) return;
+          if (enabled) requestSignIn();
+          else if (connectors[0]) connect({ connector: connectors[0] });
+        }).catch(() => setError("Could not disconnect this wallet. Please try again.")).finally(() => setBusy(false));
       }}
       className={`${base} group cursor-pointer disabled:opacity-50`}
     >
       {/* The address until you mean to leave, then what leaving is called. */}
-      <span className="group-hover:hidden">{shortAddress(address)}</span>
-      <span className="hidden group-hover:inline">{busy ? "Signing out…" : "Sign out"}</span>
+      <span className={switchWallet ? undefined : "group-hover:hidden"}>{busy ? "Changing wallet…" : label || shortAddress(address)}</span>
+      {!switchWallet && <span className="hidden group-hover:inline">{busy ? "Signing out…" : "Sign out"}</span>}
     </button>
+    {error && <span role="alert" className="text-sm text-[#8b3025]">{error}</span>}
+    </>
   );
 }

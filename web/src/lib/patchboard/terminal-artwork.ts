@@ -43,7 +43,7 @@ export function drawMachineTerminal(ctx: CanvasRenderingContext2D, layout: Scree
   const screen=lcd.getContext("2d")!;
   screen.fillStyle="#090e16";screen.fillRect(0,0,480,200);
   screen.fillStyle="#dcecff";screen.fillRect(8,8,464,23);
-  pixels(screen,state.detail?state.detail.name:`${state.mode??"top"} PLUG INS`,14,12,2,"#090e16",450);
+  pixels(screen,state.detail?state.detail.name:state.mode==="latest"?"LATEST PLUG IN ACTIVITY":`${state.mode??"top"} PLUG INS`,14,12,2,"#090e16",450);
   if(state.detail){
     if(state.detailLoading||state.detailFailed)pixels(screen,state.detailFailed?"STATS UNAVAILABLE":"READING PROJECT...",10,80,2,"#dcecff",460);
     else state.detail.rows.forEach((row,i)=>{

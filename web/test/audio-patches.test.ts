@@ -6,7 +6,7 @@ describe('board synthesizer mapping',()=>{
   expect(midiFrequency(69)).toBe(440);expect(midiFrequency(60)).toBeCloseTo(261.6256,3);
  });
  it('has an unmodulated baseline without cables',()=>{
-  expect(patchTone([])).toMatchObject({cutoff:18000,resonance:.7,vibrato:0,tremolo:0,echo:0,drive:1});
+  expect(patchTone([])).toMatchObject({cutoff:18000,resonance:.7,vibrato:0,tremolo:0,echo:0,drive:1,fmIndex:0,sweep:0});
  });
  it('responds to socket endpoints, independently of cable direction',()=>{
   const a={x:1.05,y:2},b={x:3.15,y:4};
@@ -20,9 +20,13 @@ describe('board synthesizer mapping',()=>{
   // A same-column move must change more than an inaudibly small parameter.
   const contrast=Math.max(Math.abs(Math.log2(after.cutoff/before.cutoff)),Math.abs(after.vibrato-before.vibrato)/100,Math.abs(after.rate-before.rate)/3);
   expect(contrast).toBeGreaterThan(.2);
+  const variants=Array.from({length:12},(_,i)=>patchTone(patches.map((p,j)=>j===7?{...p,b:{...p.b,y:p.b.y+(i+1)*1.05}}:p)));
+  expect(new Set(variants.map(t=>t.fmRatio)).size).toBeGreaterThan(2);
+  expect(Math.max(...variants.map(t=>t.fmIndex))-Math.min(...variants.map(t=>t.fmIndex))).toBeGreaterThan(2);
  });
  it('keeps dense patches within bounded modulation levels',()=>{
   const tone=patchTone(Array.from({length:100},(_,i)=>({a:{x:i*1.05,y:2},b:{x:(i+3)*1.05,y:4}})));
-  expect(tone.tremolo).toBeLessThanOrEqual(.48);expect(tone.vibrato).toBeLessThanOrEqual(240);expect(tone.echo).toBeLessThanOrEqual(.45);expect(tone.drive).toBeLessThanOrEqual(18);expect(tone.cutoff).toBeGreaterThanOrEqual(140);
+  expect(tone.tremolo).toBeLessThanOrEqual(.48);expect(tone.vibrato).toBeLessThanOrEqual(480);expect(tone.echo).toBeLessThanOrEqual(.45);expect(tone.drive).toBeLessThanOrEqual(18);expect(tone.cutoff).toBeGreaterThanOrEqual(140);
+  expect(tone.fmIndex).toBeLessThanOrEqual(5);expect(tone.sweep).toBeLessThanOrEqual(2400);expect(tone.delay).toBeLessThanOrEqual(.45);
  });
 });
