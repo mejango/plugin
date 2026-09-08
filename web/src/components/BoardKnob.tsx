@@ -10,7 +10,7 @@ export function BoardKnob({ label, value, max, step, text, onChange, style, cycl
   const drag = useRef<{ id: number; x: number; y: number; value: number; moved: boolean } | null>(null);
   const suppressClick = useRef(false);
   const set = (next: number) => onChange(Math.max(0, Math.min(max, step ? Math.round(next / step) * step : next)));
-  return <button className={styles.mode} type="button" role="slider" aria-label={label}
+  return <button className={styles.mode} type="button" role="slider" data-board-knob aria-label={label}
     aria-valuemin={0} aria-valuemax={max} aria-valuenow={value} aria-valuetext={text}
     title={`${label}: ${text}. Drag up or right to increase, down or left to decrease. Arrow keys also work.`}
     style={style}

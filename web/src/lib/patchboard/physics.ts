@@ -489,7 +489,9 @@ export class PatchWorld {
       // that will occupy the socket. Keep a blocked insertion outside the
       // crossing instead of parking the tip almost flush with the panel.
       for(const segment of segments){
-        if(segment.cord===dock.cord)continue;
+        // A connector can be blocked by a distant fold of its own cord too.
+        // Only the adjoining boot is part of the connector being inserted.
+        if(segment.cord===dock.cord&&(dock.index===0?segment.index<=3:segment.index>=cord.nodes.length-5))continue;
         const hit=closest(v(socket.x,socket.y,0),v(socket.x,socket.y,Math.max(socket.z,cord.nodes[dock.index].p.z)+PLUG_RADIUS),segment.a.p,segment.b.p);
         if(hit.distance<PLUG_RADIUS+segment.radius+.015)
           z=Math.max(z,hit.q.z+segment.radius+PLUG_RADIUS+.035);

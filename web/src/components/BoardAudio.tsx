@@ -9,7 +9,7 @@ export function BoardAudio({active}:{active:boolean}){
   let synth:BoardSynth|null=null,octave=4,disposed=false;
   const held=new Set<string>();
   const silence=()=>{held.clear();synth?.close();synth=null;};
-  const ignore=(event:KeyboardEvent)=>event.ctrlKey||event.metaKey||event.altKey||!!(event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable="true"],[role="slider"],dialog');
+  const ignore=(event:KeyboardEvent)=>event.ctrlKey||event.metaKey||event.altKey||!!(event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable="true"],[role="slider"]:not([data-board-knob]),dialog');
   const down=(event:KeyboardEvent)=>{
    if(ignore(event)||event.repeat)return;
    if(event.code==='Escape'){silence();return;}

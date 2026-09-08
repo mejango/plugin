@@ -89,7 +89,7 @@ const DOCUMENTS: Record<BendystrawOperation, string> = {
     }
   `,
   [BendystrawOperations.Project]: `
-    query Project($projectId: Int!, $chainId: Int!) {
+    query Project($projectId: Float!, $chainId: Float!) {
       project(projectId: $projectId, chainId: $chainId, version: 6) {
         projectId chainId suckerGroupId name handle logoUri projectTagline
         tokenSymbol decimals currency isRevnet owner metadataUri createdAt

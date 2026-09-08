@@ -27,11 +27,19 @@ try{
  const volume=page.getByRole('slider',{name:'Volume'});await volume.focus();await page.keyboard.press('End');await page.waitForTimeout(250);
  assert(await rms()>.001,'volume knob controls audible output');
  await page.keyboard.up('a');await page.waitForTimeout(600);assert(await rms()<.00001,'release ends sound including echo');
- await page.evaluate(()=>document.activeElement.blur());
+ // Finishing a physical dial drag must leave musical keys playable without
+ // blurring it; its arrow-key adjustment still retains keyboard focus.
+ const dial=await volume.boundingBox();
+ await page.mouse.move(dial.x+dial.width/2,dial.y+dial.height/2);await page.mouse.down();
+ await page.mouse.move(dial.x+dial.width/2,dial.y+dial.height/2+20,{steps:8});await page.mouse.up();
+ assert(await volume.evaluate(el=>el===document.activeElement),'dial retains focus after dragging');
+ const adjusted=Number(await volume.getAttribute('aria-valuenow'));
+ await page.keyboard.press('ArrowUp');
+ assert(Number(await volume.getAttribute('aria-valuenow'))>adjusted,'arrow keys still adjust the focused dial');
  const framing=await page.locator('[data-board-terminal]').evaluate(el=>el.style.transform);
  await page.keyboard.down('f');await page.keyboard.down('g');await page.waitForTimeout(150);
  assert.equal(await page.locator('[data-board-terminal]').evaluate(el=>el.style.transform),framing,'musical F no longer changes camera');
- assert(await rms()>.001,'chords sound');
+ assert(await rms()>.001,'chords sound immediately after a dial drag, without clicking away');
  await page.waitForTimeout(500);
  const portsBefore=await page.evaluate(()=>document.querySelector('canvas').__patchboard().cords.map(c=>c.ports));
  const patchBefore=await page.evaluate(()=>window.__audio.at(-1).gains.map(g=>g.gain.value));

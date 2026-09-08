@@ -10,7 +10,7 @@ export function screenLayout(width: number, height: number): ScreenLayout {
   const columns=clamp(Math.floor(width/100),4,12),gap=1.05;
   const foot=Math.min(32,height*0.04),boardWidth=columns*gap;
   const boardHeight=(height-foot)*boardWidth/width;
-  const trim=Math.min(0.45,boardHeight*0.12);
+  const trim=Math.min(0.53,boardHeight*0.14);
   const rows=clamp(Math.round((boardHeight-trim)/gap),2,32),rowGap=(boardHeight-trim)/rows;
   return { columns,rows,gap,rowGap,displayColumns:Math.min(4,columns-1),top:boardHeight-rowGap/2,width:boardWidth,height:boardHeight,foot,trim,cables:clamp(Math.round((columns*rows-2*(Math.min(4,columns-1)+1))/6),rows<=3?4:6,18) };
 }

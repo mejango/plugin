@@ -11,12 +11,13 @@ export function ProjectBrowser({projectUrl}:{projectUrl:string}){
  const [tab,setTab]=useState<'Juicebox'|'Revnet'>('Juicebox');
  const [visitedRevnet,setVisitedRevnet]=useState(false);
  const [reload,setReload]=useState({Juicebox:0,Revnet:0});
- const {data}=useQuery({queryKey:['browser-project',projectUrl],enabled:!!identity,staleTime:300_000,retry:1,queryFn:()=>queryBendystraw<{project:{isRevnet:boolean|null}|null}>(BendystrawOperations.Project,{chainId:identity!.chainId,projectId:identity!.projectId})});
+ const {data,isError,refetch}=useQuery({queryKey:['browser-project',projectUrl],enabled:!!identity,staleTime:300_000,retry:1,queryFn:()=>queryBendystraw<{project:{isRevnet:boolean|null}|null}>(BendystrawOperations.Project,{chainId:identity!.chainId,projectId:identity!.projectId})});
  const isRevnet=data?.project?.isRevnet===true;
  const active=isRevnet?tab:'Juicebox';
  const activeUrl=active==='Revnet'?identity!.revnetUrl:projectUrl;
  const select=(next:'Juicebox'|'Revnet')=>{setTab(next);if(next==='Revnet')setVisitedRevnet(true);};
  return <div className={styles.browser}>
+  {isError&&<div role="status" className={styles.browserTabs}><span>Could not check project websites.</span><button type="button" onClick={()=>void refetch()}>Retry</button></div>}
   {isRevnet&&<div className={styles.browserTabs} role="tablist" aria-label="Project websites">
    {(['Juicebox','Revnet'] as const).map(name=><button key={name} type="button" role="tab" id={`${id}-${name}-tab`} aria-controls={`${id}-${name}-panel`} aria-selected={active===name} tabIndex={active===name?0:-1} onClick={()=>select(name)} onKeyDown={event=>{
     if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;

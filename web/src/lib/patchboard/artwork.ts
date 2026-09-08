@@ -153,8 +153,18 @@ export function panelArtwork(sockets: V3[], width=13, height=8.5, trim=0, engrav
     const reflection=ctx.createLinearGradient(0,0,canvas.width,0);
     reflection.addColorStop(0,"rgba(255,255,255,0)");reflection.addColorStop(0.32,"rgba(255,255,255,.24)");reflection.addColorStop(0.56,"rgba(255,255,255,0)");reflection.addColorStop(1,"rgba(70,83,95,.1)");
     ctx.fillStyle=reflection;ctx.fillRect(0,top,canvas.width,bandHeight);
+    // Rolled bevels and fine milling marks catch light along the rail edges.
+    ctx.fillStyle="rgba(32,46,54,.2)";ctx.fillRect(0,top,canvas.width,1);
+    ctx.fillStyle="rgba(255,255,255,.65)";ctx.fillRect(0,top+1,canvas.width,1);
+    ctx.fillStyle="rgba(56,70,80,.18)";ctx.fillRect(0,canvas.height-3,canvas.width,1);
+    ctx.fillStyle="rgba(247,251,255,.45)";ctx.fillRect(0,canvas.height-2,canvas.width,.5);
+    for(let i=0;i<90;i++){
+      const x=((i*127.73)%canvas.width),y=top+3+((i*19.31)%(bandHeight-6));
+      ctx.fillStyle=i%2?"rgba(58,74,85,.035)":"rgba(255,255,255,.12)";
+      ctx.fillRect(x,y,8+(i%13)*4,.5);
+    }
     if(engravings?.complete&&engravings.naturalWidth){
-      const left=(Math.min(...sockets.map(p=>p.x))+width/2)*sx,right=(Math.max(...sockets.map(p=>p.x))+width/2)*sx,markWidth=Math.min(canvas.width*.36,bandHeight*4.6);
+      const left=(Math.min(...sockets.map(p=>p.x))+width/2)*sx,right=(Math.max(...sockets.map(p=>p.x))+width/2)*sx,markWidth=Math.min(canvas.width*.36,bandHeight*3.9);
       // Recess the supplied silhouettes into the metal, with an inner shadow and lower lip.
       for(const [sourceX,sourceY,sourceWidth,sourceHeight,x] of [[140,163,1410,257,left],[106,540,1465,247,right-markWidth]] as const){
         const markHeight=markWidth*sourceHeight/sourceWidth,markY=top+(bandHeight-markHeight)/2;

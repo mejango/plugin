@@ -120,3 +120,19 @@ it("keeps a blocked insertion clear of a crossing and retries when it clears",()
   expect(plug.ports[0],JSON.stringify(w.diagnostics())).toBe(1);
   expect(w.diagnostics().penetration).toBeLessThan(.004);
 },30000);
+
+it("holds a docking connector in front of a fold in its own cable",()=>{
+  const w=new PatchWorld();w.cords=w.cords.slice(0,1);
+  const c=w.cords[0],s=w.sockets[1];
+  const points=[v(s.x,s.y,.42),v(s.x,s.y,.64),v(s.x+.6,s.y,.64),v(s.x+.6,s.y-.6,.16),v(s.x-.6,s.y-.6,.16),v(s.x-.6,s.y,.16),v(s.x+.6,s.y,.16),v(s.x+.6,s.y+.6,.16),v(s.x+1,s.y+.6,.16)];
+  c.ports=[null,null];
+  c.nodes=points.map((p,i)=>({p,old:{...p},velocity:v(),mass:0,radius:i<2?PLUG_RADIUS:RADIUS}));
+  c.rest=points.slice(1).map((p,i)=>distance(p,points[i]));
+  c.bend=points.slice(2).map((p,i)=>distance(p,points[i]));
+  w.grab(0,0);w.release(1,true);
+  for(let i=0;i<90;i++)w.advance(1/60);
+  expect(c.ports[0]).toBeNull();
+  expect(w.docking).toHaveLength(1);
+  expect(c.nodes[0].p.z).toBeGreaterThanOrEqual(.16+RADIUS+PLUG_RADIUS+.025);
+  expect(w.diagnostics().penetration).toBeLessThan(.004);
+});
