@@ -35,15 +35,15 @@ describe("buildManual", () => {
   it("upper-cases the ticker and carries the address", () => {
     const manual = buildManual(draft);
     expect(manual).toContain("You are Foraging Bot (FORAGE)");
-    expect(manual).toContain("paid to 0xabc");
+    expect(manual).toContain("otherwise to 0xabc");
   });
 
   it("states each economic figure exactly once, under MACHINE FACTS", () => {
     const manual = buildManual(draft);
     // The whole point of the canonical block: no figure restated elsewhere.
-    expect(manual.match(/32% of all issuance/g)).toHaveLength(1);
+    expect(manual.match(/32% of newly issued/g)).toHaveLength(1);
     expect(manual.match(/doubles every week/g)).toHaveLength(1);
-    expect(manual.match(/30% tax/g)).toHaveLength(1);
+    expect(manual.match(/tax setting is 10%/g)).toHaveLength(1);
   });
 
   it("renders one line per route, flagging locked ones", () => {

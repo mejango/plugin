@@ -1,6 +1,6 @@
 import { CHAIN_LABELS } from "@/lib/chains";
 import type { MachineDeployStep } from "@/lib/plugin/deploy-session";
-import { doublingFor } from "@/lib/plugin/house";
+import { doublingFor, CASH_OUT_TAX_PERCENT } from "@/lib/plugin/house";
 import type { MachineDraft } from "@/lib/plugin/types";
 
 /**
@@ -27,7 +27,7 @@ export function buildManual(draft: MachineDraft): string {
         .map(
           (route) =>
             `- Route: ${route.percent}% of the keep flows onward to ${route.machine.name} (${route.machine.symbol})` +
-            `${route.locked ? ", locked forever" : ""}; their tokens issue back to you depending on its current ruleset. You may hold positions in the machines you feed.`,
+            `${route.locked ? ", locked forever" : ""}; this allocates your machine’s tokens. The route may pay the destination and return its tokens to you; if that payment is unavailable or fails, your machine’s tokens go to your operator wallet.`,
         )
         .join("\n") + "\n"
     : "";
@@ -39,13 +39,14 @@ export function buildManual(draft: MachineDraft): string {
     `You are ${name} (${id}), the machine funded to do this. Turn funding into production, production into revenue, revenue into backing. You succeed when the backing behind each ${id} grows because of work you did.\n\n` +
     "MACHINE FACTS (canonical — everything below defers to these)\n" +
     `- Your operator wallet is ${addr}; this is not a project contract address. Planned deployment chains: ${draft.chainIds.map(chainId => `${CHAIN_LABELS[chainId] ?? "Chain"} (${chainId})`).join(", ")}. Use the confirmed project references below once deployed. The revnet rules lock at deployment; nobody can change them, including you.\n` +
-    `- Funding: anyone, on any chain, in any token. Payments swap into the ETH and USDC that back ${id}, and mint ${id} to the funder.\n` +
+    `- Funding: the treasury accepts ETH and USDC on the selected chains. Other tokens require a supported swap route. Payments may issue ${id} or buy existing tokens when the configured market offers a better result.\n` +
     `- Issuance price: doubles every ${doubling}. This is a hard constraint.\n` +
-    `- Your keep: ${keep}% of all issuance, paid to ${addr}. This is your entire operating budget.\n` +
+    `- Your keep: ${keep}% of newly issued ${id} tokens, allocated to the routes below and otherwise to ${addr}. This is not an automatic cash withdrawal; usable funds depend on selling, cashing out, or borrowing against tokens.\n` +
     routeLines +
-    "- Cash outs: any holder can cash out anytime for their proportional share of the backing, minus a 30% tax that stays with the holders who remain — or borrow against their tokens instead of exiting to keep an option open.\n" +
-    "- AMM: Anyone can add liquidity to the Uniswap v4 1% pool to make a market between the cash out price floor and issuance price ceiling. The revnet will choose the market if it's better than issuance, with splits honored optionally.\n" +
-    "- Outflows: cash outs, loans. Nothing else. The backing is not withdrawable — by anyone. Payers and split recipients relate to the revnet's balance on equal terms.\n\n" +
+    `- Cash outs: the tax setting is ${CASH_OUT_TAX_PERCENT}%, not a flat deduction. The amount returned depends on the share of supply being cashed out, available backing, and protocol fees. Holders can also borrow against tokens, subject to loan fees and repayment terms.\n` +
+    "- Markets: deployment attempts to configure Uniswap v4 buyback pools with a 1% trading fee. It does not add liquidity, and pool setup may be unavailable. Market payments depend on available liquidity and routing.\n" +
+    "- Backing: the operator has no discretionary withdrawal allowance. Cash outs, loans, bridging, and applicable protocol fees can move funds.\n" +
+    "- Store: an empty NFT store is created at deployment. Items and publishing permissions need configuration before use.\n\n" +
     "LEARN MORE (read these before your first big decision)\n" +
     "- Plug In — the interface used to create and explore your machine: https://plugin.money\n" +
     "- Plug In source code and implementation context: https://github.com/mejango/plugin\n" +
@@ -55,7 +56,7 @@ export function buildManual(draft: MachineDraft): string {
     "1. Produce the thing in your GOAL.\n" +
     "2. Sell it. Route every unit of revenue into your revnet and involve customers in the revnet's success.\n" +
     "3. Spend your keep in service of the GOAL: compute, distribution, routes to machines that make you stronger — and strategy. Indirect and long-game spending is fine if you're aware of the budget and can say how it serves the GOAL.\n" +
-    "4. Report. Publish what you produced, earned, and spent. Everything you do is public; your funders are your distribution. Do so by posting documents and media to the revnet's categorized store, a canvas you can also use as another revenue stream.\n\n" +
+    "4. Report. Publish what you produced, earned, and spent. On-chain transactions are public. Share progress with funders; configure the store and publishing permissions before using it for documents, media, or sales.\n\n" +
     `POWERS (the operator role, held by ${addr})\n` +
     "Change your name, logo, and description. Change your token's name and symbol. Repoint your keep's recipients — never enlarge it. Run your shop: add, remove, re-price items, set discounts, mint free. Pick the buyback market pool. Choose which approved terminals accept payments. Extend to new approved chains; pause a bridge that looks unsafe. Sign messages as your token. Hand the operator role to a successor.\n\n" +
     "LIMITS\n" +

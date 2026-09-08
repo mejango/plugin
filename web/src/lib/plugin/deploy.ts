@@ -3,9 +3,9 @@ import {
   MappableAsset, parseSuckerDeployerConfig, NATIVE_TOKEN, USDC_ADDRESSES,
   USD_CURRENCY_ID, SPLITS_TOTAL_PERCENT, MAX_WEIGHT_CUT_PERCENT,
 } from "@bananapus/nana-sdk-core";
-import { isAddress, zeroAddress, type Address, type Hex, type ContractFunctionArgs } from "viem";
+import { decodeFunctionData, isAddress, zeroAddress, type Address, type Hex, type ContractFunctionArgs } from "viem";
 import { assertSupportedChainId, MAINNET_CHAIN_IDS, TESTNET_CHAIN_IDS } from "@/lib/chains";
-import { doublingFor, keepIndex, INITIAL_ISSUANCE_PER_USD } from "@/lib/plugin/house";
+import { doublingFor, keepIndex, INITIAL_ISSUANCE_PER_USD, CASH_OUT_TAX_RATE } from "@/lib/plugin/house";
 import type { MachineDraft } from "@/lib/plugin/types";
 
 export function deployerFor(chainId: number): Address {
@@ -17,7 +17,7 @@ export function projectsFor(chainId: number): Address {
 }
 
 /** One immutable snapshot, salt and start time must be shared across all chains. */
-export function buildDeployArgs(draft: MachineDraft, pitchUri: string, chainId: number, salt: Hex, startsAtOrAfter: number) {
+export function buildDeployArgs(draft: MachineDraft, pitchUri: string, chainId: number, salt: Hex, startsAtOrAfter: number, cashOutTaxRate: 1000 | 3000 = CASH_OUT_TAX_RATE) {
   const chain=assertSupportedChainId(chainId);
   if (!draft.chainIds.includes(chain) || new Set(draft.chainIds).size !== draft.chainIds.length ||
     ![MAINNET_CHAIN_IDS, TESTNET_CHAIN_IDS].some(chains => draft.chainIds.every(id => chains.includes(id)))) {
@@ -44,7 +44,7 @@ export function buildDeployArgs(draft: MachineDraft, pitchUri: string, chainId: 
       startsAtOrAfter,autoIssuances:[],splitPercent:draft.keepPercent*100,splits,
       initialIssuance:BigInt(INITIAL_ISSUANCE_PER_USD)*10n**18n,
       issuanceCutFrequency:doublingFor(draft.doubling).days*86400,
-      issuanceCutPercent:MAX_WEIGHT_CUT_PERCENT/2,cashOutTaxRate:3000,extraMetadata:4,
+      issuanceCutPercent:MAX_WEIGHT_CUT_PERCENT/2,cashOutTaxRate,extraMetadata:4,
     }],
   };
   const accountingContexts=[NATIVE_TOKEN,USDC_ADDRESSES[chain]].map(token=>({token,decimals:token===NATIVE_TOKEN?18:6,currency:Number(BigInt(token)&0xffffffffn)}));
@@ -72,4 +72,13 @@ export function buildDeployArgs(draft: MachineDraft, pitchUri: string, chainId: 
 export function buildPitchUri(draft: MachineDraft, manual: string): string {
   const json=JSON.stringify({name:draft.name.trim(),description:draft.goal.trim(),manual});
   return `data:application/json;base64,${btoa(unescape(encodeURIComponent(json)))}`;
+}
+
+/** Read immutable saved terms; legacy 30% deployments must remain resumable. */
+export function deploymentCashOutTaxRate(data: Hex): 1000 | 3000 {
+  const decoded = decodeFunctionData({ abi: revDeployerAbi, data });
+  if (decoded.functionName !== "deployFor") throw new Error("Invalid machine deployment.");
+  const rate = decoded.args[1].stageConfigurations[0]?.cashOutTaxRate;
+  if (rate !== 1000 && rate !== 3000) throw new Error("Unknown machine cash-out tax.");
+  return rate;
 }

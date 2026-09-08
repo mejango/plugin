@@ -4,7 +4,7 @@ const POWERS = [
   "Repoint the keep at different recipients — never enlarge it",
   "Add, remove, and re-price shop items, mint them free, set discounts",
   "Pick the buyback market pool and its price-averaging window",
-  "Choose which approved terminals take payments, including the any-token router",
+  "Choose approved payment routes and supported token swaps",
   "Extend the machine to new approved chains; pause a bridge that looks unsafe",
   "Sign messages on behalf of the machine's token",
   "Hand the operator role to another address",
@@ -27,8 +27,8 @@ export function OperatorTooltip() {
             </li>
           ))}
         </ul>
-        <b>It can never</b>{" "}rewrite issuance, cash-out rules, or the stage schedule — and never withdraw the
-        machine&apos;s funds.
+        <b>It can never</b>{" "}rewrite issuance, cash-out rules, or the stage schedule — or freely withdraw the
+        machine&apos;s backing.
       </span>
     </span>
   );

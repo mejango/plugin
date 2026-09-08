@@ -1,7 +1,7 @@
 import { revDeployerAbi } from "@bananapus/nana-sdk-core";
 import { encodeFunctionData, isAddress, isAddressEqual, keccak256, stringToHex, type Address, type Hex } from "viem";
 import { assertSupportedChainId } from "@/lib/chains";
-import { buildDeployArgs, buildPitchUri, deployerFor } from "@/lib/plugin/deploy";
+import { buildDeployArgs, buildPitchUri, deployerFor, deploymentCashOutTaxRate } from "@/lib/plugin/deploy";
 import type { MachineDraft } from "@/lib/plugin/types";
 import type { RelayrEntry, RelayrPayment, RelayrQuote, RelayrTransactionRecord, RelayrUnboundQuote } from "@/lib/plugin/relayr-protocol";
 
@@ -74,12 +74,13 @@ export function validateMachineDeployment(value: unknown): MachineDeploySession 
       new Set(session.calls.map(call => call.chainId)).size !== session.calls.length ||
       typeof session.manual !== "string" || session.pitchUri !== buildPitchUri(session.draft, session.manual) ||
       machineDeploymentFingerprint(session) !== session.fingerprint) throw new Error();
+    const cashOutTaxRate = deploymentCashOutTaxRate(session.calls[0].data);
     for (const [index, call] of session.calls.entries()) {
       const chainId = assertSupportedChainId(call.chainId);
       if (session.draft.chainIds[index] !== chainId || !isAddressEqual(call.to, deployerFor(chainId)) ||
         !/^(0|[1-9][0-9]*)$/u.test(call.value) || BigInt(call.value) >= 2n ** 256n ||
         call.data.toLowerCase() !== encodeFunctionData({ abi: revDeployerAbi, functionName: "deployFor",
-          args: buildDeployArgs(session.draft, session.pitchUri, chainId, session.salt, session.startsAtOrAfter) }).toLowerCase()) throw new Error();
+          args: buildDeployArgs(session.draft, session.pitchUri, chainId, session.salt, session.startsAtOrAfter, cashOutTaxRate) }).toLowerCase()) throw new Error();
       const step = session.steps[index];
       if (step.chainId !== chainId || !["pending", "signing", "confirming", "done", "failed", "uncertain"].includes(step.status) ||
         (step.hash !== undefined && !/^0x[0-9a-f]{64}$/iu.test(step.hash)) ||

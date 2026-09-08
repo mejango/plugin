@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { encodeFunctionData, zeroAddress } from "viem";
 import { revDeployerAbi } from "@bananapus/nana-sdk-core";
-import { buildDeployArgs, deployerFor, buildPitchUri } from "@/lib/plugin/deploy";
+import { buildDeployArgs, deployerFor, buildPitchUri, deploymentCashOutTaxRate } from "@/lib/plugin/deploy";
 import type { MachineDraft } from "@/lib/plugin/types";
+import { machineDeploymentFingerprint, validateMachineDeployment, type MachineDeploySession } from "@/lib/plugin/deploy-session";
 import { REV_MACHINE } from "@/lib/machines";
 import { TESTNET_CHAIN_IDS } from "@/lib/chains";
 const salt=`0x${"12".repeat(32)}` as const;
@@ -13,7 +14,7 @@ describe("Revnet deployment configuration",()=>{
     expect(encodeFunctionData({abi:revDeployerAbi,functionName:"deployFor",args})).toMatch(/^0x/);
     expect(deployerFor(chain)).toMatch(/^0x[0-9a-fA-F]{40}$/);
     expect(args[1].description).toEqual({name:"Test",ticker:"TEST",uri:"ipfs://pitch",salt});
-    expect(args[1].stageConfigurations[0]).toMatchObject({initialIssuance:1000n*10n**18n,splitPercent:1000,issuanceCutPercent:500000000,cashOutTaxRate:3000,extraMetadata:4,issuanceCutFrequency:30*86400});
+    expect(args[1].stageConfigurations[0]).toMatchObject({initialIssuance:1000n*10n**18n,splitPercent:1000,issuanceCutPercent:500000000,cashOutTaxRate:1000,extraMetadata:4,issuanceCutFrequency:30*86400});
     expect(args[1].stageConfigurations[0].splits.reduce((total,s)=>total+s.percent,0)).toBe(1000000000);
     expect(args[2].map(c=>c.decimals)).toEqual([18,6]);
     expect(args[3].deployerConfigurations).toHaveLength(3);
@@ -43,5 +44,20 @@ describe("Revnet deployment configuration",()=>{
   it("rejects mixed network families and duplicate deployment destinations", () => {
     expect(() => buildDeployArgs({...draft, chainIds: [1, 11155111]}, "", 1, salt, 1800000000)).toThrow("one network environment");
     expect(() => buildDeployArgs({...draft, chainIds: [1, 1]}, "", 1, salt, 1800000000)).toThrow("distinct");
+  });
+});
+
+
+describe("cash-out tax deployment compatibility",()=>{
+  it.each([1000,3000] as const)("preserves a saved %s rate without rebuilding its signed payload", rate=>{
+    const savedDraft={...draft,chainIds:[1] as const};
+    const configured={...savedDraft,chainIds:[...savedDraft.chainIds]};
+    const manual="Original manual",pitchUri=buildPitchUri(configured,manual),startsAtOrAfter=1800000000;
+    const data=encodeFunctionData({abi:revDeployerAbi,functionName:"deployFor",args:buildDeployArgs(configured,pitchUri,1,salt,startsAtOrAfter,rate)});
+    const prepared:Omit<MachineDeploySession,"fingerprint">={version:1,id:salt,account:draft.address as `0x${string}`,salt,startsAtOrAfter,pitchUri,transport:"direct",phase:"prepared",draft:configured,manual,calls:[{chainId:1,to:deployerFor(1),data,value:"0",label:"Ethereum"}],steps:[{chainId:1,label:"Ethereum",status:"pending"}]};
+    const saved={...prepared,fingerprint:machineDeploymentFingerprint(prepared)};
+    expect(validateMachineDeployment(saved).calls[0].data).toBe(data);
+    expect(deploymentCashOutTaxRate(data)).toBe(rate);
+    expect(buildDeployArgs(configured,pitchUri,1,salt,startsAtOrAfter)[1].stageConfigurations[0].cashOutTaxRate).toBe(1000);
   });
 });

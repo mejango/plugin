@@ -23,6 +23,8 @@ export const DOUBLINGS = [
 export type DoublingKey = (typeof DOUBLINGS)[number]["key"];
 
 export const DEFAULT_KEEP_PERCENT = 10;
+export const CASH_OUT_TAX_RATE = 1000;
+export const CASH_OUT_TAX_PERCENT = CASH_OUT_TAX_RATE / 100;
 export const DEFAULT_DOUBLING: DoublingKey = "1m";
 
 /** Tokens issued per USD at the start; doublings scale the price from here. */

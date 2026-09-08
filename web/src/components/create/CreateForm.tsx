@@ -4,6 +4,7 @@ import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { useAccount, useEnsName } from "wagmi";
 import type { Hex } from "viem";
 
+import { deploymentCashOutTaxRate } from "@/lib/plugin/deploy";
 import { createIssues } from "@/lib/plugin/create-flow";
 import styles from "./CreateConsole.module.css";
 
@@ -19,7 +20,7 @@ import { SignIn } from "@/components/SignIn";
 import { useDeployMachine } from "@/hooks/useDeployMachine";
 import { CHAIN_LABELS, MAINNET_CHAIN_IDS, TESTNET_CHAIN_IDS } from "@/lib/chains";
 import { REV_MACHINE } from "@/lib/machines";
-import { DOUBLINGS, KEEPS, DEFAULT_DOUBLING, DEFAULT_KEEP_PERCENT, tokensPerDollarAt, doublingFor } from "@/lib/plugin/house";
+import { DOUBLINGS, KEEPS, DEFAULT_DOUBLING, DEFAULT_KEEP_PERCENT, CASH_OUT_TAX_PERCENT, tokensPerDollarAt, doublingFor } from "@/lib/plugin/house";
 import { buildManual, withDeploymentReferences } from "@/lib/plugin/manual";
 import type { MachineDraft, Route } from "@/lib/plugin/types";
 
@@ -50,6 +51,7 @@ export function CreateForm() {
   const { data: ensName } = useEnsName({ address, chainId: 1, query: { enabled: isConnected && !!address, staleTime: 300_000, retry: false } });
   const { deploy, session, steps, busy, restoring, storageBlocked, error, progress, canClear, clear, approval, answerApproval } = useDeployMachine();
   const draft = session?.draft ?? draftInput;
+  const cashOutTaxPercent = session ? deploymentCashOutTaxRate(session.calls[0].data) / 100 : CASH_OUT_TAX_PERCENT;
   const locked = busy || restoring || storageBlocked || Boolean(session);
   const testnet = session ? session.draft.chainIds.some(chainId => TESTNET_CHAIN_IDS.includes(chainId)) : environment === "testnet";
   const chainIds = testnet ? TESTNET_CHAIN_IDS : MAINNET_CHAIN_IDS;
@@ -219,7 +221,7 @@ export function CreateForm() {
 
             </section>
             <section className={styles.page} aria-label="How it works">
-      <HouseRules />
+      <HouseRules cashOutTaxPercent={cashOutTaxPercent} />
 
 
             </section>
@@ -243,7 +245,7 @@ export function CreateForm() {
         <div><span>Issuance</span><strong>{doublingFor(draft.doubling).label} price increases</strong></div>
         <div><span>Keep / payer</span><strong>{draft.keepPercent}% / {100 - draft.keepPercent}%</strong></div>
         <div><span>Plug ins</span><strong>{draft.routes.length} machine{draft.routes.length === 1 ? "" : "s"}, {draft.routes.reduce((sum, route) => sum + route.percent, 0)}% of the keep routed</strong></div>
-        <div><span>Cash-out tax</span><strong>30% stays with remaining holders</strong></div>
+        <div><span>Cash-out tax setting</span><strong>{cashOutTaxPercent}%</strong></div>
       </div>
       <div className="flex flex-col items-stretch gap-[.7rem] min-[621px]:items-end">
         <div className="grid w-full gap-2">

@@ -1,15 +1,17 @@
-const RULES = [
+import { CASH_OUT_TAX_PERCENT } from "@/lib/plugin/house";
+
+const rules = (cashOutTaxPercent: number) => [
   {
     title: "Maximally accessible",
-    body: "Anyone can fund the machine from any chain, in any token. It lives on Ethereum, Base, Optimism, and Arbitrum at once, and whatever a backer pays with gets swapped into the ETH and USDC that back it.",
+    body: "Fund the machine with ETH or USDC on the chains you choose. Other tokens can be accepted when a supported swap route is available.",
   },
   {
-    title: "Uneditable",
-    body: "Operations are locked into the machine from deployment. No governance, no admins. What you see is what runs, forever.",
+    title: "Fixed economic rules",
+    body: "The issuance schedule, keep percentage, and cash-out tax setting are locked at deployment. The operator can still update the machine’s profile, shop, and unlocked keep recipients.",
   },
   {
     title: "Splits",
-    body: "The machine's keep is split from issuance, enforced by the revnet on every new issuance. The rest goes to the payer.",
+    body: "The keep is a share of newly issued machine tokens, with the rest going to the payer. It is not a cash withdrawal. Recipients can sell, cash out, or borrow against their tokens.",
   },
   {
     title: "Issuance doublings",
@@ -17,11 +19,12 @@ const RULES = [
   },
   {
     title: "Cash out anytime",
-    body: "Tokens cash out for their share of what the machine holds — or borrow against their share to keep an option open. Cashing out pays a 30% tax that stays behind with the holders who stick around. All funds used for issuance back the value of all tokens, and only ever leave through cash outs and loans.",
+    body: `Holders can cash out their tokens or borrow against them. The cash-out tax setting is ${cashOutTaxPercent}%; it is not a flat deduction. The amount returned depends on the share being cashed out, available backing, and fees. The operator cannot freely withdraw the backing.`,
   },
 ];
 
-export function HouseRules() {
+export function HouseRules({ cashOutTaxPercent = CASH_OUT_TAX_PERCENT }: { cashOutTaxPercent?: number }) {
+  const RULES = rules(cashOutTaxPercent);
   return (
     <div className="border-2 border-black bg-white" aria-label="The house rules">
       <h2 className="display m-0 border-b-2 border-black px-[1.3rem] py-[1.1rem] text-[1.2rem] tracking-[.03em]">
