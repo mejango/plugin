@@ -11,11 +11,13 @@ try{
   window.__audio=[];
   const Original=window.AudioContext;
   window.AudioContext=class extends Original{
-   constructor(...args){super(...args);const record={ctx:this,osc:[],filters:[],gains:[],analyser:this.createAnalyser()};window.__audio.push(record);this.record=record;}
+   constructor(...args){super(...args);const record={ctx:this,osc:[],filters:[],gains:[],curveWrites:0,analyser:this.createAnalyser()};window.__audio.push(record);this.record=record;}
    createOscillator(){const osc=super.createOscillator();this.record?.osc.push(osc);return osc;}
    createBiquadFilter(){const filter=super.createBiquadFilter();this.record?.filters.push(filter);return filter;}
    createGain(){const gain=super.createGain();this.record?.gains.push(gain);return gain;}
   };
+  const curve=Object.getOwnPropertyDescriptor(WaveShaperNode.prototype,'curve');
+  Object.defineProperty(WaveShaperNode.prototype,'curve',{...curve,set(value){if(this.context.record)this.context.record.curveWrites++;curve.set.call(this,value);}});
   const connect=AudioNode.prototype.connect;
   AudioNode.prototype.connect=function(target,...args){if(target===this.context.destination&&this.context.record)connect.call(this,this.context.record.analyser);return connect.call(this,target,...args);};
  });
@@ -36,10 +38,13 @@ try{
  const adjusted=Number(await volume.getAttribute('aria-valuenow'));
  await page.keyboard.press('ArrowUp');
  assert(Number(await volume.getAttribute('aria-valuenow'))>adjusted,'arrow keys still adjust the focused dial');
+ const curveWrites=await page.evaluate(()=>window.__audio.at(-1).curveWrites);
  const framing=await page.locator('[data-board-terminal]').evaluate(el=>el.style.transform);
  await page.keyboard.down('f');await page.keyboard.down('g');await page.waitForTimeout(150);
+ assert.equal(await page.evaluate(()=>window.__audio.at(-1).curveWrites),curveWrites,'adding chord notes does not reset the shared distortion curve');
  assert.equal(await page.locator('[data-board-terminal]').evaluate(el=>el.style.transform),framing,'musical F no longer changes camera');
  assert(await rms()>.001,'chords sound immediately after a dial drag, without clicking away');
+ if(!process.argv.includes('--notes-only')){
  await page.waitForTimeout(500);
  const portsBefore=await page.evaluate(()=>document.querySelector('canvas').__patchboard().cords.map(c=>c.ports));
  const patchBefore=await page.evaluate(()=>window.__audio.at(-1).gains.map(g=>g.gain.value));
@@ -64,6 +69,7 @@ try{
  const reconnected=await page.evaluate(()=>window.__audio.at(-1).gains.map(g=>g.gain.value));
  assert.notDeepEqual(reconnected,patchBefore,'moving to a different socket changes the sustained sound');
  assert(await rms()>.0001,'sustained notes remain audible after repatching');
+ }
 
  await page.keyboard.up('f');await page.keyboard.up('g');
  await page.keyboard.down('a');await page.waitForTimeout(100);await page.evaluate(()=>window.dispatchEvent(new Event('blur')));await page.waitForTimeout(100);
@@ -73,5 +79,5 @@ try{
  await page.waitForFunction(()=>window.__audio.at(-1).ctx.state==='closed');
  assert.equal(await page.evaluate(()=>window.__audio.at(-1).ctx.state),'closed','leaving board stops audio');await page.keyboard.up('a');
  const count=await page.evaluate(()=>window.__audio.length);await page.locator('#name').fill('ASDF keyboard typing');assert.equal(await page.evaluate(()=>window.__audio.length),count,'form typing stays silent');
- console.log('PASS: lazy audio, zero-volume silence, audible sine notes/chords, output volume, note release, patch modulation, blur cleanup, route cleanup, and silent form typing.');
+ console.log(process.argv.includes('--notes-only')?'PASS: keyboard overlap without effect resets, focused dial, volume, note release, and audio cleanup.':'PASS: lazy audio, zero-volume silence, audible sine notes/chords, output volume, note release, patch modulation, blur cleanup, route cleanup, and silent form typing.');
 }finally{await browser.close();}

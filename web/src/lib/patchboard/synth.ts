@@ -56,9 +56,11 @@ export class BoardSynth {
   const osc=this.context.createOscillator(),gain=this.context.createGain(),now=this.context.currentTime;
   const frequency=midiFrequency(note),mod=this.context.createOscillator(),fm=this.context.createGain();
   mod.type='sine';mod.frequency.value=frequency*this.tone.fmRatio;fm.gain.value=frequency*this.tone.fmIndex;
-  mod.connect(fm).connect(osc.frequency);mod.start();
-  osc.type='sine';osc.frequency.value=frequency;gain.gain.value=0;gain.gain.linearRampToValueAtTime(.09,now+.015);
-  osc.connect(gain).connect(this.preamp);this.pitchMod.connect(osc.detune);osc.start();
+  mod.connect(fm).connect(osc.frequency);
+  osc.type='sine';osc.frequency.value=frequency;
+  // Anchor the attack at this note's start, not at AudioContext time zero.
+  gain.gain.setValueAtTime(0,now);gain.gain.linearRampToValueAtTime(.09,now+.025);
+  osc.connect(gain).connect(this.preamp);this.pitchMod.connect(osc.detune);osc.start(now);mod.start(now);
   this.voices.set(key,{osc,gain,mod,fm,frequency});
  }
  noteOff(key:string){

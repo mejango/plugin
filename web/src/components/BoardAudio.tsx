@@ -17,9 +17,11 @@ export function BoardAudio({active}:{active:boolean}){
    const semitone=NOTE_KEYS[event.code];if(semitone===undefined||held.has(event.code))return;
    event.preventDefault();held.add(event.code);
    try{
-    synth??=new BoardSynth(new AudioContext());
+    if(!synth){
+     synth=new BoardSynth(new AudioContext());
+     synth.patch(audioPatches());synth.volume(machineReadout().volume??0);
+    }
     const current=synth;
-    current.patch(audioPatches());current.volume(machineReadout().volume??0);
     void current.context.resume().then(()=>{if(!disposed&&held.has(event.code))current.noteOn(event.code,12*(octave+1)+semitone);}).catch(()=>held.delete(event.code));
    }catch{held.delete(event.code);}
   };
