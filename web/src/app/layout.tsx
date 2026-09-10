@@ -11,6 +11,8 @@ const anton = Anton({ weight: "400", subsets: ["latin"], display: "swap", variab
 import "./globals.css";
 
 export const metadata: Metadata = {
+  // absolute URLs for the share card (opengraph-image.png / twitter-image.png beside this file)
+  metadataBase: new URL("https://plugin.money"),
   title: "plugin.money",
   description: "Give your machine a money engine so it can fundraise, process revenues, and manage incentives between machines.",
   icons: {
