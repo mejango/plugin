@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { closest, distance, v } from "../src/lib/patchboard/math";
 import { PatchWorld, PLUG_RADIUS, RADIUS, STEP, EARTH_GRAVITY, METERS_PER_UNIT, dampCableModes } from "../src/lib/patchboard/physics";
 import { frameSeconds } from "../src/lib/patchboard/clock";
-import { DEFAULT_FEEL, FEEL_PRESETS, sanitizeFeel } from "../src/lib/patchboard/settings";
+import { DEFAULT_FEEL, FEEL_PRESETS, feelPreset, sanitizeFeel } from "../src/lib/patchboard/settings";
 
 describe("physical patchboard", () => {
   it("uses the approved cable settings as the homepage and restore defaults", () => {
@@ -15,6 +15,10 @@ describe("physical patchboard", () => {
     expect(FEEL_PRESETS["¼-inch cable"]).toEqual(approved);
     expect(sanitizeFeel(undefined)).toEqual(approved);
     expect(new PatchWorld().feel).toEqual(approved);
+  });
+  it("names a preset only when the sanitized feel matches it exactly", () => {
+    for (const [name, feel] of Object.entries(FEEL_PRESETS)) expect(feelPreset(sanitizeFeel(feel))).toBe(name);
+    expect(feelPreset({ ...DEFAULT_FEEL, bend: 7 })).toBe("Custom");
   });
   it("ignores obsolete socket pull thresholds in saved experiment settings", () => {
     for (const socketResistance of [0, 0.38, 0.6]) {
