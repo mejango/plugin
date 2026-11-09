@@ -650,6 +650,48 @@ describe("machine Relayr deployment", () => {
     expect(latest.relayr?.quote?.bundle_uuid).toBe(nextBundle);
   });
 
+  it("retries a reverted destination only once the kept success, the revert and the payment are finalized", async () => {
+    const nextBundle = "87654321-1234-4321-8123-123456789abc";
+    const nextPaymentHash = `0x${"ef".repeat(32)}` as Hex;
+    const nextDestinationHash = `0x${"ed".repeat(32)}` as Hex;
+    let finalizedHeight = 19n;
+    let vanished = false;
+    bundleIds = [BUNDLE, nextBundle];
+    recordState = (uuid, chain) => !mined ? { state: "Pending" } : { state: "Success", data: { hash: uuid === BUNDLE ? destinationHash(chain) : nextDestinationHash } };
+    send.mockImplementation(async () => { mined = true; return send.mock.calls.length === 1 ? PAYMENT_HASH : nextPaymentHash; });
+    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+      const rpc = client(chainId);
+      const transaction = rpc.getTransaction.getMockImplementation()!;
+      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+      rpc.getBlock.mockImplementation(async (...input: unknown[]) => ({ hash: BLOCK_HASH, timestamp: BigInt(NOW),
+        number: (input[0] as { blockTag?: string }).blockTag === "finalized" ? finalizedHeight : 20n }));
+      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => ({ ...await transaction({ hash: hash === nextPaymentHash ? PAYMENT_HASH : hash }), hash }));
+      rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        if (vanished && chainId === 1 && hash === destinationHash(1)) throw new Error("receipt not found");
+        const found = await receipt({ hash: hash === nextPaymentHash ? PAYMENT_HASH : hash });
+        return { ...found, transactionHash: hash, ...(hash === destinationHash(10) ? { status: "reverted", logs: [] } : {}) };
+      });
+      return rpc;
+    });
+
+    await expect(run()).rejects.toThrow("not finalized");
+    expect(loadMachineDeployment()!.steps.map(step => step.status)).toEqual(["done", "failed"]);
+    expect(loadMachineDeployment()!.relayr?.superseded).toBeUndefined();
+    // The kept success's block reorgs away: retrying the other chain must not report the machine deployed.
+    vanished = true;
+    await expect(run()).rejects.toThrow("receipt not found");
+    expect(machineDeploymentDone(latest)).toBe(false);
+    expect(sign).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(1);
+
+    vanished = false;
+    finalizedHeight = 20n;
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(sign).toHaveBeenCalledTimes(3);
+    expect(posts.map(entries => entries.map(entry => entry.chain))).toEqual([[1, 10], [10]]);
+  });
+
   it("deploys and clears without Web Locks, on the SDK's fallback lock", async () => {
     vi.stubGlobal("navigator", {});
     await expect(run()).resolves.toSatisfy(machineDeploymentDone);

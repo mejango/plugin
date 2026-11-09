@@ -269,11 +269,11 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       return true;
     }
 
-    async function requireFinalizedReceipt(chainId: number, hash: Hex, expectedStatus: "success" | "reverted") {
+    async function requireFinalizedReceipt(chainId: number, hash: Hex, expectedStatus?: "success" | "reverted") {
       const client = await clientFor(chainId);
       const receipt = await client.getTransactionReceipt({ hash });
       const finalized = await client.getBlock({ blockTag: "finalized" });
-      if (receipt.status !== expectedStatus || receipt.transactionHash !== hash || finalized.number < receipt.blockNumber ||
+      if ((expectedStatus && receipt.status !== expectedStatus) || receipt.transactionHash !== hash || finalized.number < receipt.blockNumber ||
         (await client.getBlock({ blockNumber: receipt.blockNumber })).hash !== receipt.blockHash ||
         (await client.getBlock({ blockNumber: finalized.number })).hash !== finalized.hash) {
         throw new Error("The original transaction is not finalized. Check it again before retrying this deployment.");
@@ -412,6 +412,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         const bindings = requireQuoteBindings();
         const original = journal;
         let retryable = true, expired = true, held = false, ran = false;
+        const reverts: { chainId: number; hash: Hex }[] = [];
         for (const signed of original.signed) {
           if (!open(signed.chainId)) continue;
           const binding = bindings.find(item => item.chain === signed.chainId)!;
@@ -432,6 +433,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           const [state] = await relayrRequestStates(chainClient, [signedRequest(signed)]);
           const reverted = unproven instanceof RelayrDestinationRevertedError;
           const named = hash ? { hash } : {};
+          if (reverted && hash) reverts.push({ chainId: signed.chainId, hash });
           if (!state.live && state.unused) {
             step(signed.chainId, { status: "failed", ...named, error: reverted ? "Deployment reverted onchain." : "The unused deployment authorization expired." });
             continue;
@@ -445,6 +447,11 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         if (machineDeploymentDone(current)) { onProgress("The machine is deployed on every selected chain."); return true; }
         if (ran && !held) abandon(MAY_HAVE_RUN);
         if (retryable) {
+          // A retry keeps every success and supersedes every revert, so each must be final first, as must the latest payment.
+          for (const item of current.steps) if (item.status === "done" && item.hash) await requireFinalizedReceipt(item.chainId, item.hash, "success");
+          for (const item of reverts) await requireFinalizedReceipt(item.chainId, item.hash, "reverted");
+          const payment = original.payments?.at(-1);
+          if (payment) await requireFinalizedReceipt(payment.chainId, payment.hash);
           resign(original, expired);
           onProgress("Retrying only verified unsuccessful destinations. The previous payment may already have been charged; review a new quote for these chains.");
         }
