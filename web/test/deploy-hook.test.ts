@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { runMachineDeployment } from "@/lib/plugin/relayr-deploy";
 import { useDeployMachine } from "@/hooks/useDeployMachine";
 
-const mocks = vi.hoisted(() => ({ run: vi.fn(), load: vi.fn(), clear: vi.fn(), canClear: vi.fn() }));
+const mocks = vi.hoisted(() => ({ run: vi.fn(), load: vi.fn(), clear: vi.fn(), canClear: vi.fn(), done: vi.fn() }));
 vi.mock("wagmi", () => ({ useConfig: () => ({}), useAccount: () => ({ address: "0x1111111111111111111111111111111111111111", isConnected: true }) }));
-vi.mock("@/lib/plugin/deploy-session", () => ({ loadMachineDeployment: mocks.load, clearMachineDeployment: mocks.clear, canClearMachineDeployment: mocks.canClear }));
+vi.mock("@/lib/plugin/deploy-session", () => ({ loadMachineDeployment: mocks.load, clearMachineDeployment: mocks.clear, canClearMachineDeployment: mocks.canClear, machineDeploymentDone: mocks.done }));
 vi.mock("@/lib/plugin/relayr-deploy", () => ({ runMachineDeployment: mocks.run }));
 
 type RunArgs = Parameters<typeof runMachineDeployment>[0];

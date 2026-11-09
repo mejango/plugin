@@ -49,7 +49,7 @@ export function CreateForm() {
 
   const { address, isConnected } = useAccount();
   const { data: ensName } = useEnsName({ address, chainId: 1, query: { enabled: isConnected && !!address, staleTime: 300_000, retry: false } });
-  const { deploy, session, steps, busy, restoring, storageBlocked, error, progress, canClear, clear, approval, answerApproval } = useDeployMachine();
+  const { deploy, session, steps, busy, restoring, storageBlocked, error, progress, canClear, done, clear, approval, answerApproval } = useDeployMachine();
   const draft = session?.draft ?? draftInput;
   const cashOutTaxPercent = session ? deploymentCashOutTaxRate(session.calls[0].data) / 100 : CASH_OUT_TAX_PERCENT;
   const locked = busy || restoring || storageBlocked || Boolean(session);
@@ -290,7 +290,7 @@ export function CreateForm() {
           <SignIn />
         ) : (
           <>
-          {session?.phase !== "done" && <button
+          {!done && <button
             type="submit"
             disabled={busy || uploadingMedia || restoring || storageBlocked}
             className="display w-full cursor-pointer border-2 border-black bg-black px-[1.7em] py-[.75em] text-[clamp(1.1rem,2.4vw,1.5rem)] tracking-[.03em] text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 min-[621px]:w-auto"
@@ -306,7 +306,7 @@ export function CreateForm() {
         )}
 
         <span role={error ? "alert" : undefined} className="text-center text-[.85rem] text-[#555] min-[621px]:text-right">
-          {error ?? progress ?? (session?.phase === "done" ? "Your machine is live on every selected chain."
+          {error ?? progress ?? (done ? "Your machine is live on every selected chain."
             : draft.chainIds.length > 1 ? "Sign each chain's deployment, then choose a Relayr quote and pay once. Contract wallets use direct transactions."
               : "Review the deployment, then confirm it in your wallet.")}
         </span>
@@ -316,13 +316,13 @@ export function CreateForm() {
         {session && canClear && <button type="button" disabled={busy || restoring}
           className="cursor-pointer bg-transparent text-sm underline underline-offset-4 disabled:opacity-40"
           onClick={() => {
-            if (session.phase !== "done") {
+            if (!done) {
               setDraft(session.draft);
               setManualEdit(session.manual === buildManual(session.draft) ? null : session.manual);
               setEnvironment(testnet ? "testnet" : "mainnet");
             }
             void clear();
-          }}>{session.phase === "done" ? "Create another machine" : "Change setup"}</button>}
+          }}>{done ? "Create another machine" : "Change setup"}</button>}
 
         {steps.length > 0 && (
           <ul className="m-0 grid list-none gap-1 p-0 text-[.8rem] text-[#555]">
