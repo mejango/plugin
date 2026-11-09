@@ -25,6 +25,7 @@ import { buildManual, withDeploymentReferences } from "@/lib/plugin/manual";
 import type { MachineDraft, Route } from "@/lib/plugin/types";
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+const SavedAttemptRecovery = lazy(() => import("./SavedAttemptRecovery"));
 const DeployApproval = lazy(() => import("./DeployApproval").then(module => ({ default: module.DeployApproval })));
 
 export function CreateForm() {
@@ -49,7 +50,8 @@ export function CreateForm() {
 
   const { address, isConnected } = useAccount();
   const { data: ensName } = useEnsName({ address, chainId: 1, query: { enabled: isConnected && !!address, staleTime: 300_000, retry: false } });
-  const { deploy, session, steps, busy, restoring, storageBlocked, error, progress, canClear, done, clear, approval, answerApproval } = useDeployMachine();
+  const { deploy, session, steps, busy, restoring, storageBlocked, error, progress, canClear, done, clear, approval, answerApproval,
+    recovery, onRecoveryRetired, onRecoveryFollow } = useDeployMachine();
   const draft = session?.draft ?? draftInput;
   const cashOutTaxPercent = session ? deploymentCashOutTaxRate(session.calls[0].data) / 100 : CASH_OUT_TAX_PERCENT;
   const locked = busy || restoring || storageBlocked || Boolean(session);
@@ -310,6 +312,10 @@ export function CreateForm() {
             : draft.chainIds.length > 1 ? "Sign each chain's deployment, then choose a Relayr quote and pay once. Contract wallets use direct transactions."
               : "Review the deployment, then confirm it in your wallet.")}
         </span>
+        {recovery && <Suspense fallback={null}>
+          <SavedAttemptRecovery key={recovery.chainId} attempt={recovery} checkNext="Deploy again"
+            onRetired={onRecoveryRetired} onFollow={onRecoveryFollow} />
+        </Suspense>}
         {session && <p className="m-0 max-w-full break-all text-sm text-[#555]">
           Saved deployment wallet: {session.account}
         </p>}

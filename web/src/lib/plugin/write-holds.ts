@@ -17,7 +17,7 @@ export const savedAttempts = createSavedAttemptRecovery({ hold: writeHolds });
  * flow stops there, before any preparation, until it settles or the user
  * retires it (SavedAttemptRecovery).
  */
-export class SavedAttemptShownError extends Error {
+class SavedAttemptShownError extends Error {
   readonly name = "SavedAttemptShownError";
   constructor(readonly attempt: SavedAttempt<unknown>, line: string) {
     super(line);
