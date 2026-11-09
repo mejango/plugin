@@ -16,6 +16,7 @@ const { HomeHero } = await import("@/components/HomeHero");
 
 const project = { projectId: 7, chainId: 1, name: "Alpha", balance: "1", tokenSymbol: "ETH", decimals: 18, currency: "1", deployErc20Events: { items: [] } };
 const listCalls = () => mocks.query.mock.calls.filter(([operation]) => operation !== BendystrawOperations.SuckerGroup).length;
+const statsCalls = () => mocks.query.mock.calls.filter(([operation]) => operation === BendystrawOperations.SuckerGroup).length;
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
@@ -40,8 +41,10 @@ it("retries only the failed project stats and drops the retry label when the mod
   await act(async () => right().click());
   expect(right().getAttribute("aria-label")).toBe("Retry project stats");
   const before = listCalls();
+  const statsBefore = statsCalls();
   await act(async () => right().click());
   expect(listCalls()).toBe(before);
+  expect(statsCalls()).toBe(statsBefore + 1);
   expect(right().getAttribute("aria-label")).toBe("Retry project stats");
   await act(async () => container.querySelector<HTMLButtonElement>('[data-knob="View mode"]')!.click());
   expect(right().getAttribute("aria-label")).toBe("Open selected project");
