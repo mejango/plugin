@@ -7,6 +7,8 @@ import { RELAYR_API, RELAYR_NATIVE_TOKEN, RELAYR_PAYMENT_ADDRESS, RELAYR_PAYMENT
 import { canClearMachineDeployment, loadMachineDeployment, machineDeploymentDone, type MachineDeploySession } from "@/lib/plugin/deploy-session";
 import { machineProjectIdFromReceipt, runMachineDeployment, type MachineDeployReview } from "@/lib/plugin/relayr-deploy";
 import type { MachineDraft } from "@/lib/plugin/types";
+import { savedAttempts } from "@/lib/plugin/write-holds";
+import type { SavedAttempt, WriteHoldClient } from "@bananapus/nana-sdk-core/review";
 
 const mocks = vi.hoisted(() => ({
   getAccount: vi.fn(), getPublicClient: vi.fn(), getWalletClient: vi.fn(), switchChain: vi.fn(), runtime: vi.fn(),
@@ -326,6 +328,34 @@ describe("machine Relayr deployment", () => {
     expect(posts).toHaveLength(1);
     expect(sign).toHaveBeenCalledTimes(2);
     expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets the user check a payment sent without a hash and resolve the deployment before its deadline", async () => {
+    const requestsDead = NOW + 2.5 * 60 * 60;
+    offers = [payment(1), payment(8453)];
+    chooseFunding.mockResolvedValue(8453);
+    send.mockRejectedValueOnce(new Error("wallet disconnected after send"));
+    await expect(run()).rejects.toThrow("without returning its hash");
+    // Every request expired unused at a finalized block, and the payment chain can't prove its own deadline passed.
+    vi.setSystemTime(requestsDead * 1_000);
+    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+      const rpc = client(chainId);
+      if (chainId === 8453) rpc.getBlock.mockRejectedValue(new Error("finalized block unavailable"));
+      else rpc.getBlock.mockResolvedValue({ hash: BLOCK_HASH, number: 20n, timestamp: BigInt(requestsDead) });
+      return rpc;
+    });
+    const shown = await run().then(() => null, (error: unknown) => error as Error & { attempt?: SavedAttempt<unknown> });
+    expect(shown?.name).toBe("SavedAttemptShownError");
+    expect(canClearMachineDeployment(loadMachineDeployment()!)).toBe(false);
+    const attempt = shown!.attempt!;
+    const outcome = await savedAttempts.recover(attempt, client(attempt.chainId) as unknown as WriteHoldClient);
+    expect(outcome.status).toBe("check");
+    if (outcome.status !== "check") return;
+    await expect(savedAttempts.retire(attempt, { by: "check", outcome })).resolves.toMatchObject({ retired: true });
+    await expect(run()).rejects.toThrow("may already have run");
+    expect(canClearMachineDeployment(loadMachineDeployment()!)).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(1);
   });
 
   it("checks a no-hash payment's original destination transactions without paying again", async () => {

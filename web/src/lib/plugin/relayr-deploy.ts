@@ -1,5 +1,5 @@
 import { JBCoreContracts, erc2771ForwarderAbi, getJBContractAddress, jbProjectsAbi, revDeployerAbi } from "@bananapus/nana-sdk-core";
-import { isDefiniteWalletRejection, pollRelayrBundle } from "@bananapus/nana-sdk-core/review";
+import { intent, isDefiniteWalletRejection, pollRelayrBundle, writeIntentKey, type SavedAttempt, type WriteHoldClient } from "@bananapus/nana-sdk-core/review";
 import { advanceRelayrLaunch, bindRelayrQuote, FORWARD_REQUEST_TYPES, proveSavedRelayrPayment, readRelayrBundle,
   RELAYR_API, RELAYR_PAYMENT_GAS, RelayrDestinationRevertedError, RelayrPaymentRevertedError, RelayrProofError, relayrBundleRequest,
   relayrDeadlinePassed, relayrDestinationHash, relayrForwarder, relayrForwarderDeadline, relayrForwardRequest, relayrLaunchInFlight,
@@ -16,6 +16,7 @@ import { buildDeployArgs, buildPitchUri, deployerFor, projectsFor } from "@/lib/
 import { loadMachineDeployment, MACHINE_DEPLOY_LOCK, machineDeploymentDone, machineDeploymentFingerprint, saveMachineDeployment,
   type MachineDeployCall, type MachineDeploySession, type MachineDeployStep } from "@/lib/plugin/deploy-session";
 import type { MachineDraft } from "@/lib/plugin/types";
+import { recoverSaved, strictRetirable } from "@/lib/plugin/write-holds";
 
 const SAFE_EXECUTE_ABI = parseAbi(["function execTransaction(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,bytes signatures) returns (bool)"]);
 const WALLET_CANCELED = "You canceled in your wallet.";
@@ -42,11 +43,35 @@ function paymentLabel(payment: RelayrPayment): string {
   return `${CHAIN_LABELS[payment.chain] ?? `Chain ${payment.chain}`} — ${formatEther(BigInt(payment.amount))} ETH`;
 }
 const MAY_HAVE_RUN = "An earlier deployment authorization may already have run. Check the machine on each chain, then change the setup to start over.";
+const PAYMENT_UNMATCHED = "The saved payment couldn't be matched to this deployment and isn't refunded. Change the setup to start over.";
+const NO_HASH = "Your wallet may have sent the Relayr payment without returning its hash. Check its activity; do not pay again.";
 const EXPIRED_UNUSED = "The unused deployment authorizations expired. Resume to sign them again, or change the setup. An earlier payment is not refunded.";
 function heldMessage(until: number): string {
   return until
     ? `A saved deployment authorization can still run until ${new Date(until * 1_000).toLocaleString()}. Resume after then.`
     : "A chain has not caught up with the saved deployment authorizations. Resume later.";
+}
+
+/**
+ * A Relayr deploy payment the app can't authenticate (a saved hash its proof
+ * refused, or a wallet that returned none), as the SDK's saved-attempt
+ * recovery reads it: the one check, whose retirement marks the deployment
+ * cancellable. The session's strict re-read is the final say before it retires.
+ */
+function relayrPaymentAttempt(id: Hex, account: Address, paymentChainId: number, hash?: Hex): SavedAttempt<never> {
+  const attempt: SavedAttempt<never> = {
+    chainId: paymentChainId,
+    account,
+    namespaces: [writeIntentKey("machine-relayr-payment", { id: intent.hex(id) })],
+    saved: { started: true, ...(hash ? { hash } : {}) },
+    // The app's own proof of this payment already failed: nothing here can show it.
+    authenticate: async () => ({ result: "unknown" }),
+    confirmRetirable: strictRetirable(() => attempt, () => {
+      const now = loadMachineDeployment();
+      return !!now && now.id === id && !!now.relayr && !now.relayr.abandonable && relayrLaunchInFlight(now.relayr.phase);
+    }),
+  };
+  return attempt;
 }
 function randomSalt(): Hex {
   return `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, "0")).join("")}`;
@@ -461,8 +486,12 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
             await proveSavedRelayrPayment(chainClient, resumed.payments, account, () => { advanceRelayrLaunch(resumed, { type: "reverted" }); persist(); });
           } catch (error) {
             if (!(error instanceof RelayrProofError) || error instanceof RelayrPaymentRevertedError) throw error;
+            // The saved hash is another transaction. Once every request is dead the deployment can be abandoned; before that, the SDK's one check retires it.
             const outcome = await outstandingOutcome(published(resumed));
-            if (outcome?.kind === "discard") abandon(outcome.reason === "ran" ? MAY_HAVE_RUN : EXPIRED_UNUSED, error);
+            if (outcome?.kind === "discard") abandon(outcome.reason === "ran" ? MAY_HAVE_RUN : PAYMENT_UNMATCHED, error);
+            const checked = await recoverSaved(relayrPaymentAttempt(current.id, account, resumed.paymentChainId!, resumed.paymentHash),
+              chainClient(resumed.paymentChainId!) as unknown as WriteHoldClient, error instanceof Error ? error.message : undefined);
+            if (checked.status === "none" && checked.retired === "check") abandon(PAYMENT_UNMATCHED, error);
             throw error;
           }
         }
@@ -482,9 +511,15 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
             await relayrDeadlinePassed(chainClient(original.paymentChainId)!, original.paymentDeadline) === true;
           if (outcome?.kind === "discard" && outcome.reason === "expired" && paymentExpired) original.abandonable = true;
           persist();
+          if (!original.abandonable) {
+            // A payment the wallet may have sent without its hash: the SDK's one check, whose retirement makes it cancellable.
+            const checked = await recoverSaved(relayrPaymentAttempt(current.id, account, original.paymentChainId!),
+              chainClient(original.paymentChainId!) as unknown as WriteHoldClient, NO_HASH);
+            if (checked.status === "none" && checked.retired === "check") abandon(MAY_HAVE_RUN);
+          }
           throw new Error(original.abandonable
             ? "The unused deployment authorizations expired. You may abandon this attempt. An earlier payment may still have been charged; check your wallet."
-            : "The original deployment is unresolved. Check its saved transactions; do not pay or deploy again.");
+            : NO_HASH);
         }
       }
 
@@ -608,7 +643,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         const outcome = relayrPaymentAttemptOutcome(error, { sending: true, paid: paid.length > 0 });
         save({ type: "unsent", outcome });
         if (outcome) throw error;
-        throw new Error("Your wallet may have sent the Relayr payment without returning its hash. Check its activity; do not pay again.", { cause: error });
+        throw new Error(NO_HASH, { cause: error });
       }
       save({ type: "sent", payments: [...paid, sentRelayrPayment(details, hash)] });
       try {
