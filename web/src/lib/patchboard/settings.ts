@@ -39,3 +39,6 @@ export function sanitizeFeel(input: unknown): CableFeel {
   }
   return result;
 }
+export function feelPreset(feel: CableFeel): string {
+  return Object.keys(FEEL_PRESETS).find(name => JSON.stringify(FEEL_PRESETS[name]) === JSON.stringify(feel)) ?? "Custom";
+}

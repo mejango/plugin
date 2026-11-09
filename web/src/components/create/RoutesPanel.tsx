@@ -47,8 +47,9 @@ export function RoutesPanel({
 }) {
   const tooltipId = useId();
   const [term, setTerm] = useState("");
-  const [hits, setHits] = useState<{ term: string; rows: ProjectRow[] } | null>(null);
-  const [state, setState] = useState<"idle" | "error">("idle");
+  // The search for the current term is in flight until `result.term` matches it.
+  const [result, setResult] = useState<{ status: "done"; term: string; rows: ProjectRow[] } | { status: "error"; term: string } | null>(null);
+  const [adding, setAdding] = useState<"idle" | "adding" | "error">("idle");
   const seq = useRef(0);
 
   const query = term.trim();
@@ -61,11 +62,10 @@ export function RoutesPanel({
       try {
         const found = await searchMachines(query);
         if (mine !== seq.current) return; // a newer keystroke already won
-        setHits({ term: query, rows: found });
-        setState("idle");
+        setResult({ status: "done", term: query, rows: found });
       } catch {
         if (mine !== seq.current) return;
-        setState("error");
+        setResult({ status: "error", term: query });
       }
     }, 250);
     return () => {
@@ -77,8 +77,17 @@ export function RoutesPanel({
   const taken = useMemo(() => new Set(routes.map((r) => JSON.stringify(r.machine.ids))), [routes]);
 
   async function add(row: ProjectRow) {
-    // Per-chain twins, resolved from the sucker group — never the searched id.
-    const ids = await resolveChainIds(row);
+    if (adding === "adding") return;
+    setAdding("adding");
+    let ids: Awaited<ReturnType<typeof resolveChainIds>>;
+    try {
+      // Per-chain twins, resolved from the sucker group — never the searched id.
+      ids = await resolveChainIds(row);
+    } catch {
+      setAdding("error");
+      return;
+    }
+    setAdding("idle");
     if (taken.has(JSON.stringify(ids))) return;
     onChange([
       ...routes,
@@ -172,26 +181,28 @@ export function RoutesPanel({
         <input
           type="text"
           value={term}
-          onChange={(e) => setTerm(e.target.value)}
+          onChange={(e) => { setTerm(e.target.value); if (adding === "error") setAdding("idle"); }}
           placeholder="Search machines to plug in…"
           autoComplete="off"
           className={FIELD}
         />
+        {adding === "error" && <p role="alert" className="m-0 text-[.72rem] text-[#aaa]">Could not plug in that machine. Try again.</p>}
         {searching && (
           <div className="absolute left-0 right-0 top-full z-20 grid bg-white shadow-[4px_4px_0_rgba(0,0,0,.15)]">
-            {state === "error" ? (
-              <div className="border border-[#e5e5e5] px-[.8rem] py-[.55rem] text-[#aaa]">search unavailable</div>
-            ) : hits?.term !== query ? (
+            {result?.term !== query ? (
               <div className="border border-[#e5e5e5] px-[.8rem] py-[.55rem] text-[#aaa]">searching…</div>
-            ) : hits.rows.length === 0 ? (
+            ) : result.status === "error" ? (
+              <div className="border border-[#e5e5e5] px-[.8rem] py-[.55rem] text-[#aaa]">search unavailable</div>
+            ) : result.rows.length === 0 ? (
               <div className="border border-[#e5e5e5] px-[.8rem] py-[.55rem] text-[#aaa]">no machines found</div>
             ) : (
-              hits.rows.map((row) => (
+              result.rows.map((row) => (
                 <button
                   key={`${row.chainId}:${row.projectId}`}
                   type="button"
+                  disabled={adding === "adding"}
                   onClick={() => void add(row)}
-                  className="flex w-full items-center gap-[.65rem] cursor-pointer border border-t-0 border-[#e5e5e5] bg-white px-[.8rem] py-[.55rem] text-left first:border-t hover:bg-[#f4f4f4]"
+                  className="flex w-full items-center gap-[.65rem] cursor-pointer border border-t-0 border-[#e5e5e5] bg-white px-[.8rem] py-[.55rem] text-left first:border-t hover:bg-[#f4f4f4] disabled:cursor-wait"
                 >
                   <ProjectLogo key={row.logoUri} uri={row.logoUri} name={row.name ?? `Project #${row.projectId}`} />
                   <span className="min-w-0">

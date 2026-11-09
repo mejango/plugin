@@ -156,6 +156,13 @@ describe("machine Relayr deployment", () => {
     expect(send.mock.calls[0][0]).toMatchObject({ chain: { id: 8453 }, to: RELAYR_PAYMENT_ADDRESS, value: 1_000_000_000_000_000n });
   });
 
+  it("signs authorizations that expire two hours out so a canceled payment can be abandoned the same day", async () => {
+    chooseFunding.mockResolvedValueOnce(null);
+    await expect(run()).rejects.toThrow("payment canceled");
+    expect(sign.mock.calls.map(([args]) => args.message.deadline)).toEqual([NOW + 2 * 60 * 60, NOW + 2 * 60 * 60]);
+    expect(loadMachineDeployment()!.relayr!.signed.map(item => item.deadline)).toEqual([NOW + 2 * 60 * 60, NOW + 2 * 60 * 60]);
+  });
+
   it("persists all exact signed requests before publishing the bundle", async () => {
     mocks.post.mockImplementation(async (entries: RelayrEntry[]) => {
       const persisted = loadMachineDeployment()!;
@@ -223,6 +230,17 @@ describe("machine Relayr deployment", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps unpaid destinations pending when resuming a canceled funding choice", async () => {
+    chooseFunding.mockResolvedValueOnce(null).mockImplementationOnce(async () => {
+      expect(latest.steps.map(step => step.status)).toEqual(["pending", "pending"]);
+      return null;
+    });
+    await expect(run()).rejects.toThrow("payment canceled");
+    await expect(run()).rejects.toThrow("payment canceled");
+    expect(chooseFunding).toHaveBeenCalledTimes(2);
+    expect(loadMachineDeployment()!.steps.map(step => step.status)).toEqual(["pending", "pending"]);
+  });
+
   it("rejects a picker choice absent from the returned options", async () => {
     chooseFunding.mockResolvedValue(8453);
     await expect(run()).rejects.toThrow("not offered");
@@ -248,9 +266,18 @@ describe("machine Relayr deployment", () => {
     expect(mocks.post).toHaveBeenCalledTimes(1);
   });
 
+  it.each<[string, () => void, Parameters<typeof run>[0]]>([
+    ["signature", () => sign.mockRejectedValueOnce(new Error("User denied", { cause: { name: "UserRejectedRequestError" } })), {}],
+    ["direct transaction", () => send.mockRejectedValueOnce(Object.assign(new Error("User rejected the request."), { code: 4001 })), { draft: { ...originalDraft, chainIds: [1] } }],
+  ])("shows one readable line when the %s is rejected in the wallet", async (_kind, reject, overrides) => {
+    reject();
+    await expect(run(overrides)).rejects.toThrow(/^You canceled in your wallet\.$/);
+    expect(loadMachineDeployment()!.steps.every(step => step.status === "pending")).toBe(true);
+  });
+
   it("allows review of the same quote after an explicit wallet rejection", async () => {
-    send.mockRejectedValueOnce(Object.assign(new Error("rejected"), { code: 4001 }));
-    await expect(run()).rejects.toThrow("rejected");
+    send.mockRejectedValueOnce(Object.assign(new Error("User rejected the request.\n\nVersion: viem@2"), { code: 4001 }));
+    await expect(run()).rejects.toThrow(/^You canceled in your wallet\.$/);
     expect(loadMachineDeployment()?.relayr?.paymentStarted).toBeUndefined();
     await expect(run()).resolves.toMatchObject({ phase: "done" });
     expect(mocks.post).toHaveBeenCalledTimes(1);

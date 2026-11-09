@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { startPatchboard, type BoardStatus, type PatchboardController } from "@/lib/patchboard/view";
-import { DEFAULT_FEEL, FEEL_PRESETS, FEEL_SLIDERS, sanitizeFeel, type CableFeel } from "@/lib/patchboard/settings";
+import { DEFAULT_FEEL, FEEL_PRESETS, FEEL_SLIDERS, feelPreset, sanitizeFeel, type CableFeel } from "@/lib/patchboard/settings";
 
 export function PatchboardExperience({ angle = false }: { angle?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -10,10 +10,10 @@ export function PatchboardExperience({ angle = false }: { angle?: boolean }) {
   const [status, setStatus] = useState<BoardStatus>({ held: false, depth: 0.3, connected: 0, total: 0, docking: false, blocked: false });
   const [error, setError] = useState("");
   const [feel, setFeel] = useState<CableFeel>({ ...DEFAULT_FEEL });
-  const [preset, setPreset] = useState("¼-inch cable");
-  const changeFeel = (next: CableFeel, name = "Custom") => {
+  const preset = feelPreset(feel);
+  const changeFeel = (next: CableFeel) => {
     const settings = sanitizeFeel(next);
-    setFeel(settings); setPreset(name); controller.current?.configure(settings);
+    setFeel(settings); controller.current?.configure(settings);
     try { localStorage.setItem("patchboard-feel-v1", JSON.stringify(settings)); } catch { /* Storage is optional. */ }
   };
   useEffect(() => {
@@ -22,7 +22,7 @@ export function PatchboardExperience({ angle = false }: { angle?: boolean }) {
     // experiment and must not silently change a page without tuning controls.
     if (!angle) {
       try { const raw = localStorage.getItem("patchboard-feel-v1"); if (raw) saved = sanitizeFeel(JSON.parse(raw)); } catch { /* Use defaults if storage is unavailable. */ }
-      queueMicrotask(() => { setFeel(saved); setPreset(Object.keys(FEEL_PRESETS).find(k => JSON.stringify(FEEL_PRESETS[k]) === JSON.stringify(saved)) ?? "Custom"); });
+      queueMicrotask(() => setFeel(saved));
     }
     try { controller.current = startPatchboard(canvas.current!, angle ? () => {} : setStatus, saved, angle); }
     catch (e) { queueMicrotask(() => setError(e instanceof Error ? e.message : "The 3D patchboard could not start.")); }
@@ -51,13 +51,13 @@ export function PatchboardExperience({ angle = false }: { angle?: boolean }) {
         </summary>
         <div className="mt-4 max-h-[calc(100svh-270px)] w-full min-w-0 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
           <label className="grid gap-2">Preset
-            <select aria-label="Cable preset" className="w-full min-w-0 rounded border border-black/20 bg-transparent p-1" value={preset} onChange={e => changeFeel(FEEL_PRESETS[e.target.value], e.target.value)}>
+            <select aria-label="Cable preset" className="w-full min-w-0 rounded border border-black/20 bg-transparent p-1" value={preset} onChange={e => changeFeel(FEEL_PRESETS[e.target.value])}>
               {preset === "Custom" && <option value="Custom" disabled>Custom</option>}
               {Object.keys(FEEL_PRESETS).map(name => <option key={name}>{name}</option>)}
             </select>
           </label>
           <p className="mb-4 mt-2 text-[10px] leading-4 opacity-55">Live adjustments · saved on this browser. Values are relative tuning controls.</p>
-          <button className="mb-4 w-full rounded border border-[#74796b]/40 bg-[#e0e5d9] py-2 font-medium hover:bg-[#d5ddca]" onClick={() => changeFeel(FEEL_PRESETS["Firm + fast settling"], "Firm + fast settling")}>Try firm + fast settling</button>
+          <button className="mb-4 w-full rounded border border-[#74796b]/40 bg-[#e0e5d9] py-2 font-medium hover:bg-[#d5ddca]" onClick={() => changeFeel(FEEL_PRESETS["Firm + fast settling"])}>Try firm + fast settling</button>
           {[
             { title: "Stiffness & settling", keys: ["bend", "settling"] },
             { title: "Surface & motion", keys: ["damping", "cordFriction", "floorFriction"] },
@@ -71,7 +71,7 @@ export function PatchboardExperience({ angle = false }: { angle?: boolean }) {
           </label>)}</section>)}
           {([["shapeMemory", "Rest-shape memory"], ["socketAssist", "Socket alignment assist"]] as const).map(([key, label]) => <label key={key} className="my-3 flex items-center justify-between gap-3">{label}<input type="checkbox" checked={feel[key]} className="accent-[#74796b]" onChange={e => changeFeel({ ...feel, [key]: e.target.checked })} /></label>)}
           <p className="mt-3 text-[10px] opacity-55">Earth gravity · always on · 9.81 m/s²</p>
-          <button className="mt-2 w-full rounded border border-black/20 py-2 hover:bg-white" onClick={() => changeFeel({ ...DEFAULT_FEEL }, "¼-inch cable")}>Restore cable defaults</button>
+          <button className="mt-2 w-full rounded border border-black/20 py-2 hover:bg-white" onClick={() => changeFeel({ ...DEFAULT_FEEL })}>Restore cable defaults</button>
         </div>
       </details>}
       {!angle && <footer className="pointer-events-none absolute bottom-5 left-6 right-6 flex flex-wrap items-end justify-between gap-4 text-[11px] sm:bottom-7 sm:left-9 sm:right-9">
