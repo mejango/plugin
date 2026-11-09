@@ -49,6 +49,7 @@ export function RoutesPanel({
   const [term, setTerm] = useState("");
   const [hits, setHits] = useState<{ term: string; rows: ProjectRow[] } | null>(null);
   const [state, setState] = useState<"idle" | "error">("idle");
+  const [adding, setAdding] = useState<"idle" | "adding" | "error">("idle");
   const seq = useRef(0);
 
   const query = term.trim();
@@ -77,8 +78,17 @@ export function RoutesPanel({
   const taken = useMemo(() => new Set(routes.map((r) => JSON.stringify(r.machine.ids))), [routes]);
 
   async function add(row: ProjectRow) {
-    // Per-chain twins, resolved from the sucker group — never the searched id.
-    const ids = await resolveChainIds(row);
+    if (adding === "adding") return;
+    setAdding("adding");
+    let ids: Awaited<ReturnType<typeof resolveChainIds>>;
+    try {
+      // Per-chain twins, resolved from the sucker group — never the searched id.
+      ids = await resolveChainIds(row);
+    } catch {
+      setAdding("error");
+      return;
+    }
+    setAdding("idle");
     if (taken.has(JSON.stringify(ids))) return;
     onChange([
       ...routes,
@@ -172,11 +182,12 @@ export function RoutesPanel({
         <input
           type="text"
           value={term}
-          onChange={(e) => setTerm(e.target.value)}
+          onChange={(e) => { setTerm(e.target.value); if (adding === "error") setAdding("idle"); }}
           placeholder="Search machines to plug in…"
           autoComplete="off"
           className={FIELD}
         />
+        {adding === "error" && <p role="alert" className="m-0 text-[.72rem] text-[#aaa]">Could not plug in that machine. Try again.</p>}
         {searching && (
           <div className="absolute left-0 right-0 top-full z-20 grid bg-white shadow-[4px_4px_0_rgba(0,0,0,.15)]">
             {state === "error" ? (
@@ -190,8 +201,9 @@ export function RoutesPanel({
                 <button
                   key={`${row.chainId}:${row.projectId}`}
                   type="button"
+                  disabled={adding === "adding"}
                   onClick={() => void add(row)}
-                  className="flex w-full items-center gap-[.65rem] cursor-pointer border border-t-0 border-[#e5e5e5] bg-white px-[.8rem] py-[.55rem] text-left first:border-t hover:bg-[#f4f4f4]"
+                  className="flex w-full items-center gap-[.65rem] cursor-pointer border border-t-0 border-[#e5e5e5] bg-white px-[.8rem] py-[.55rem] text-left first:border-t hover:bg-[#f4f4f4] disabled:cursor-wait"
                 >
                   <ProjectLogo key={row.logoUri} uri={row.logoUri} name={row.name ?? `Project #${row.projectId}`} />
                   <span className="min-w-0">
