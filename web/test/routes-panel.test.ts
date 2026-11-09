@@ -57,3 +57,13 @@ it("says so when a picked machine cannot be resolved", async () => {
   expect(container.querySelector("[role=alert]")?.textContent).toBe("Could not plug in that machine. Try again.");
   expect(result("Alpha").disabled).toBe(false);
 });
+
+it("shows a new search as searching after an earlier search failed", async () => {
+  mocks.search.mockRejectedValueOnce(new Error("bendystraw down")).mockImplementationOnce(() => new Promise(() => {}));
+  await act(async () => root.render(createElement(RoutesPanel, { routes: [], keepPercent: 10, onChange })));
+  await type("ma");
+  expect(container.textContent).toContain("search unavailable");
+  await type("mac");
+  expect(container.textContent).toContain("searching…");
+  expect(container.textContent).not.toContain("search unavailable");
+});
