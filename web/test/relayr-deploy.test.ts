@@ -299,7 +299,8 @@ describe("machine Relayr deployment", () => {
       throw new Error("wallet disconnected after send");
     });
     await expect(run()).rejects.toThrow("without returning its hash");
-    await expect(run()).rejects.toThrow("original deployment is unresolved");
+    await expect(run()).rejects.toMatchObject({ name: "SavedAttemptShownError", message: expect.stringContaining("without returning its hash") });
+    expect(canClearMachineDeployment(loadMachineDeployment()!)).toBe(false);
     expect(send).toHaveBeenCalledTimes(1);
     expect(chooseFunding).toHaveBeenCalledTimes(1);
     expect(posts).toHaveLength(1);
@@ -362,20 +363,24 @@ describe("machine Relayr deployment", () => {
     expect(posts).toHaveLength(1);
   });
 
-  it("lets the user check a payment sent without a hash and resolve the deployment before its deadline", async () => {
+  it.each([
+    ["while its destination requests are live", false],
+    ["once every request expired but the payment chain can't prove its deadline", true],
+  ])("lets the user check a payment sent without a hash and resolve the deployment %s", async (_case, expired) => {
     const requestsDead = NOW + 2.5 * 60 * 60;
     offers = [payment(1), payment(8453)];
     chooseFunding.mockResolvedValue(8453);
     send.mockRejectedValueOnce(new Error("wallet disconnected after send"));
     await expect(run()).rejects.toThrow("without returning its hash");
-    // Every request expired unused at a finalized block, and the payment chain can't prove its own deadline passed.
-    vi.setSystemTime(requestsDead * 1_000);
-    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
-      const rpc = client(chainId);
-      if (chainId === 8453) rpc.getBlock.mockRejectedValue(new Error("finalized block unavailable"));
-      else rpc.getBlock.mockResolvedValue({ hash: BLOCK_HASH, number: 20n, timestamp: BigInt(requestsDead) });
-      return rpc;
-    });
+    if (expired) {
+      vi.setSystemTime(requestsDead * 1_000);
+      mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+        const rpc = client(chainId);
+        if (chainId === 8453) rpc.getBlock.mockRejectedValue(new Error("finalized block unavailable"));
+        else rpc.getBlock.mockResolvedValue({ hash: BLOCK_HASH, number: 20n, timestamp: BigInt(requestsDead) });
+        return rpc;
+      });
+    }
     const shown = await run().then(() => null, (error: unknown) => error as Error & { attempt?: SavedAttempt<unknown> });
     expect(shown?.name).toBe("SavedAttemptShownError");
     expect(canClearMachineDeployment(loadMachineDeployment()!)).toBe(false);

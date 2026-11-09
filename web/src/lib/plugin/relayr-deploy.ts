@@ -500,9 +500,9 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         catch { /* Relayr's availability never proves deployment or failure. */ }
         const original = journal;
         if (await reconcile()) return;
-        if (current.relayr === original) throw new Error("The original deployment is unresolved. Check its saved transactions; do not pay or deploy again.");
-        if (original.phase === "payment-signing") {
-          // A payment the wallet may have sent without its hash keeps its journal until it expires with every request.
+        // A payment the wallet may have sent without its hash keeps its journal, live or retryable, until it expires with every
+        // request; its recovery check shows while requests are live. A destination hash still being proven stays unresolved.
+        if (original.phase === "payment-signing" && !current.steps.some(item => item.status === "uncertain" && item.hash)) {
           journal = original;
           current.relayr = original;
           current.steps.forEach(item => { if (item.status === "pending") item.status = "uncertain"; });
@@ -521,6 +521,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
             ? "The unused deployment authorizations expired. You may abandon this attempt. An earlier payment may still have been charged; check your wallet."
             : NO_HASH);
         }
+        if (current.relayr === original) throw new Error("The original deployment is unresolved. Check its saved transactions; do not pay or deploy again.");
       }
 
       for (const call of current.calls) {
