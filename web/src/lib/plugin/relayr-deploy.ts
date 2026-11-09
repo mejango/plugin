@@ -19,6 +19,7 @@ const FORWARD_REQUEST_TYPES = { ForwardRequest: [
 ] } as const;
 // ponytail: local copy of the SDK default; use relayrForwarderDeadline() from @bananapus/nana-sdk-core/review once this app is on SDK 6.x.
 const DEADLINE_SECONDS = 2 * 60 * 60;
+const WALLET_CANCELED = "You canceled in your wallet.";
 const SIMULATION_BALANCE = 100n * 10n ** 18n;
 const activeDeployments = new Set<string>();
 
@@ -107,7 +108,8 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
   try {
     return await navigator.locks.request(MACHINE_DEPLOY_LOCK, { ifAvailable: true }, async lock => {
       if (!lock) throw new Error("This deployment is already running in another tab.");
-      return run();
+      try { return await run(); }
+      catch (error) { throw walletRejected(error) ? new Error(WALLET_CANCELED, { cause: error }) : error; }
     });
   } finally { activeDeployments.delete(MACHINE_DEPLOY_LOCK); }
 
@@ -199,16 +201,14 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
     }
     persist();
     if (current.phase === "done") return clone(current);
-    if (current.transport === "direct") {
-      try { await runDirect(); }
-      catch (error) {
-        if (current.steps.some(item => item.status === "signing")) {
-          current.steps.forEach(item => { if (item.status === "signing") item.status = "pending"; });
-          persist();
-        }
-        throw error;
+    try { await (current.transport === "direct" ? runDirect() : runRelayr()); }
+    catch (error) {
+      if (current.steps.some(item => item.status === "signing")) {
+        current.steps.forEach(item => { if (item.status === "signing") item.status = "pending"; });
+        persist();
       }
-    } else await runRelayr();
+      throw error;
+    }
     return clone(current);
 
     async function verifyReceipt(call: MachineDeployCall, hash: Hex, expectedOuter?: { to: Address; data: Hex; value: string }, successOnly = false) {
@@ -304,7 +304,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         try {
           hash = await wallet.sendTransaction({ account, chain: wallet.chain, to: call.to, data: call.data, value: BigInt(call.value), gas });
         } catch (error) {
-          if (walletRejected(error)) step(call.chainId, { status: "pending", error: "You canceled in your wallet." });
+          if (walletRejected(error)) step(call.chainId, { status: "pending", error: WALLET_CANCELED });
           else throw new Error("Your wallet may have sent the deployment without returning its hash. Check its activity; do not deploy again.", { cause: error });
           throw error;
         }
