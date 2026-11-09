@@ -17,7 +17,7 @@
     "test:patchbay": "node scripts/patchbay/run.mjs"
   },
   "dependencies": {
-    "@bananapus/nana-sdk-core": "^2.0.0",
+    "@bananapus/nana-sdk-core": "^6.1.0",
     "@getpara/react-sdk-lite": "3.11.0",
     "@getpara/wagmi-v2-connector": "3.11.0",
     "@getpara/web-sdk": "3.11.0",
