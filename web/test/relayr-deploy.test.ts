@@ -330,6 +330,38 @@ describe("machine Relayr deployment", () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
+  it("pays a quote again after a sped-up payment's replacement reverts, remembering only the mined replacement", async () => {
+    const dropped = `0x${"a1".repeat(32)}` as Hex;
+    const replacement = `0x${"a2".repeat(32)}` as Hex;
+    send.mockImplementation(async () => {
+      if (send.mock.calls.length === 1) return dropped;
+      mined = true;
+      return PAYMENT_HASH;
+    });
+    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+      const rpc = client(chainId);
+      const transaction = rpc.getTransaction.getMockImplementation()!;
+      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+      rpc.waitForTransactionReceipt.mockImplementation((async ({ hash }: { hash: Hex }) => (hash === dropped
+        ? { transactionHash: replacement, status: "reverted" } : { transactionHash: hash, status: "success" })) as never);
+      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        if (hash === dropped) throw new Error("transaction not found");
+        return { ...await transaction({ hash: hash === replacement ? PAYMENT_HASH : hash }), hash };
+      });
+      rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        if (hash === dropped) throw new Error("receipt not found");
+        const found = await receipt({ hash: hash === replacement ? PAYMENT_HASH : hash });
+        return hash === replacement ? { ...found, transactionHash: hash, status: "reverted" } : found;
+      });
+      return rpc;
+    });
+    await expect(run()).rejects.toThrow();
+    expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "payment-reverted", payments: [{ hash: replacement }] });
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(posts).toHaveLength(1);
+  });
+
   it("lets the user check a payment sent without a hash and resolve the deployment before its deadline", async () => {
     const requestsDead = NOW + 2.5 * 60 * 60;
     offers = [payment(1), payment(8453)];

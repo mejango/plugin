@@ -648,8 +648,8 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       save({ type: "sent", payments: [...paid, sentRelayrPayment(details, hash)] });
       try {
         const mined = (await client.waitForTransactionReceipt({ hash, timeout: 120_000 })).transactionHash ?? hash;
-        // A sped-up payment is mined under another hash: that transaction is the one to prove and remember.
-        if (mined.toLowerCase() !== hash.toLowerCase()) save({ type: "sent", payments: [...paid, sentRelayrPayment(details, hash), sentRelayrPayment(details, mined)] });
+        // A sped-up payment is mined under another hash at the same nonce: it replaces the dropped one, which can never mine.
+        if (mined.toLowerCase() !== hash.toLowerCase()) save({ type: "sent", payments: [...paid, sentRelayrPayment(details, mined)] });
         await verifyRelayrPayment(client, { hash: mined, from: account, payment: details });
       } catch (error) {
         if (error instanceof RelayrPaymentRevertedError) save({ type: "reverted" });
