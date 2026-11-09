@@ -20,13 +20,12 @@ function messageOf(error: unknown): string {
 export function useDeployMachine() {
   const config = useConfig();
   const { address, isConnected } = useAccount();
-  const [session, setSession] = useState<MachineDeploySession | null>(null);
-  const [restoring, setRestoring] = useState(true);
-  const [storageError, setStorageError] = useState<string | null>(null);
+  const [restore, setRestore] = useState<{ status: "restoring" } | { status: "blocked"; error: string } | { status: "ready" }>({ status: "restoring" });
+  // canClear is computed with the session it describes; deploy-session stays a lazy chunk.
+  const [saved, setSaved] = useState<{ session: MachineDeploySession; canClear: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
-  const [canClear, setCanClear] = useState(false);
   const [approval, setApproval] = useState<DeploymentApproval | null>(null);
   const mounted = useRef(false);
   const running = useRef(false);
@@ -38,13 +37,11 @@ export function useDeployMachine() {
     let cancelled = false;
     void import("@/lib/plugin/deploy-session").then(({ loadMachineDeployment, canClearMachineDeployment }) => {
       if (cancelled) return;
-      const saved = loadMachineDeployment();
-      setSession(saved);
-      setCanClear(Boolean(saved && canClearMachineDeployment(saved)));
+      const session = loadMachineDeployment();
+      setSaved(session && { session, canClear: canClearMachineDeployment(session) });
+      setRestore({ status: "ready" });
     }).catch(error => {
-      if (!cancelled) setStorageError(messageOf(error));
-    }).finally(() => {
-      if (!cancelled) setRestoring(false);
+      if (!cancelled) setRestore({ status: "blocked", error: messageOf(error) });
     });
     return () => {
       cancelled = true;
@@ -72,6 +69,9 @@ export function useDeployMachine() {
     });
   }, []);
 
+  const restoring = restore.status === "restoring";
+  const storageError = restore.status === "blocked" ? restore.error : null;
+
   const deploy = useCallback(async (draft?: MachineDraft, manual?: string, executionHashes?: Partial<Record<number, Hex>>) => {
     if (running.current || restoring || storageError) return;
     if (!isConnected || !address) { setError("Connect the wallet that will deploy this machine."); return; }
@@ -86,8 +86,7 @@ export function useDeployMachine() {
         config, account: address, draft, manual, executionHashes,
         onSession: next => {
           if (!mounted.current) return;
-          setSession(structuredClone(next));
-          setCanClear(canClearMachineDeployment(next));
+          setSaved({ session: structuredClone(next), canClear: canClearMachineDeployment(next) });
         },
         onProgress: value => { if (mounted.current) setProgress(value); },
         chooseFunding: async options => {
@@ -111,7 +110,7 @@ export function useDeployMachine() {
     try {
       const { clearMachineDeployment } = await import("@/lib/plugin/deploy-session");
       await clearMachineDeployment();
-      if (mounted.current) { setSession(null); setCanClear(false); setError(null); }
+      if (mounted.current) { setSaved(null); setError(null); }
     } catch (error) {
       if (mounted.current) setError(messageOf(error));
     } finally {
@@ -120,6 +119,7 @@ export function useDeployMachine() {
     }
   }, [restoring]);
 
+  const session = saved?.session ?? null;
   return { deploy, session, steps: session?.steps ?? [], busy, restoring, error: storageError ?? error,
-    storageBlocked: Boolean(storageError), progress, canClear, clear, approval, answerApproval };
+    storageBlocked: Boolean(storageError), progress, canClear: saved?.canClear ?? false, clear, approval, answerApproval };
 }
