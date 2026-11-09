@@ -13,6 +13,12 @@ import { projectReadout, type ProjectStatsData, type StatsProject } from "@/lib/
 import { BoardKnob } from "./BoardKnob";
 import styles from "./HomeHero.module.css";
 
+type Detail =
+  | { kind: "closed" }
+  | { kind: "loading" | "failed"; machine: TrendingMachine }
+  | { kind: "ready"; machine: TrendingMachine; readout: ReturnType<typeof projectReadout> };
+const CLOSED: Detail = { kind: "closed" };
+
 export function HomeHero() {
   const router=useRouter();
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
@@ -20,14 +26,14 @@ export function HomeHero() {
   const [offset,setOffset]=useState(0);
   const [selected,setSelected]=useState(0);
   const [totalCount,setTotalCount]=useState<number|null>(null);
-  const [opened,setOpened]=useState<TrendingMachine|null>(null);
-  const [detail,setDetail]=useState<ReturnType<typeof projectReadout>|null>(null);
-  const [detailFailed,setDetailFailed]=useState(false);
+  const [detail,setDetail]=useState<Detail>(CLOSED);
+  const opened=detail.kind==="closed"?null:detail.machine;
+  const detailFailed=detail.kind==="failed";
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const [mode, setMode] = useState<ViewMode>(() => machineReadout().mode ?? "top");
   const [volume, setVolume] = useState(() => machineReadout().volume ?? 0);
-  const changeMode = (index: number) => { const next=VIEW_MODES[index];if(next===mode)return;setMode(next);setMachines(null);setFailed(false);setOffset(0);setSelected(0);setTotalCount(null);setOpened(null);setDetail(null); };
+  const changeMode = (index: number) => { const next=VIEW_MODES[index];if(next===mode)return;setMode(next);setMachines(null);setFailed(false);setOffset(0);setSelected(0);setTotalCount(null);setDetail(CLOSED); };
 
   useEffect(() => {
     const canvas = document.querySelector("canvas");
@@ -41,7 +47,7 @@ export function HomeHero() {
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => { publishMachineReadout({ machines, failed, mode, volume, totalCount, selected, detail:opened?(detail??{name:opened.name,rows:[]}):null, detailLoading:!!opened&&!detail&&!detailFailed, detailFailed }); }, [machines, failed, mode, volume, totalCount, selected, opened, detail, detailFailed]);
+  useEffect(() => { publishMachineReadout({ machines, failed, mode, volume, totalCount, selected, detail:detail.kind==="ready"?detail.readout:opened?{name:opened.name,rows:[]}:null, detailLoading:detail.kind==="loading", detailFailed }); }, [machines, failed, mode, volume, totalCount, selected, opened, detail, detailFailed]);
 
   useEffect(() => {
     let active = true;
@@ -63,35 +69,36 @@ export function HomeHero() {
   }, [retry, mode, offset]);
 
   useEffect(()=>{
-    if(!opened)return;
+    if(detail.kind!=="loading")return;
+    const opened=detail.machine;
     let active=true;
     async function read(){
       try {
-        let groupId=opened!.groupId;
+        let groupId=opened.groupId;
         if(!groupId){
-          const data=await queryBendystraw<{project:StatsProject & {suckerGroupId:string|null}}>(BendystrawOperations.Project,{projectId:opened!.projectId,chainId:opened!.chainId});
+          const data=await queryBendystraw<{project:StatsProject & {suckerGroupId:string|null}}>(BendystrawOperations.Project,{projectId:opened.projectId,chainId:opened.chainId});
           if(!data.project)throw new Error("Project unavailable");
           groupId=data.project.suckerGroupId??undefined;
-          if(!groupId){if(active)setDetail(projectReadout(opened!,[{...data.project,deployErc20Events:{items:[]}}]));return;}
+          if(!groupId){if(active)setDetail({kind:"ready",machine:opened,readout:projectReadout(opened,[{...data.project,deployErc20Events:{items:[]}}])});return;}
         }
         const data=await queryBendystraw<ProjectStatsData>(BendystrawOperations.SuckerGroup,{id:groupId});
         if(!data.suckerGroup?.projects.items.length)throw new Error("Project unavailable");
-        if(active)setDetail(projectReadout(opened!,data.suckerGroup.projects.items));
-      }catch{if(active)setDetailFailed(true);}
+        if(active)setDetail({kind:"ready",machine:opened,readout:projectReadout(opened,data.suckerGroup.projects.items)});
+      }catch{if(active)setDetail({kind:"failed",machine:opened});}
     }
     void read();return()=>{active=false;};
-  },[opened,retry]);
+  },[detail]);
 
   const browserPath=projectBrowserPath(opened?.chainId,opened?.projectId);
   const navigate=useCallback((direction:"up"|"down"|"left"|"right")=>{
     if(opened){
-      if(direction==="left"){setOpened(null);setDetail(null);setDetailFailed(false);}
-      else if(direction==="right"&&detailFailed){setDetailFailed(false);setRetry(n=>n+1);}
+      if(direction==="left")setDetail(CLOSED);
+      else if(direction==="right"&&detailFailed)setDetail({kind:"loading",machine:opened});
       else if(direction==="right"&&browserPath)router.push(browserPath);
       return;
     }
     if(!machines?.length)return;
-    if(direction==="right"){setOpened(machines[selected]);setDetail(null);setDetailFailed(false);return;}
+    if(direction==="right"){setDetail({kind:"loading",machine:machines[selected]});return;}
     if(direction==="left")return;
     const delta=direction==="down"?1:-1,next=selected+delta;
     if(next>=0&&next<machines.length){setSelected(next);return;}
@@ -124,7 +131,7 @@ export function HomeHero() {
         <table aria-label="Plug ins" hidden={!!opened}><thead><tr><th>{mode === "latest" ? "When" : "Ticker"}</th><th>Name</th><th>{mode === "latest" ? "Event" : "Balance"}</th></tr></thead>
           <tbody>{machines?.map((machine,i) => <tr key={machine.id} aria-selected={i===selected}><td>{machine.ticker}</td><td>{machine.name}</td><td>{machine.fullBalance}</td></tr>)}</tbody>
         </table>
-        {opened && <div aria-label="Project statistics">{detailFailed?"Stats unavailable. Press right to retry.":detail?detail.rows.map(row=><p key={row.label}>{row.label}: {row.value}</p>):"Reading project stats"}</div>}
+        {opened && <div aria-label="Project statistics">{detailFailed?"Stats unavailable. Press right to retry.":detail.kind==="ready"?detail.readout.rows.map(row=><p key={row.label}>{row.label}: {row.value}</p>):"Reading project stats"}</div>}
         <p role="status">{failed ? "Connection lost" : machines ? `${totalCount??"Unknown number of"} ${mode === "latest" ? "events" : "machines"} across all chains` : "Reading machines"}</p>
       </div>
       <Link href="/create" className={styles.key} aria-label="Create a new machine" title="Create a new machine"
