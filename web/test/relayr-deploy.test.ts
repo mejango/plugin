@@ -230,6 +230,17 @@ describe("machine Relayr deployment", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps unpaid destinations pending when resuming a canceled funding choice", async () => {
+    chooseFunding.mockResolvedValueOnce(null).mockImplementationOnce(async () => {
+      expect(latest.steps.map(step => step.status)).toEqual(["pending", "pending"]);
+      return null;
+    });
+    await expect(run()).rejects.toThrow("payment canceled");
+    await expect(run()).rejects.toThrow("payment canceled");
+    expect(chooseFunding).toHaveBeenCalledTimes(2);
+    expect(loadMachineDeployment()!.steps.map(step => step.status)).toEqual(["pending", "pending"]);
+  });
+
   it("rejects a picker choice absent from the returned options", async () => {
     chooseFunding.mockResolvedValue(8453);
     await expect(run()).rejects.toThrow("not offered");

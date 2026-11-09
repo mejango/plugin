@@ -422,7 +422,10 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
             return [...new Set([...(status.hash ? [status.hash] : []), ...records.flatMap(record => relayrDestinationHash(record) ?? [])])]
               .map(hash => ({ signed, hash }));
           });
-          if (!candidates.length) { step(call.chainId, { status: "uncertain", error: "Waiting for the original destination transaction." }); continue; }
+          if (!candidates.length) {
+            if (attempts.some(attempt => attempt.paymentStarted)) step(call.chainId, { status: "uncertain", error: "Waiting for the original destination transaction." });
+            continue;
+          }
           for (const { signed, hash } of candidates) {
             try {
               if (await verifyReceipt(call, hash,
