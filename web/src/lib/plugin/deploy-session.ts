@@ -5,6 +5,7 @@ import { encodeFunctionData, isAddress, isAddressEqual, keccak256, stringToHex, 
 import { assertSupportedChainId } from "@/lib/chains";
 import { buildDeployArgs, buildPitchUri, deployerFor, deploymentCashOutTaxRate } from "@/lib/plugin/deploy";
 import type { MachineDraft } from "@/lib/plugin/types";
+import { browserLocks } from "@bananapus/nana-sdk-core/review/locks";
 
 const STORAGE_KEY = "plugin-machine-deployment-v1";
 export const MACHINE_DEPLOY_LOCK = "plugin-machine-deployment";
@@ -180,8 +181,7 @@ export function canClearMachineDeployment(session: MachineDeploySession): boolea
 }
 
 export async function clearMachineDeployment(): Promise<void> {
-  if (typeof navigator === "undefined" || !navigator.locks) throw new Error("This browser needs Web Locks to coordinate deployment recovery.");
-  await navigator.locks.request(MACHINE_DEPLOY_LOCK, { ifAvailable: true }, lock => {
+  await browserLocks().request(MACHINE_DEPLOY_LOCK, { ifAvailable: true }, lock => {
     if (!lock) throw new Error("This deployment is running in another tab.");
     const session = loadMachineDeployment();
     if (session && !canClearMachineDeployment(session)) throw new Error("This deployment may still execute. Check the saved transactions before starting another machine.");

@@ -17,6 +17,7 @@ import { loadMachineDeployment, MACHINE_DEPLOY_LOCK, machineDeploymentDone, mach
   type MachineDeployCall, type MachineDeploySession, type MachineDeployStep } from "@/lib/plugin/deploy-session";
 import type { MachineDraft } from "@/lib/plugin/types";
 import { recoverSaved, strictRetirable } from "@/lib/plugin/write-holds";
+import { browserLocks } from "@bananapus/nana-sdk-core/review/locks";
 
 const SAFE_EXECUTE_ABI = parseAbi(["function execTransaction(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,bytes signatures) returns (bool)"]);
 const WALLET_CANCELED = "You canceled in your wallet.";
@@ -129,11 +130,10 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
   chooseFunding: (options: { chainId: number; label: string }[]) => Promise<number | null>;
   review: (request: MachineDeployReview) => Promise<boolean>;
 }): Promise<MachineDeploySession> {
-  if (typeof navigator === "undefined" || !navigator.locks) throw new Error("This browser needs Web Locks to safely coordinate deployments across tabs.");
   if (activeDeployments.has(MACHINE_DEPLOY_LOCK)) throw new Error("This deployment is already running.");
   activeDeployments.add(MACHINE_DEPLOY_LOCK);
   try {
-    return await navigator.locks.request(MACHINE_DEPLOY_LOCK, { ifAvailable: true }, async lock => {
+    return await browserLocks().request(MACHINE_DEPLOY_LOCK, { ifAvailable: true }, async lock => {
       if (!lock) throw new Error("This deployment is already running in another tab.");
       try { return await run(); }
       catch (error) { throw isDefiniteWalletRejection(error) ? new Error(WALLET_CANCELED, { cause: error }) : error; }

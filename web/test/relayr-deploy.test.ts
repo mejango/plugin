@@ -4,7 +4,7 @@ import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, getAbiItem,
 import type { Config } from "@wagmi/core";
 import { buildDeployArgs, projectsFor } from "@/lib/plugin/deploy";
 import { RELAYR_API, RELAYR_NATIVE_TOKEN, RELAYR_PAYMENT_ADDRESS, RELAYR_PAYMENT_SELECTOR, type RelayrEntry, type RelayrPayment } from "@bananapus/nana-sdk-core/review/relayr";
-import { canClearMachineDeployment, loadMachineDeployment, machineDeploymentDone, type MachineDeploySession } from "@/lib/plugin/deploy-session";
+import { canClearMachineDeployment, clearMachineDeployment, loadMachineDeployment, machineDeploymentDone, type MachineDeploySession } from "@/lib/plugin/deploy-session";
 import { machineProjectIdFromReceipt, runMachineDeployment, type MachineDeployReview } from "@/lib/plugin/relayr-deploy";
 import type { MachineDraft } from "@/lib/plugin/types";
 import { savedAttempts } from "@/lib/plugin/write-holds";
@@ -611,6 +611,13 @@ describe("machine Relayr deployment", () => {
     expect(latest.steps[0]).toEqual(original.steps[0]);
     expect(latest.relayr?.superseded?.map(item => item.chainId)).toEqual([10]);
     expect(latest.relayr?.quote?.bundle_uuid).toBe(nextBundle);
+  });
+
+  it("deploys and clears without Web Locks, on the SDK's fallback lock", async () => {
+    vi.stubGlobal("navigator", {});
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    await expect(clearMachineDeployment()).resolves.toBeUndefined();
+    expect(loadMachineDeployment()).toBeNull();
   });
 
   it("keeps deployed smart-account wallets on the direct path", async () => {
