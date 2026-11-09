@@ -17,7 +17,8 @@ const FORWARD_REQUEST_TYPES = { ForwardRequest: [
   { name: "from", type: "address" }, { name: "to", type: "address" }, { name: "value", type: "uint256" },
   { name: "gas", type: "uint256" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint48" }, { name: "data", type: "bytes" },
 ] } as const;
-const DEADLINE_SECONDS = 47 * 60 * 60;
+// ponytail: local copy of the SDK default; use relayrForwarderDeadline() from @bananapus/nana-sdk-core/review once this app is on SDK 6.x.
+const DEADLINE_SECONDS = 2 * 60 * 60;
 const SIMULATION_BALANCE = 100n * 10n ** 18n;
 const activeDeployments = new Set<string>();
 

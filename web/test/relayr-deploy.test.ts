@@ -156,6 +156,13 @@ describe("machine Relayr deployment", () => {
     expect(send.mock.calls[0][0]).toMatchObject({ chain: { id: 8453 }, to: RELAYR_PAYMENT_ADDRESS, value: 1_000_000_000_000_000n });
   });
 
+  it("signs authorizations that expire two hours out so a canceled payment can be abandoned the same day", async () => {
+    chooseFunding.mockResolvedValueOnce(null);
+    await expect(run()).rejects.toThrow("payment canceled");
+    expect(sign.mock.calls.map(([args]) => args.message.deadline)).toEqual([NOW + 2 * 60 * 60, NOW + 2 * 60 * 60]);
+    expect(loadMachineDeployment()!.relayr!.signed.map(item => item.deadline)).toEqual([NOW + 2 * 60 * 60, NOW + 2 * 60 * 60]);
+  });
+
   it("persists all exact signed requests before publishing the bundle", async () => {
     mocks.post.mockImplementation(async (entries: RelayrEntry[]) => {
       const persisted = loadMachineDeployment()!;
