@@ -315,7 +315,14 @@ export function CreateForm() {
         </p>}
         {session && canClear && <button type="button" disabled={busy || restoring}
           className="cursor-pointer bg-transparent text-sm underline underline-offset-4 disabled:opacity-40"
-          onClick={() => void clear()}>{session.phase === "done" ? "Create another machine" : "Change setup"}</button>}
+          onClick={() => {
+            if (session.phase !== "done") {
+              setDraft(session.draft);
+              setManualEdit(session.manual === buildManual(session.draft) ? null : session.manual);
+              setEnvironment(testnet ? "testnet" : "mainnet");
+            }
+            void clear();
+          }}>{session.phase === "done" ? "Create another machine" : "Change setup"}</button>}
 
         {steps.length > 0 && (
           <ul className="m-0 grid list-none gap-1 p-0 text-[.8rem] text-[#555]">
