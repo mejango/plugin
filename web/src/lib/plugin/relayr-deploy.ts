@@ -640,6 +640,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
             request.gas + request.gas / 63n + 100_000n, true);
         }
       };
+      // ponytail: a late superseded success on one chain holds the remaining retry here until its deadline; upgrade path: rebuild the unpaid retry for unfinished chains.
       try { await verifySigned(); }
       catch (error) { throw heldUntil === null ? error : new Error(heldMessage(heldUntil), { cause: error }); }
 

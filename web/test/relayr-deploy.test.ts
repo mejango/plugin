@@ -721,7 +721,7 @@ describe("machine Relayr deployment", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it("proves a superseded authorization the original relayer landed after a canceled retry payment", async () => {
+  it.each([["", false], [" saved by the build before the SDK journal", true]])("proves a superseded authorization the original relayer landed after a canceled retry payment%s", async (_saved, legacy) => {
     const nextBundle = "87654321-1234-4321-8123-123456789abc";
     const late = `0x${"c3".repeat(32)}` as Hex;
     let landed = false;
@@ -747,6 +747,19 @@ describe("machine Relayr deployment", () => {
     await expect(run()).rejects.toThrow("payment canceled");
     expect(sign).toHaveBeenCalledTimes(3);
     expect(posts).toHaveLength(2);
+    if (legacy) {
+      // The earlier build kept the replaced attempt, with its quote and records, in history.
+      const saved = JSON.parse(storage.get("plugin-machine-deployment-v1")!) as MachineDeploySession;
+      const [replaced] = saved.relayrSuperseded!;
+      const { relayr, ...rest } = saved;
+      delete rest.relayrSuperseded;
+      storage.set("plugin-machine-deployment-v1", JSON.stringify({ ...rest, phase: "quoted", relayr: {
+        signed: relayr!.signed, published: true, quote: relayr!.quote, records: [], retryNonces: relayr!.retryNonces,
+        history: [{ signed: relayr!.superseded, published: true, previousQuotes: [replaced.quote], records: replaced.records,
+          payment: replaced.quote.payment_info[0], paymentHash: PAYMENT_HASH, paymentStarted: true, paymentConfirmed: true }],
+      } }));
+      expect(loadMachineDeployment()!.relayrSuperseded?.map(item => item.quote.bundle_uuid)).toEqual([BUNDLE]);
+    }
     landed = true;
     await expect(run()).resolves.toSatisfy(machineDeploymentDone);
     expect(latest.steps[1]).toMatchObject({ status: "done", hash: late, projectId: "110" });

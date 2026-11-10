@@ -44,10 +44,12 @@ export function machineDeploymentDone(session: Pick<MachineDeploySession, "steps
 }
 
 /** The journal saved before the SDK's launch journal: same key, read and kept, never dropped. */
+type LegacyQuote = Omit<RelayrQuote, "transactions"> & { transactions?: RelayrTransactionRecord[] };
 type LegacyRelayrAttempt = {
   signed: RelayrSignedLaunch[];
   published?: true;
-  quote?: Omit<RelayrQuote, "transactions"> & { transactions?: RelayrTransactionRecord[] };
+  quote?: LegacyQuote;
+  previousQuotes?: LegacyQuote[];
   records?: RelayrTransactionRecord[];
   payment?: RelayrPayment;
   paymentHash?: Hex;
@@ -55,8 +57,15 @@ type LegacyRelayrAttempt = {
   paymentConfirmed?: true;
   abandonable?: true;
   retryNonces?: Record<number, string>;
-  history?: { signed: RelayrSignedLaunch[] }[];
+  history?: { signed: RelayrSignedLaunch[]; quote?: LegacyQuote; previousQuotes?: LegacyQuote[]; records?: RelayrTransactionRecord[] }[];
 };
+
+/** Every quote the earlier build replaced, with its attempt's records, so a late superseded landing can still be proven. */
+function legacySuperseded(legacy: LegacyRelayrAttempt): NonNullable<MachineDeploySession["relayrSuperseded"]> {
+  const replaced = [...(legacy.history ?? []).map(attempt => ({ quotes: [...(attempt.previousQuotes ?? []), ...(attempt.quote ? [attempt.quote] : [])], records: attempt.records })),
+    { quotes: legacy.previousQuotes ?? [], records: legacy.records }];
+  return replaced.flatMap(({ quotes, records }) => quotes.map(quote => ({ quote: { transactions: [], ...quote }, records: records ?? [] })));
+}
 
 function upgradeLegacyJournal(legacy: LegacyRelayrAttempt, account: Address): RelayrLaunchJournal {
   const superseded = (legacy.history ?? []).flatMap(attempt => attempt.signed);
@@ -88,6 +97,8 @@ function upgradeLegacySession(value: unknown): unknown {
   const relayr = session.relayr as unknown as (LegacyRelayrAttempt & { phase?: unknown }) | undefined;
   if (relayr && typeof relayr === "object" && relayr.phase === undefined && Array.isArray(relayr.signed) && isAddress(session.account)) {
     session.relayr = upgradeLegacyJournal(relayr, session.account);
+    const superseded = legacySuperseded(relayr);
+    if (superseded.length) session.relayrSuperseded = superseded;
   }
   return session;
 }
