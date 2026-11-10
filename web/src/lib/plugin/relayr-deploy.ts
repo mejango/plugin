@@ -386,6 +386,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       };
       /** Signs the open chains again at their saved nonces, so the forwarder runs at most one of old and new. */
       const resign = (from: RelayrLaunchJournal, abandonable: boolean) => {
+        if (from.quote) current.relayrSuperseded = [...(current.relayrSuperseded ?? []), { quote: from.quote, records: from.records }];
         journal = resignedRelayrLaunch({ account, abandonable, superseded: published(from).filter(item => open(item.chainId)),
           retryNonces: { ...from.retryNonces, ...Object.fromEntries(from.signed.filter(item => open(item.chainId)).map(item => [item.chainId, item.nonce])) } });
         current.relayr = journal;
@@ -424,12 +425,40 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         return { unproven, reverted };
       };
 
+      /** Each superseded quote's hash reported for `chainId`, paired with the exact call that quote bound. */
+      const supersededCandidates = (chainId: number) => (current.relayrSuperseded ?? []).flatMap(({ quote, records }) =>
+        quote.expectedTransactions.filter(binding => binding.chain === chainId).flatMap(binding => records
+          .filter(record => String(record.tx_uuid ?? "").toLowerCase() === binding.txUuid.toLowerCase())
+          .flatMap(record => relayrDestinationHash(record) ?? []).map(hash => ({ entry: binding.entry, hash }))));
+      const refreshSuperseded = async () => {
+        if (!current.relayrSuperseded?.length) return;
+        for (const item of current.relayrSuperseded) {
+          try {
+            const { transactions } = await readRelayrBundle(item.quote.bundle_uuid);
+            if (Array.isArray(transactions)) item.records = transactions as RelayrTransactionRecord[];
+          } catch { /* Relayr's availability never proves deployment or failure. */ }
+        }
+        persist();
+      };
+      /** An authorization a retry superseded still runs at most once per chain: its proven success completes that chain. */
+      const proveSuperseded = async () => {
+        if (!current.relayrSuperseded?.length) return false;
+        await refreshSuperseded();
+        for (const call of current.calls) {
+          if (!open(call.chainId)) continue;
+          const proof = await proveDestination(call.chainId, supersededCandidates(call.chainId));
+          if ("receipt" in proof) step(call.chainId, { status: "done", hash: proof.hash, projectId: machineProjectIdFromReceipt(proof.receipt, call, account), error: undefined });
+        }
+        return machineDeploymentDone(current);
+      };
+
       /** Receipts count only for the exact signed outer call; an unproven chain is classified by its request, whatever Relayr reports. */
       const reconcile = async (): Promise<boolean> => {
         const bindings = requireQuoteBindings();
         const original = journal;
         let retryable = true, expired = true, held = false, ran = false;
         const reverts: { chainId: number; hash: Hex }[] = [];
+        await refreshSuperseded();
         for (const signed of original.signed) {
           if (!open(signed.chainId)) continue;
           const binding = bindings.find(item => item.chain === signed.chainId)!;
@@ -439,8 +468,11 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           const reported = matching[0] ? relayrDestinationHash(matching[0]) : null;
           const hash = saved ?? reported;
           // A relayer may replace its transaction: the saved hash and a newly reported one are both checked.
-          const proof = await proveDestination(signed.chainId, [saved, reported].filter((item, index, all): item is Hex =>
+          const latestProof = await proveDestination(signed.chainId, [saved, reported].filter((item, index, all): item is Hex =>
             !!item && all.findIndex(other => other?.toLowerCase() === item.toLowerCase()) === index).map(item => ({ entry: signed.entry, hash: item })));
+          // A superseded authorization's success completes the chain; its failures say nothing about the live request.
+          const prior = "receipt" in latestProof ? null : await proveDestination(signed.chainId, supersededCandidates(signed.chainId));
+          const proof = prior && "receipt" in prior ? prior : latestProof;
           if ("receipt" in proof) {
             try { step(signed.chainId, { status: "done", hash: proof.hash, projectId: machineProjectIdFromReceipt(proof.receipt, callOf(signed.chainId), account), error: undefined }); }
             catch (error) { held = true; retryable = false; step(signed.chainId, { status: "uncertain", hash: proof.hash, error: errorMessage(error) }); }
@@ -491,6 +523,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       // While a published request can still run, it is signed again only at its saved nonce.
       let heldUntil: number | null = null;
       if (journal.published && !fundedElsewhere && relayrLaunchUnfunded(journal.phase)) {
+        if (await proveSuperseded()) { onProgress("The machine is deployed on every selected chain."); return; }
         const outcome = await outstandingOutcome(published(journal));
         if (outcome?.kind === "hold") throw new Error(heldMessage(outcome.until));
         if (outcome?.kind === "reorg-hold") throw new Error(heldMessage(0));

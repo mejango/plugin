@@ -35,6 +35,8 @@ export type MachineDeploySession = {
   calls: MachineDeployCall[];
   steps: MachineDeployStep[];
   relayr?: RelayrLaunchJournal;
+  /** Quotes a retry replaced, with their records: a superseded authorization they published can still land and prove its chain. */
+  relayrSuperseded?: { quote: RelayrQuote; records: RelayrTransactionRecord[] }[];
 };
 
 export function machineDeploymentDone(session: Pick<MachineDeploySession, "steps">): boolean {
@@ -140,6 +142,9 @@ export function validateMachineDeployment(value: unknown): MachineDeploySession 
         (step.status === "done" && (!step.hash || !step.projectId || !/^[1-9][0-9]*$/u.test(step.projectId)))) throw new Error();
     }
     if ((session.transport === "relayr") !== Boolean(session.relayr) || !journalValid(session)) throw new Error();
+    if (session.relayrSuperseded !== undefined && (!session.relayr || !Array.isArray(session.relayrSuperseded) ||
+      !session.relayrSuperseded.every(item => typeof item?.quote?.bundle_uuid === "string" &&
+        Array.isArray(item.quote.expectedTransactions) && Array.isArray(item.records)))) throw new Error();
     return session;
   } catch {
     throw new Error("The saved deployment is invalid. Keep its recovery data and transaction history before starting another machine.");

@@ -721,6 +721,63 @@ describe("machine Relayr deployment", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("proves a superseded authorization the original relayer landed after a canceled retry payment", async () => {
+    const nextBundle = "87654321-1234-4321-8123-123456789abc";
+    const late = `0x${"c3".repeat(32)}` as Hex;
+    let landed = false;
+    bundleIds = [BUNDLE, nextBundle];
+    recordState = (uuid, chain) => !mined || uuid !== BUNDLE ? { state: "Pending" } : { state: "Success", data: { hash: chain === 10 && landed ? late : destinationHash(chain) } };
+    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+      const rpc = client(chainId);
+      const read = rpc.readContract.getMockImplementation()!;
+      const transaction = rpc.getTransaction.getMockImplementation()!;
+      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+      rpc.readContract.mockImplementation(async args => args.functionName === "nonces" && "blockNumber" in args && chainId === 10 && landed ? 1n : read(args));
+      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        const found = await transaction({ hash });
+        const old = latest.relayr?.superseded?.find(item => item.chainId === 10);
+        return hash === late && old ? { ...found, input: old.entry.data } : found;
+      });
+      rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => ({ ...await receipt({ hash }), transactionHash: hash,
+        ...(hash === destinationHash(10) ? { status: "reverted", logs: [] } : {}) }));
+      return rpc;
+    });
+    await expect(run()).rejects.toThrow("did not deploy");
+    chooseFunding.mockResolvedValueOnce(null);
+    await expect(run()).rejects.toThrow("payment canceled");
+    expect(sign).toHaveBeenCalledTimes(3);
+    expect(posts).toHaveLength(2);
+    landed = true;
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(latest.steps[1]).toMatchObject({ status: "done", hash: late, projectId: "110" });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a paid retry pending rather than retrying it again over its superseded revert", async () => {
+    const nextBundle = "87654321-1234-4321-8123-123456789abc";
+    const nextPaymentHash = `0x${"ef".repeat(32)}` as Hex;
+    bundleIds = [BUNDLE, nextBundle];
+    recordState = (uuid, chain) => !mined || uuid !== BUNDLE ? { state: "Pending" } : { state: "Success", data: { hash: destinationHash(chain) } };
+    send.mockImplementation(async () => { mined = true; return send.mock.calls.length === 1 ? PAYMENT_HASH : nextPaymentHash; });
+    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+      const rpc = client(chainId);
+      const transaction = rpc.getTransaction.getMockImplementation()!;
+      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => ({ ...await transaction({ hash: hash === nextPaymentHash ? PAYMENT_HASH : hash }), hash }));
+      rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => ({ ...await receipt({ hash: hash === nextPaymentHash ? PAYMENT_HASH : hash }),
+        transactionHash: hash, ...(hash === destinationHash(10) ? { status: "reverted", logs: [] } : {}) }));
+      return rpc;
+    });
+    await expect(run()).rejects.toThrow("did not deploy");
+    const retried = run();
+    retried.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(600_000);
+    await expect(retried).rejects.toThrow("still being checked");
+    expect(latest.relayr).toMatchObject({ phase: "executing", quote: { bundle_uuid: nextBundle } });
+    expect(latest.steps[1].status).toBe("uncertain");
+    expect(sign).toHaveBeenCalledTimes(3);
+  });
+
   it("deploys and clears without Web Locks, on the SDK's fallback lock", async () => {
     vi.stubGlobal("navigator", {});
     await expect(run()).resolves.toSatisfy(machineDeploymentDone);
