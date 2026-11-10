@@ -3,12 +3,13 @@ import { JBCoreContracts, getJBContractAddress, jbProjectsAbi, revDeployerAbi } 
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, getAbiItem, parseAbi, zeroAddress, zeroHash, type AbiEvent, type Address, type Hex, type TransactionReceipt } from "viem";
 import type { Config } from "@wagmi/core";
 import { buildDeployArgs, projectsFor } from "@/lib/plugin/deploy";
-import { RELAYR_API, RELAYR_NATIVE_TOKEN, RELAYR_PAYMENT_ADDRESS, RELAYR_PAYMENT_SELECTOR, type RelayrEntry, type RelayrPayment } from "@bananapus/nana-sdk-core/review/relayr";
+import { RELAYR_API, RELAYR_NATIVE_TOKEN, RELAYR_PAYMENT_ADDRESS, RELAYR_PAYMENT_SELECTOR, RelayrPaymentRevertedError, type RelayrEntry, type RelayrPayment } from "@bananapus/nana-sdk-core/review/relayr";
 import { canClearMachineDeployment, clearMachineDeployment, loadMachineDeployment, machineDeploymentDone, type MachineDeploySession } from "@/lib/plugin/deploy-session";
 import { machineProjectIdFromReceipt, runMachineDeployment, type MachineDeployReview } from "@/lib/plugin/relayr-deploy";
 import type { MachineDraft } from "@/lib/plugin/types";
 import { savedAttempts } from "@/lib/plugin/write-holds";
 import type { SavedAttempt, WriteHoldClient } from "@bananapus/nana-sdk-core/review";
+import { LockLostError } from "@bananapus/nana-sdk-core/review/locks";
 
 const mocks = vi.hoisted(() => ({
   getAccount: vi.fn(), getPublicClient: vi.fn(), getWalletClient: vi.fn(), switchChain: vi.fn(), runtime: vi.fn(),
@@ -76,6 +77,17 @@ const request = vi.fn();
 const readContract = vi.fn();
 const getCode = vi.fn();
 const onSession = vi.fn((session: MachineDeploySession) => { latest = session; });
+/** Each lock grant's handle; a lost grant fails `assertHeld`, as an IndexedDB lease taken by another tab does. */
+let grants = 0;
+let loseNext = false;
+const lost = new Set<number>();
+const loseLock = () => { lost.add(grants); };
+const locks = { request: vi.fn(async (name: string, _options: unknown, fn: (lock: object) => Promise<unknown>) => {
+  const id = ++grants;
+  if (loseNext) { loseNext = false; lost.add(id); }
+  return fn({ name, mode: "exclusive", signal: new AbortController().signal, held: async () => !lost.has(id),
+    assertHeld: async () => { if (lost.has(id)) throw new LockLostError(name); } });
+}) };
 
 function payment(chain = 1, bundle = BUNDLE, deadline = NOW + 600): RelayrPayment {
   return { chain, target: RELAYR_PAYMENT_ADDRESS, token: RELAYR_NATIVE_TOKEN, amount: "1000000000000000", payment_deadline: deadline,
@@ -128,6 +140,34 @@ function client(chainId: number) {
       : deploymentReceipt(chainId)),
   };
 }
+/** The first payment is sped up: `dropped` never mines and its `replacement` reverts; later payments succeed. */
+function spedUpPayment(dropped: Hex, replacement: Hex, whileWaiting = () => {}) {
+  send.mockImplementation(async () => {
+    if (send.mock.calls.length === 1) return dropped;
+    mined = true;
+    return PAYMENT_HASH;
+  });
+  mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+    const rpc = client(chainId);
+    const transaction = rpc.getTransaction.getMockImplementation()!;
+    const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+    rpc.waitForTransactionReceipt.mockImplementation((async ({ hash }: { hash: Hex }) => {
+      if (hash !== dropped) return { transactionHash: hash, status: "success" };
+      whileWaiting();
+      return { transactionHash: replacement, status: "reverted" };
+    }) as never);
+    rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => {
+      if (hash === dropped) throw new Error("transaction not found");
+      return { ...await transaction({ hash: hash === replacement ? PAYMENT_HASH : hash }), hash };
+    });
+    rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => {
+      if (hash === dropped) throw new Error("receipt not found");
+      const found = await receipt({ hash: hash === replacement ? PAYMENT_HASH : hash });
+      return hash === replacement ? { ...found, transactionHash: hash, status: "reverted" } : found;
+    });
+    return rpc;
+  });
+}
 const run = (overrides: Partial<Parameters<typeof runMachineDeployment>[0]> = {}) => runMachineDeployment({
   config, account: ACCOUNT, draft: snapshot(originalDraft), manual: "Pinned manual", onSession, onProgress: vi.fn(), chooseFunding, review, ...overrides,
 });
@@ -147,7 +187,8 @@ beforeEach(() => {
   localStorageMock.getItem.mockImplementation(key => storage.get(key) ?? null);
   localStorageMock.setItem.mockImplementation((key, value) => { storage.set(key, value); });
   vi.stubGlobal("window", { localStorage: localStorageMock });
-  vi.stubGlobal("navigator", { locks: { request: vi.fn(async (_name: string, _options: unknown, fn: (lock: object) => Promise<unknown>) => fn({})) } });
+  grants = 0; loseNext = false; lost.clear();
+  vi.stubGlobal("navigator", { locks });
   mocks.getAccount.mockImplementation(() => ({ address: connectedAccount, chainId: connectedChain }));
   mocks.switchChain.mockImplementation(async (_config, { chainId }: { chainId: number }) => { connectedChain = chainId; });
   mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => client(chainId));
@@ -334,28 +375,7 @@ describe("machine Relayr deployment", () => {
   it("pays a quote again after a sped-up payment's replacement reverts, remembering only the mined replacement", async () => {
     const dropped = `0x${"a1".repeat(32)}` as Hex;
     const replacement = `0x${"a2".repeat(32)}` as Hex;
-    send.mockImplementation(async () => {
-      if (send.mock.calls.length === 1) return dropped;
-      mined = true;
-      return PAYMENT_HASH;
-    });
-    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
-      const rpc = client(chainId);
-      const transaction = rpc.getTransaction.getMockImplementation()!;
-      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
-      rpc.waitForTransactionReceipt.mockImplementation((async ({ hash }: { hash: Hex }) => (hash === dropped
-        ? { transactionHash: replacement, status: "reverted" } : { transactionHash: hash, status: "success" })) as never);
-      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => {
-        if (hash === dropped) throw new Error("transaction not found");
-        return { ...await transaction({ hash: hash === replacement ? PAYMENT_HASH : hash }), hash };
-      });
-      rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => {
-        if (hash === dropped) throw new Error("receipt not found");
-        const found = await receipt({ hash: hash === replacement ? PAYMENT_HASH : hash });
-        return hash === replacement ? { ...found, transactionHash: hash, status: "reverted" } : found;
-      });
-      return rpc;
-    });
+    spedUpPayment(dropped, replacement);
     await expect(run()).rejects.toThrow();
     expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "payment-reverted", payments: [{ hash: replacement }] });
     await expect(run()).resolves.toSatisfy(machineDeploymentDone);
@@ -789,6 +809,77 @@ describe("machine Relayr deployment", () => {
     expect(latest.relayr).toMatchObject({ phase: "executing", quote: { bundle_uuid: nextBundle } });
     expect(latest.steps[1].status).toBe("uncertain");
     expect(sign).toHaveBeenCalledTimes(3);
+  });
+
+  describe("once another tab took the deployment lock", () => {
+    const direct: Parameters<typeof run>[0] = { draft: { ...originalDraft, chainIds: [1] } };
+    const refused = () => Object.assign(new Error("User rejected the request."), { code: 4001 });
+
+    it("opens no wallet for a direct deployment and writes nothing", async () => {
+      review.mockImplementation(async () => { loseLock(); return true; });
+      await expect(run(direct)).rejects.toBeInstanceOf(LockLostError);
+      expect(send).not.toHaveBeenCalled();
+      expect(loadMachineDeployment()!.steps).toMatchObject([{ status: "signing" }]);
+    });
+
+    it("signs no deployment authorization", async () => {
+      review.mockImplementation(async () => { loseLock(); return true; });
+      await expect(run()).rejects.toBeInstanceOf(LockLostError);
+      expect(sign).not.toHaveBeenCalled();
+      expect(loadMachineDeployment()!.relayr!.signed).toEqual([]);
+    });
+
+    it("keeps a direct hash the wallet returned, under a fresh lock", async () => {
+      send.mockImplementation(async () => { loseLock(); return destinationHash(1); });
+      await expect(run(direct)).rejects.toBeInstanceOf(LockLostError);
+      expect(loadMachineDeployment()!.steps).toMatchObject([{ status: "confirming", hash: destinationHash(1) }]);
+      expect(latest.steps).toMatchObject([{ status: "confirming", hash: destinationHash(1) }]);
+    });
+
+    it("drops that hash once the saved deployment is no longer this attempt", async () => {
+      send.mockImplementation(async () => { loseLock(); storage.clear(); return destinationHash(1); });
+      await expect(run(direct)).rejects.toBeInstanceOf(LockLostError);
+      expect(loadMachineDeployment()).toBeNull();
+    });
+
+    it("keeps a direct send the wallet refused as unsent", async () => {
+      send.mockImplementation(async () => { loseLock(); throw refused(); });
+      await expect(run(direct)).rejects.toThrow(/^You canceled in your wallet\.$/);
+      expect(loadMachineDeployment()!.steps).toMatchObject([{ status: "pending", error: "You canceled in your wallet." }]);
+    });
+
+    it("keeps the payment hash the wallet returned, under a fresh lock", async () => {
+      send.mockImplementation(async () => { loseLock(); return PAYMENT_HASH; });
+      await expect(run()).rejects.toBeInstanceOf(LockLostError);
+      expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "submitted", paymentHash: PAYMENT_HASH, payments: [{ hash: PAYMENT_HASH, chainId: 1 }] });
+    });
+
+    it("keeps a replacement payment hash found while the lock lapsed, so its revert is still proven", async () => {
+      const dropped = `0x${"a1".repeat(32)}` as Hex;
+      const replacement = `0x${"a2".repeat(32)}` as Hex;
+      spedUpPayment(dropped, replacement, loseLock);
+      await expect(run()).rejects.toMatchObject({ message: expect.stringContaining("Do not pay again"), cause: expect.any(LockLostError) });
+      expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "submitted", paymentHash: replacement, payments: [{ hash: replacement }] });
+      await expect(run()).rejects.toBeInstanceOf(RelayrPaymentRevertedError);
+      expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "payment-reverted" });
+      await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(posts).toHaveLength(1);
+    });
+
+    it("restores a payment the wallet refused, so the same quote can be paid", async () => {
+      send.mockImplementation(async () => { loseLock(); throw refused(); });
+      await expect(run()).rejects.toThrow(/^You canceled in your wallet\.$/);
+      expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "quoted" });
+      expect(loadMachineDeployment()!.relayr!.paymentChainId).toBeUndefined();
+    });
+
+    it("does not clear the saved deployment", async () => {
+      await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+      loseNext = true;
+      await expect(clearMachineDeployment()).rejects.toBeInstanceOf(LockLostError);
+      expect(loadMachineDeployment()).not.toBeNull();
+    });
   });
 
   it("deploys and clears without Web Locks, on the SDK's fallback lock", async () => {

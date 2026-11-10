@@ -17,12 +17,14 @@ import { loadMachineDeployment, MACHINE_DEPLOY_LOCK, machineDeploymentDone, mach
   type MachineDeployCall, type MachineDeploySession, type MachineDeployStep } from "@/lib/plugin/deploy-session";
 import type { MachineDraft } from "@/lib/plugin/types";
 import { recoverSaved, strictRetirable } from "@/lib/plugin/write-holds";
-import { browserLocks } from "@bananapus/nana-sdk-core/review/locks";
+import { browserLocks, LockLostError, type LockHandle } from "@bananapus/nana-sdk-core/review/locks";
 
 const SAFE_EXECUTE_ABI = parseAbi(["function execTransaction(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,bytes signatures) returns (bool)"]);
 const WALLET_CANCELED = "You canceled in your wallet.";
+const AWAITING_HASH = "Waiting for the wallet to return the deployment hash.";
 const SIMULATION_BALANCE = 100n * 10n ** 18n;
 const activeDeployments = new Set<string>();
+type LaunchEvent = Parameters<typeof advanceRelayrLaunch>[1];
 
 export type MachineDeployReview = {
   kind: "authorization" | "payment" | "transaction";
@@ -132,12 +134,26 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
 }): Promise<MachineDeploySession> {
   if (activeDeployments.has(MACHINE_DEPLOY_LOCK)) throw new Error("This deployment is already running.");
   activeDeployments.add(MACHINE_DEPLOY_LOCK);
+  // A wallet outcome whose save a lost lock refused: applied under a fresh
+  // lock, to the saved record only while it is still this attempt's.
+  let late: ((saved: MachineDeploySession) => MachineDeploySession | undefined) | undefined;
   try {
     return await browserLocks().request(MACHINE_DEPLOY_LOCK, { ifAvailable: true }, async lock => {
       if (!lock) throw new Error("This deployment is already running in another tab.");
-      try { return await run(); }
+      try { return await run(lock); }
       catch (error) { throw isDefiniteWalletRejection(error) ? new Error(WALLET_CANCELED, { cause: error }) : error; }
     });
+  } catch (error) {
+    const settle = late;
+    if (settle) await browserLocks().request(MACHINE_DEPLOY_LOCK, async lock => {
+      const saved = loadMachineDeployment();
+      const next = saved && settle(saved);
+      if (!next) return;
+      await lock!.assertHeld();
+      saveMachineDeployment(next);
+      onSession(clone(next));
+    }).catch(() => undefined); // Unreconciled, the record stays as the lost lock left it.
+    throw error;
   } finally { activeDeployments.delete(MACHINE_DEPLOY_LOCK); }
 
   function requireAccount() {
@@ -178,7 +194,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
     if (fee !== BigInt(call.value)) throw new Error("A destination creation fee changed. Keep the saved deployment until its original authorizations are resolved.");
   }
 
-  async function run(): Promise<MachineDeploySession> {
+  async function run(lock: LockHandle): Promise<MachineDeploySession> {
     requireAccount();
     let session = loadMachineDeployment();
     if (!session) {
@@ -215,24 +231,27 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
     }
     const current = session;
     if (!isAddressEqual(current.account, account)) throw new Error("Connect the wallet that started this deployment.");
-    function persist() {
+    /** `onLost`: what to apply to the saved record under a fresh lock if this save finds the lock lost. */
+    async function persist(onLost?: typeof late) {
+      try { await lock.assertHeld(); }
+      catch (error) { if (onLost && error instanceof LockLostError) late = onLost; throw error; }
       // Preserve a just-returned wallet hash in the visible recovery state even
       // if storage fails. The earlier durable no-hash marker still blocks replay.
       try { saveMachineDeployment(current); } finally { onSession(clone(current)); }
     }
-    function step(chainId: number, next: Partial<MachineDeployStep>) {
+    async function step(chainId: number, next: Partial<MachineDeployStep>, onLost?: typeof late) {
       const item = current.steps.find(item => item.chainId === chainId);
       if (!item) throw new Error("The saved deployment chain changed.");
       Object.assign(item, next);
-      persist();
+      await persist(onLost);
     }
-    persist();
+    await persist();
     if (machineDeploymentDone(current)) return clone(current);
     try { await (current.transport === "direct" ? runDirect() : runRelayr()); }
     catch (error) {
       if (current.steps.some(item => item.status === "signing")) {
         current.steps.forEach(item => { if (item.status === "signing") item.status = "pending"; });
-        persist();
+        await persist();
       }
       throw error;
     }
@@ -261,11 +280,11 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       if (!exactCall) throw new Error("The destination transaction does not match the saved deployment call.");
       if (receipt.status !== "success") {
         if (successOnly) throw new Error("The supplied transaction reverted. It cannot resolve the original wallet attempt.");
-        step(call.chainId, { status: "failed", hash, error: "Deployment reverted onchain." });
+        await step(call.chainId, { status: "failed", hash, error: "Deployment reverted onchain." });
         return false;
       }
       const projectId = machineProjectIdFromReceipt(receipt, call, account);
-      step(call.chainId, { status: "done", hash, projectId, error: undefined });
+      await step(call.chainId, { status: "done", hash, projectId, error: undefined });
       return true;
     }
 
@@ -291,7 +310,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           // A supplied failed transaction says nothing about whether the
           // original wallet proposal is still live. Only exact success resolves it.
           await verifyReceipt(call, suppliedHash, undefined, true);
-          if (reportedHash && reportedHash !== suppliedHash) step(call.chainId, { reportedHash });
+          if (reportedHash && reportedHash !== suppliedHash) await step(call.chainId, { reportedHash });
           continue;
         }
         if (status.hash) {
@@ -299,41 +318,51 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           try {
             if (await verifyReceipt(call, status.hash)) continue;
           } catch (error) {
-            step(call.chainId, { status: "uncertain", error: errorMessage(error) });
+            await step(call.chainId, { status: "uncertain", error: errorMessage(error) });
             throw new Error("The saved transaction is unresolved. Check wallet activity before deploying again.");
           }
           // A canonical reverted transaction may be retried with the identical
           // pinned call. Its salt and start time are never regenerated.
           await requireFinalizedReceipt(call.chainId, status.hash, "reverted");
-          step(call.chainId, { hash: undefined, status: "pending", error: undefined });
+          await step(call.chainId, { hash: undefined, status: "pending", error: undefined });
         } else if (status.status === "uncertain" || status.status === "confirming") {
           throw new Error("Your wallet may have sent this deployment without returning its hash. Check its activity; do not deploy again.");
         }
         requireAccount();
         const client = await clientFor(call.chainId);
         await feeUnchanged(call, client);
-        step(call.chainId, { status: "signing", error: undefined });
+        await step(call.chainId, { status: "signing", error: undefined });
         const estimate = await client.estimateGas({ account, to: call.to, data: call.data, value: BigInt(call.value) });
         const gas = estimate + estimate / 4n;
         await simulate(client, call, gas, false);
         if (!await review({ kind: "transaction", calls: [clone(call)] })) {
-          step(call.chainId, { status: "pending" });
+          await step(call.chainId, { status: "pending" });
           throw new Error("Deployment canceled before sending.");
         }
         const wallet = await walletFor(call.chainId);
         await feeUnchanged(call, client);
         await simulate(client, call, gas, false);
         requireAccount();
-        step(call.chainId, { status: "uncertain", error: "Waiting for the wallet to return the deployment hash." });
+        await step(call.chainId, { status: "uncertain", error: AWAITING_HASH }); // Fenced, with no await before the wallet.
+        /** The wallet's outcome, kept for a fresh lock while the saved step still awaits this attempt's hash. */
+        const keep = (next: Partial<MachineDeployStep>) => (saved: MachineDeploySession) => {
+          const item = saved.id === current.id ? saved.steps.find(item => item.chainId === call.chainId) : undefined;
+          if (item?.status !== "uncertain" || item.hash || item.error !== AWAITING_HASH) return undefined;
+          Object.assign(item, next);
+          return saved;
+        };
         let hash: Hex;
         try {
           hash = await wallet.sendTransaction({ account, chain: wallet.chain, to: call.to, data: call.data, value: BigInt(call.value), gas });
         } catch (error) {
-          if (isDefiniteWalletRejection(error)) step(call.chainId, { status: "pending", error: WALLET_CANCELED });
-          else throw new Error("Your wallet may have sent the deployment without returning its hash. Check its activity; do not deploy again.", { cause: error });
+          if (!isDefiniteWalletRejection(error)) throw new Error("Your wallet may have sent the deployment without returning its hash. Check its activity; do not deploy again.", { cause: error });
+          const unsent = { status: "pending", error: WALLET_CANCELED } as const;
+          // A lost lock leaves the refusal to the fresh-lock reconcile; the caller still learns nothing was sent.
+          await step(call.chainId, unsent, keep(unsent)).catch(saveError => { if (!(saveError instanceof LockLostError)) throw saveError; });
           throw error;
         }
-        step(call.chainId, { status: "confirming", hash, error: undefined });
+        const sent = { status: "confirming", hash, error: undefined } as const;
+        await step(call.chainId, sent, keep(sent));
         onProgress(`Confirming deployment on ${CHAIN_LABELS[call.chainId]}.`);
         try {
           await client.waitForTransactionReceipt({ hash, timeout: 120_000, onReplaced: () => {
@@ -342,7 +371,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           if (!await verifyReceipt(call, hash)) throw new Error("Deployment reverted onchain. Resume to review the same deployment again.");
         } catch (error) {
           if (current.steps.find(item => item.chainId === call.chainId)!.status !== "failed") {
-            step(call.chainId, { status: "uncertain", error: errorMessage(error) });
+            await step(call.chainId, { status: "uncertain", error: errorMessage(error) });
           }
           throw error;
         }
@@ -357,7 +386,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       const callOf = (chainId: number) => current.calls.find(call => call.chainId === chainId)!;
       const stepOf = (chainId: number) => current.steps.find(item => item.chainId === chainId)!;
       const open = (chainId: number) => stepOf(chainId).status !== "done";
-      const save = (event: Parameters<typeof advanceRelayrLaunch>[1]) => { if (advanceRelayrLaunch(journal, event)) persist(); };
+      const save = async (event: LaunchEvent, onLost?: typeof late) => { if (advanceRelayrLaunch(journal, event)) await persist(onLost); };
       const requestOf = (signed: RelayrSignedLaunch) => {
         const call = current.calls.find(call => call.chainId === signed.chainId);
         const request = relayrForwardRequest(signed.entry);
@@ -378,20 +407,20 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         return relayrSessionOutcome(verdict, { nonces: outstanding.map(item => item.nonce) });
       };
       /** Every published request is dead: the attempt may be abandoned, and it is not signed again here. */
-      const abandon = (line: string, cause?: unknown): never => {
+      const abandon = async (line: string, cause?: unknown): Promise<never> => {
         journal.abandonable = true;
         current.steps.forEach(item => { if (item.status !== "done") { item.status = "failed"; item.error = line; } });
-        persist();
+        await persist();
         throw new Error(line, cause === undefined ? undefined : { cause });
       };
       /** Signs the open chains again at their saved nonces, so the forwarder runs at most one of old and new. */
-      const resign = (from: RelayrLaunchJournal, abandonable: boolean) => {
+      const resign = async (from: RelayrLaunchJournal, abandonable: boolean) => {
         if (from.quote) current.relayrSuperseded = [...(current.relayrSuperseded ?? []), { quote: from.quote, records: from.records }];
         journal = resignedRelayrLaunch({ account, abandonable, superseded: published(from).filter(item => open(item.chainId)),
           retryNonces: { ...from.retryNonces, ...Object.fromEntries(from.signed.filter(item => open(item.chainId)).map(item => [item.chainId, item.nonce])) } });
         current.relayr = journal;
         current.steps.forEach(item => { if (item.status !== "done") { item.status = "pending"; delete item.hash; delete item.error; } });
-        persist();
+        await persist();
       };
       const requireQuoteBindings = () => {
         const bindings = journal.quote?.expectedTransactions;
@@ -405,7 +434,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       };
       const readRecords = async (read: Promise<{ transactions?: unknown }>) => {
         const { transactions } = await read;
-        if (Array.isArray(transactions)) { journal.records = transactions as RelayrTransactionRecord[]; persist(); }
+        if (Array.isArray(transactions)) { journal.records = transactions as RelayrTransactionRecord[]; await persist(); }
       };
 
       /** The first candidate proven as its exact signed call, or why none is: an unproven read outranks a revert. */
@@ -438,7 +467,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
             if (Array.isArray(transactions)) item.records = transactions as RelayrTransactionRecord[];
           } catch { /* Relayr's availability never proves deployment or failure. */ }
         }
-        persist();
+        await persist();
       };
       /** An authorization a retry superseded still runs at most once per chain: its proven success completes that chain. */
       const proveSuperseded = async () => {
@@ -447,7 +476,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         for (const call of current.calls) {
           if (!open(call.chainId)) continue;
           const proof = await proveDestination(call.chainId, supersededCandidates(call.chainId));
-          if ("receipt" in proof) step(call.chainId, { status: "done", hash: proof.hash, projectId: machineProjectIdFromReceipt(proof.receipt, call, account), error: undefined });
+          if ("receipt" in proof) await step(call.chainId, { status: "done", hash: proof.hash, projectId: machineProjectIdFromReceipt(proof.receipt, call, account), error: undefined });
         }
         return machineDeploymentDone(current);
       };
@@ -474,8 +503,8 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           const prior = "receipt" in latestProof ? null : await proveDestination(signed.chainId, supersededCandidates(signed.chainId));
           const proof = prior && "receipt" in prior ? prior : latestProof;
           if ("receipt" in proof) {
-            try { step(signed.chainId, { status: "done", hash: proof.hash, projectId: machineProjectIdFromReceipt(proof.receipt, callOf(signed.chainId), account), error: undefined }); }
-            catch (error) { held = true; retryable = false; step(signed.chainId, { status: "uncertain", hash: proof.hash, error: errorMessage(error) }); }
+            try { await step(signed.chainId, { status: "done", hash: proof.hash, projectId: machineProjectIdFromReceipt(proof.receipt, callOf(signed.chainId), account), error: undefined }); }
+            catch (error) { held = true; retryable = false; await step(signed.chainId, { status: "uncertain", hash: proof.hash, error: errorMessage(error) }); }
             continue;
           }
           const { unproven } = proof;
@@ -484,24 +513,24 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           const named = hash ? { hash } : {};
           if (reverted) reverts.push(...proof.reverted.map(item => ({ chainId: signed.chainId, hash: item })));
           if (!state.live && state.unused) {
-            step(signed.chainId, { status: "failed", ...named, error: reverted ? "Deployment reverted onchain." : "The unused deployment authorization expired." });
+            await step(signed.chainId, { status: "failed", ...named, error: reverted ? "Deployment reverted onchain." : "The unused deployment authorization expired." });
             continue;
           }
-          if (!state.live) { ran = true; retryable = false; step(signed.chainId, { status: "uncertain", ...named, error: MAY_HAVE_RUN }); continue; }
+          if (!state.live) { ran = true; retryable = false; await step(signed.chainId, { status: "uncertain", ...named, error: MAY_HAVE_RUN }); continue; }
           held = true; expired = false;
-          if (reverted) { step(signed.chainId, { status: "failed", ...named, error: "Deployment reverted onchain." }); continue; }
+          if (reverted) { await step(signed.chainId, { status: "failed", ...named, error: "Deployment reverted onchain." }); continue; }
           retryable = false;
-          step(signed.chainId, { status: "uncertain", ...named, error: unproven instanceof Error ? unproven.message : "Waiting for the original destination transaction." });
+          await step(signed.chainId, { status: "uncertain", ...named, error: unproven instanceof Error ? unproven.message : "Waiting for the original destination transaction." });
         }
         if (machineDeploymentDone(current)) { onProgress("The machine is deployed on every selected chain."); return true; }
-        if (ran && !held) abandon(MAY_HAVE_RUN);
+        if (ran && !held) await abandon(MAY_HAVE_RUN);
         if (retryable) {
           // A retry keeps every success and supersedes every revert, so each must be final first, as must the latest payment.
           for (const item of current.steps) if (item.status === "done" && item.hash) await requireFinalizedReceipt(item.chainId, item.hash, "success");
           for (const item of reverts) await requireFinalizedReceipt(item.chainId, item.hash, "reverted");
           const payment = original.payments?.at(-1);
           if (payment) await requireFinalizedReceipt(payment.chainId, payment.hash);
-          resign(original, expired);
+          await resign(original, expired);
           onProgress("Retrying only verified unsuccessful destinations. The previous payment may already have been charged; review a new quote for these chains.");
         }
         return false;
@@ -517,7 +546,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           if (reverted.records) journal.records = reverted.records;
           fundedElsewhere = reverted.state === "funded";
           if (reverted.state === "released") advanceRelayrLaunch(journal, { type: "released" });
-          persist();
+          await persist();
         } catch (error) { unreleased = error; }
       }
       // While a published request can still run, it is signed again only at its saved nonce.
@@ -528,27 +557,28 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         if (outcome?.kind === "hold") throw new Error(heldMessage(outcome.until));
         if (outcome?.kind === "reorg-hold") throw new Error(heldMessage(0));
         if (outcome?.kind === "refresh") heldUntil = outcome.until;
-        if (outcome?.kind === "discard" && outcome.reason === "ran") abandon(MAY_HAVE_RUN);
-        if (outcome?.kind === "discard" && !journal.abandonable) abandon(EXPIRED_UNUSED);
+        if (outcome?.kind === "discard" && outcome.reason === "ran") await abandon(MAY_HAVE_RUN);
+        if (outcome?.kind === "discard" && !journal.abandonable) await abandon(EXPIRED_UNUSED);
         if (outcome && outcome.kind !== "refresh") unreleased = null;
         if (unreleased && heldUntil !== null) throw new Error(heldMessage(heldUntil), { cause: unreleased });
       }
       if (unreleased) throw unreleased;
-      if (journal.abandonable && relayrLaunchUnfunded(journal.phase) && journal.signed.length) resign(journal, true);
+      if (journal.abandonable && relayrLaunchUnfunded(journal.phase) && journal.signed.length) await resign(journal, true);
 
       if (relayrLaunchInFlight(journal.phase) || fundedElsewhere) {
         if (journal.phase === "submitted" || journal.phase === "executing") {
           const resumed = journal;
           try {
-            await proveSavedRelayrPayment(chainClient, resumed.payments, account, () => { advanceRelayrLaunch(resumed, { type: "reverted" }); persist(); });
+            await proveSavedRelayrPayment(chainClient, resumed.payments, account, () => advanceRelayrLaunch(resumed, { type: "reverted" }));
           } catch (error) {
+            if (error instanceof RelayrPaymentRevertedError) await persist();
             if (!(error instanceof RelayrProofError) || error instanceof RelayrPaymentRevertedError) throw error;
             // The saved hash is another transaction. Once every request is dead the deployment can be abandoned; before that, the SDK's one check retires it.
             const outcome = await outstandingOutcome(published(resumed));
-            if (outcome?.kind === "discard") abandon(outcome.reason === "ran" ? MAY_HAVE_RUN : PAYMENT_UNMATCHED, error);
+            if (outcome?.kind === "discard") await abandon(outcome.reason === "ran" ? MAY_HAVE_RUN : PAYMENT_UNMATCHED, error);
             const checked = await recoverSaved(relayrPaymentAttempt(current.id, account, resumed.paymentChainId!, resumed.paymentHash),
               chainClient(resumed.paymentChainId!) as unknown as WriteHoldClient, error instanceof Error ? error.message : undefined);
-            if (checked.status === "none" && checked.retired === "check") abandon(PAYMENT_UNMATCHED, error);
+            if (checked.status === "none" && checked.retired === "check") await abandon(PAYMENT_UNMATCHED, error);
             throw error;
           }
         }
@@ -567,12 +597,12 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           const paymentExpired = original.paymentDeadline !== undefined && original.paymentChainId !== undefined &&
             await relayrDeadlinePassed(chainClient(original.paymentChainId)!, original.paymentDeadline) === true;
           if (outcome?.kind === "discard" && outcome.reason === "expired" && paymentExpired) original.abandonable = true;
-          persist();
+          await persist();
           if (!original.abandonable) {
             // A payment the wallet may have sent without its hash: the SDK's one check, whose retirement makes it cancellable.
             const checked = await recoverSaved(relayrPaymentAttempt(current.id, account, original.paymentChainId!),
               chainClient(original.paymentChainId!) as unknown as WriteHoldClient, NO_HASH);
-            if (checked.status === "none" && checked.retired === "check") abandon(MAY_HAVE_RUN);
+            if (checked.status === "none" && checked.retired === "check") await abandon(MAY_HAVE_RUN);
           }
           throw new Error(original.abandonable
             ? "The unused deployment authorizations expired. You may abandon this attempt. An earlier payment may still have been charged; check your wallet."
@@ -606,12 +636,13 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           nonce, deadline: relayrForwarderDeadline(), data: call.data };
         const typedDomain = { name: domain[1], version: domain[2], chainId: BigInt(call.chainId), verifyingContract: forwarder };
         onProgress(`Sign the deployment authorization for ${CHAIN_LABELS[call.chainId]}.`);
-        step(call.chainId, { status: "signing", error: undefined });
+        await step(call.chainId, { status: "signing", error: undefined });
         if (!await review({ kind: "authorization", calls: [clone(call)], authorization: {
           domain: { ...typedDomain, chainId: typedDomain.chainId.toString() },
           message: { ...message, value: message.value.toString(), gas: message.gas.toString(), nonce: message.nonce.toString() },
-        } })) { step(call.chainId, { status: "pending" }); throw new Error("Deployment authorization canceled."); }
+        } })) { await step(call.chainId, { status: "pending" }); throw new Error("Deployment authorization canceled."); }
         const wallet = await walletFor(call.chainId);
+        await lock.assertHeld();
         const signature = await wallet.signTypedData({ account, domain: typedDomain, types: FORWARD_REQUEST_TYPES, primaryType: "ForwardRequest", message });
         requireAccount();
         journal.signed.push({ chainId: call.chainId, nonce: nonce.toString(), deadline: message.deadline, entry: {
@@ -619,7 +650,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           data: encodeFunctionData({ abi: erc2771ForwarderAbi, functionName: "execute", args: [{ from: account, to: call.to, value: message.value,
             gas: message.gas, deadline: message.deadline, data: call.data, signature }] }),
         } });
-        step(call.chainId, { status: "pending" });
+        await step(call.chainId, { status: "pending" });
       }
       const verifySigned = async () => {
         requireAccount();
@@ -645,12 +676,12 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       catch (error) { throw heldUntil === null ? error : new Error(heldMessage(heldUntil), { cause: error }); }
 
       const requestQuote = async () => {
-        save({ type: "quoting" }); // The exact signed entries are durable before Relayr sees them.
+        await save({ type: "quoting" }); // The exact signed entries are durable before Relayr sees them.
         onProgress("Getting Relayr payment options for every selected chain.");
         const request = relayrBundleRequest(journal.signed.map(item => item.entry));
         const response = await fetch(`${RELAYR_API}/v1/bundle/prepaid`, { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify(request), cache: "no-store", credentials: "omit", redirect: "error", signal: AbortSignal.timeout(45_000) });
-        save({ type: "quoted", quote: await bindRelayrQuote(response, request) });
+        await save({ type: "quoted", quote: await bindRelayrQuote(response, request) });
       };
       const destinations = journal.signed.map(item => item.chainId);
       let payment: RelayrPayment | undefined;
@@ -692,29 +723,49 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       if (!await review({ kind: "payment", calls: [clone(paymentCall)] })) throw new Error("Deployment payment canceled before sending.");
       const wallet = await walletFor(details.chainId);
       await verifyPayment();
-      save({ type: "chosen", paymentChainId: details.chainId, paymentDeadline: details.deadline.toString() });
-      save({ type: "sending" }); // Durable BEFORE the wallet may send, including its no-hash window.
+      await save({ type: "chosen", paymentChainId: details.chainId, paymentDeadline: details.deadline.toString() });
+      await save({ type: "sending" }); // Durable BEFORE the wallet may send, including its no-hash window. Fenced, with no await before the wallet.
+      /**
+       * An outcome this payment returned, kept for a fresh lock while the saved
+       * journal is still exactly as this attempt last saved it (same deployment,
+       * quote, phase and payments). Call it before `save` advances the journal.
+       */
+      const keep = (event: LaunchEvent) => {
+        const phase = journal.phase, payments = JSON.stringify(journal.payments ?? []);
+        return (saved: MachineDeploySession) => {
+          const target = saved.id === current.id ? saved.relayr : undefined;
+          if (target?.phase !== phase || target.quote?.bundle_uuid !== quote.bundle_uuid ||
+            JSON.stringify(target.payments ?? []) !== payments) return undefined;
+          return advanceRelayrLaunch(target, event) ? saved : undefined;
+        };
+      };
       onProgress(`Approve one Relayr payment on ${CHAIN_LABELS[details.chainId]}.`);
       let hash: Hex;
       try {
         hash = await wallet.sendTransaction({ account, chain: wallet.chain, to: details.target, data: details.calldata, value: details.amount, gas: RELAYR_PAYMENT_GAS });
       } catch (error) {
         const outcome = relayrPaymentAttemptOutcome(error, { sending: true, paid: paid.length > 0 });
-        save({ type: "unsent", outcome });
+        const unsent: LaunchEvent = { type: "unsent", outcome };
+        // A lost lock leaves the outcome to the fresh-lock reconcile; the caller still learns why nothing was sent.
+        await save(unsent, keep(unsent)).catch(saveError => { if (!(saveError instanceof LockLostError)) throw saveError; });
         if (outcome) throw error;
         throw new Error(NO_HASH, { cause: error });
       }
-      save({ type: "sent", payments: [...paid, sentRelayrPayment(details, hash)] });
+      const sent: LaunchEvent = { type: "sent", payments: [...paid, sentRelayrPayment(details, hash)] };
+      await save(sent, keep(sent));
       try {
         const mined = (await client.waitForTransactionReceipt({ hash, timeout: 120_000 })).transactionHash ?? hash;
         // A sped-up payment is mined under another hash at the same nonce: it replaces the dropped one, which can never mine.
-        if (mined.toLowerCase() !== hash.toLowerCase()) save({ type: "sent", payments: [...paid, sentRelayrPayment(details, mined)] });
+        if (mined.toLowerCase() !== hash.toLowerCase()) {
+          const replaced: LaunchEvent = { type: "sent", payments: [...paid, sentRelayrPayment(details, mined)] };
+          await save(replaced, keep(replaced));
+        }
         await verifyRelayrPayment(client, { hash: mined, from: account, payment: details });
       } catch (error) {
-        if (error instanceof RelayrPaymentRevertedError) save({ type: "reverted" });
+        if (error instanceof RelayrPaymentRevertedError) await save({ type: "reverted" });
         throw error instanceof RelayrProofError ? error : new Error("The original Relayr payment could not be confirmed. Do not pay again.", { cause: error });
       }
-      save({ type: "executing" });
+      await save({ type: "executing" });
       onProgress("Payment confirmed. Checking each destination deployment onchain.");
       try { await readRecords(pollRelayrBundle(quote.bundle_uuid, journal.signed.length)); }
       catch {
