@@ -3,20 +3,21 @@ import { JBCoreContracts, getJBContractAddress, jbProjectsAbi, revDeployerAbi } 
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, getAbiItem, parseAbi, zeroAddress, zeroHash, type AbiEvent, type Address, type Hex, type TransactionReceipt } from "viem";
 import type { Config } from "@wagmi/core";
 import { buildDeployArgs, projectsFor } from "@/lib/plugin/deploy";
-import { canClearMachineDeployment, loadMachineDeployment, type MachineDeploySession } from "@/lib/plugin/deploy-session";
+import { RELAYR_API, RELAYR_NATIVE_TOKEN, RELAYR_PAYMENT_ADDRESS, RELAYR_PAYMENT_SELECTOR, type RelayrEntry, type RelayrPayment } from "@bananapus/nana-sdk-core/review/relayr";
+import { canClearMachineDeployment, clearMachineDeployment, loadMachineDeployment, machineDeploymentDone, type MachineDeploySession } from "@/lib/plugin/deploy-session";
 import { machineProjectIdFromReceipt, runMachineDeployment, type MachineDeployReview } from "@/lib/plugin/relayr-deploy";
-import { RELAYR_NATIVE_TOKEN, RELAYR_PAYMENT_ADDRESS, RELAYR_PAYMENT_SELECTOR, type RelayrEntry, type RelayrPayment, type RelayrQuote, type RelayrUnboundQuote } from "@/lib/plugin/relayr-protocol";
 import type { MachineDraft } from "@/lib/plugin/types";
+import { savedAttempts } from "@/lib/plugin/write-holds";
+import type { SavedAttempt, WriteHoldClient } from "@bananapus/nana-sdk-core/review";
 
 const mocks = vi.hoisted(() => ({
-  getAccount: vi.fn(), getPublicClient: vi.fn(), getWalletClient: vi.fn(), switchChain: vi.fn(),
-  post: vi.fn(), bind: vi.fn(), status: vi.fn(),
+  getAccount: vi.fn(), getPublicClient: vi.fn(), getWalletClient: vi.fn(), switchChain: vi.fn(), runtime: vi.fn(),
 }));
 vi.mock("@wagmi/core", () => ({ getAccount: mocks.getAccount, getPublicClient: mocks.getPublicClient, getWalletClient: mocks.getWalletClient, switchChain: mocks.switchChain }));
-vi.mock("@/lib/plugin/relayr-protocol", async importOriginal => ({
-  ...await importOriginal<typeof import("@/lib/plugin/relayr-protocol")>(),
-  RELAYR_PAYMENT_CODE_HASH: (await import("viem")).keccak256("0x6000"),
-  postRelayrBundle: mocks.post, bindRelayrQuote: mocks.bind, fetchRelayrStatus: mocks.status,
+// The pinned payment runtime's preimage is not reproducible here; its check is the SDK's and is stubbed.
+vi.mock("@bananapus/nana-sdk-core/review/relayr", async importOriginal => ({
+  ...await importOriginal<typeof import("@bananapus/nana-sdk-core/review/relayr")>(),
+  requireRelayrPaymentRuntime: mocks.runtime,
 }));
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as Address;
@@ -26,7 +27,7 @@ const NOW = 1_800_000_000;
 const PAYMENT_HASH = `0x${"ab".repeat(32)}` as Hex;
 const BLOCK_HASH = `0x${"bc".repeat(32)}` as Hex;
 const destinationHash = (chain: number) => `0x${chain.toString(16).padStart(64, "0")}` as Hex;
-const txUuid = (chain: number) => `${chain.toString(16).padStart(8, "0")}-1234-4321-8123-123456789abc`;
+const txUuid = (chain: number, bundle = BUNDLE) => `${chain.toString(16).padStart(8, "0")}-${bundle.slice(9)}`;
 const config = {} as Config;
 const originalDraft: MachineDraft = { name: "Machine", id: "machine", goal: "A shared goal", address: ACCOUNT, keepPercent: 10, doubling: "1m", routes: [], chainIds: [1, 10] };
 const snapshot = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -42,6 +43,30 @@ let smartAccount = false;
 let mined = false;
 let latest: MachineDeploySession;
 let offers: RelayrPayment[];
+/** A fake Relayr: every posted bundle, the next bundle IDs to hand out, and its answers. */
+let posts: RelayrEntry[][];
+let bundleIds: string[];
+let postResponse: ((entries: RelayrEntry[]) => Response) | null;
+let recordState: (uuid: string, chain: number) => { state: string; data?: { hash: Hex } };
+const posted = new Map<string, RelayrEntry[]>();
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+const recordsOf = (uuid: string) => posted.get(uuid)!.map(entry => ({ tx_uuid: txUuid(entry.chain, uuid), request: entry, status: recordState(uuid, entry.chain) }));
+const relayrFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = String(input);
+  if (url === `${RELAYR_API}/v1/bundle/prepaid` && init?.method === "POST") {
+    const entries = (JSON.parse(String(init.body)) as { transactions: RelayrEntry[] }).transactions;
+    posts.push(entries);
+    events.push("quote");
+    if (postResponse) return postResponse(entries);
+    const uuid = bundleIds.shift() ?? BUNDLE;
+    posted.set(uuid, entries);
+    return json({ bundle_uuid: uuid, payment_info: snapshot(offers).map(offer => ({ ...offer, calldata: offer.calldata.replace(BUNDLE.replaceAll("-", ""), uuid.replaceAll("-", "")) })),
+      tx_uuids: entries.map(entry => txUuid(entry.chain, uuid)), transactions: recordsOf(uuid) });
+  }
+  const uuid = url.match(/\/v1\/bundle\/([0-9a-f-]{36})$/u)?.[1];
+  if (uuid && posted.has(uuid)) return json({ bundle_uuid: uuid, payment_received: mined, transactions: recordsOf(uuid) });
+  return json({}, 404);
+});
 const events: string[] = [];
 const sign = vi.fn();
 const send = vi.fn();
@@ -55,10 +80,6 @@ const onSession = vi.fn((session: MachineDeploySession) => { latest = session; }
 function payment(chain = 1, bundle = BUNDLE, deadline = NOW + 600): RelayrPayment {
   return { chain, target: RELAYR_PAYMENT_ADDRESS, token: RELAYR_NATIVE_TOKEN, amount: "1000000000000000", payment_deadline: deadline,
     calldata: `${RELAYR_PAYMENT_SELECTOR}${bundle.replaceAll("-", "")}${"0".repeat(32)}${deadline.toString(16).padStart(64, "0")}` as Hex };
-}
-function bound(entries: RelayrEntry[], paymentInfo = offers): RelayrQuote {
-  return { bundle_uuid: BUNDLE, payment_info: snapshot(paymentInfo),
-    expectedTransactions: entries.map(entry => ({ txUuid: txUuid(entry.chain), chain: entry.chain, entry: snapshot(entry) })) };
 }
 function eventLog(event: AbiEvent, values: Record<string, unknown>, address: Address) {
   return {
@@ -80,7 +101,8 @@ function deploymentReceipt(chainId: number, changes: { caller?: Address; name?: 
       suckerDeploymentConfiguration: args[3], rulesetConfigurations: [], encodedConfigurationHash: zeroHash, caller: changes.caller ?? ACCOUNT,
     }, call.to),
   ];
-  return { transactionHash: destinationHash(chainId), blockHash: BLOCK_HASH, blockNumber: 20n, status: "success", logs } as TransactionReceipt;
+  const to = latest.relayr?.signed.find(item => item.chainId === chainId)?.entry.target ?? call.to;
+  return { transactionHash: destinationHash(chainId), to, blockHash: BLOCK_HASH, blockNumber: 20n, status: "success", logs } as TransactionReceipt;
 }
 function client(chainId: number) {
   return {
@@ -94,7 +116,7 @@ function client(chainId: number) {
     waitForTransactionReceipt: vi.fn(async () => ({ status: "success" })),
     getTransaction: vi.fn(async ({ hash }: { hash: Hex }) => {
       if (hash === PAYMENT_HASH) {
-        const selected = latest.relayr!.payment!;
+        const selected = latest.relayr!.quote!.payment_info.find(item => item.chain === latest.relayr!.paymentChainId)!;
         return { hash, to: selected.target, from: ACCOUNT, input: selected.calldata, value: BigInt(selected.amount), chainId, blockHash: BLOCK_HASH, blockNumber: 20n };
       }
       const call = latest.calls.find(call => call.chainId === chainId)!;
@@ -102,7 +124,7 @@ function client(chainId: number) {
       return { hash, to: entry?.target ?? call.to, from: ACCOUNT, input: entry?.data ?? call.data, value: BigInt(entry?.value ?? call.value), chainId, blockHash: BLOCK_HASH, blockNumber: 20n };
     }),
     getTransactionReceipt: vi.fn(async ({ hash }: { hash: Hex }) => hash === PAYMENT_HASH
-      ? { transactionHash: hash, blockHash: BLOCK_HASH, blockNumber: 20n, status: "success" }
+      ? { transactionHash: hash, to: RELAYR_PAYMENT_ADDRESS, blockHash: BLOCK_HASH, blockNumber: 20n, status: "success", logs: [] }
       : deploymentReceipt(chainId)),
   };
 }
@@ -115,7 +137,11 @@ beforeEach(() => {
   sign.mockReset(); send.mockReset(); chooseFunding.mockReset(); review.mockReset();
   vi.useFakeTimers();
   vi.setSystemTime(NOW * 1_000);
-  storage.clear(); events.length = 0;
+  storage.clear(); events.length = 0; posted.clear();
+  posts = []; bundleIds = []; postResponse = null;
+  recordState = (_uuid, chain) => mined ? { state: "Success", data: { hash: destinationHash(chain) } } : { state: "Pending" };
+  vi.stubGlobal("fetch", relayrFetch);
+  mocks.runtime.mockResolvedValue(undefined);
   connectedChain = 1; connectedAccount = ACCOUNT; smartAccount = false; mined = false;
   offers = [payment(1), payment(10)];
   localStorageMock.getItem.mockImplementation(key => storage.get(key) ?? null);
@@ -133,14 +159,6 @@ beforeEach(() => {
   send.mockImplementation(async () => { events.push("pay"); mined = true; return latest.transport === "direct" ? destinationHash(connectedChain) : PAYMENT_HASH; });
   review.mockImplementation(async ({ kind }) => { events.push(`review:${kind}`); return true; });
   chooseFunding.mockImplementation(async () => { events.push("choose"); return 1; });
-  mocks.post.mockImplementation(async (entries: RelayrEntry[], onPublished: (quote: RelayrUnboundQuote) => void) => {
-    events.push("quote");
-    onPublished({ bundle_uuid: BUNDLE, payment_info: snapshot(offers), tx_uuids: entries.map(entry => txUuid(entry.chain)) });
-    return bound(entries);
-  });
-  mocks.bind.mockImplementation(async (_unbound: RelayrUnboundQuote, entries: RelayrEntry[]) => bound(entries));
-  mocks.status.mockImplementation(async (quote: RelayrQuote) => quote.expectedTransactions.map(binding => ({ tx_uuid: binding.txUuid, request: binding.entry,
-    status: mined ? { state: "Confirmed", data: { hash: destinationHash(binding.chain) } } : { state: "Pending" } })));
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
@@ -150,7 +168,8 @@ describe("machine Relayr deployment", () => {
     chooseFunding.mockImplementation(async options => { events.push("choose"); expect(options.map(option => option.chainId)).toEqual([10, 8453]); expect(options[0].label).toContain("0.001 ETH"); return 8453; });
     const completed = await run();
     expect(events).toEqual(["review:authorization", "sign", "review:authorization", "sign", "quote", "choose", "review:payment", "pay"]);
-    expect(completed).toMatchObject({ phase: "done", transport: "relayr", relayr: { paymentConfirmed: true } });
+    expect(machineDeploymentDone(completed)).toBe(true);
+    expect(completed).toMatchObject({ transport: "relayr", relayr: { phase: "executing", paymentChainId: 8453, payments: [{ hash: PAYMENT_HASH, chainId: 8453 }] } });
     expect(completed.steps.map(step => step.projectId)).toEqual(["101", "110"]);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][0]).toMatchObject({ chain: { id: 8453 }, to: RELAYR_PAYMENT_ADDRESS, value: 1_000_000_000_000_000n });
@@ -164,12 +183,12 @@ describe("machine Relayr deployment", () => {
   });
 
   it("persists all exact signed requests before publishing the bundle", async () => {
-    mocks.post.mockImplementation(async (entries: RelayrEntry[]) => {
+    postResponse = entries => {
       const persisted = loadMachineDeployment()!;
-      expect(persisted.relayr).toMatchObject({ published: true, signed: entries.map(entry => ({ entry })) });
-      expect(persisted.phase).toBe("quoting");
-      throw new Error("response lost");
-    });
+      expect(persisted.relayr).toMatchObject({ phase: "quoting", published: true, signed: entries.map(entry => ({ chainId: entry.chain })) });
+      expect(persisted.relayr!.signed.map(item => item.entry.data)).toEqual(entries.map(entry => entry.data));
+      throw new TypeError("response lost");
+    };
     await expect(run()).rejects.toThrow("response lost");
     expect(chooseFunding).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -181,33 +200,26 @@ describe("machine Relayr deployment", () => {
       expect(options.map(option => option.chainId)).toEqual([84532, 11155111]);
       return 84532;
     });
-    await expect(run({ draft: { ...originalDraft, chainIds: [11155111, 11155420, 84532, 421614] } })).resolves.toMatchObject({ phase: "done" });
+    await expect(run({ draft: { ...originalDraft, chainIds: [11155111, 11155420, 84532, 421614] } })).resolves.toSatisfy(machineDeploymentDone);
     expect(sign).toHaveBeenCalledTimes(4);
-    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(1);
     expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it("never republishes when POST may have succeeded without returning a bundle", async () => {
-    mocks.post.mockRejectedValue(new Error("response lost"));
-    await expect(run()).rejects.toThrow("response lost");
-    await expect(run()).rejects.toThrow("original deployment is unresolved");
-    expect(mocks.post).toHaveBeenCalledTimes(1);
-    expect(sign).toHaveBeenCalledTimes(2);
-    expect(send).not.toHaveBeenCalled();
+  it.each([
+    ["the POST response is lost", () => { throw new TypeError("response lost"); }],
+    ["Relayr's answer cannot be bound", () => json({ bundle_uuid: BUNDLE, payment_info: [], tx_uuids: [] })],
+  ] as const)("quotes the same signatures again while they are live when %s", async (_case, answer) => {
+    postResponse = answer;
+    await expect(run()).rejects.toThrow();
+    expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "quoting", published: true });
     expect(canClearMachineDeployment(loadMachineDeployment()!)).toBe(false);
-  });
-
-  it("recovers a published UUID after binding fails without reposting or resigning", async () => {
-    mocks.post.mockImplementation(async (entries: RelayrEntry[], onPublished: (quote: RelayrUnboundQuote) => void) => {
-      onPublished({ bundle_uuid: BUNDLE, payment_info: offers, tx_uuids: entries.map(entry => txUuid(entry.chain)) });
-      throw new Error("binding unavailable");
-    });
-    await expect(run()).rejects.toThrow("binding unavailable");
-    expect(loadMachineDeployment()?.relayr?.unboundQuote?.bundle_uuid).toBe(BUNDLE);
-    await expect(run()).resolves.toMatchObject({ phase: "done" });
-    expect(mocks.bind).toHaveBeenCalledTimes(1);
-    expect(mocks.post).toHaveBeenCalledTimes(1);
+    postResponse = null;
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toEqual(posts[0]);
     expect(sign).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it.each(["authorization", "payment"] as const)("cancels %s review before the corresponding wallet action", async kind => {
@@ -225,8 +237,35 @@ describe("machine Relayr deployment", () => {
     expect(send).not.toHaveBeenCalled();
     await run({ draft: { ...snapshot(originalDraft), name: "Changed", chainIds: [8453] }, manual: "Changed manual" });
     expect(latest).toMatchObject({ draft: saved.draft, salt: saved.salt, startsAtOrAfter: saved.startsAtOrAfter, manual: saved.manual, calls: saved.calls });
-    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(1);
     expect(sign).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("resumes a saved v1 deployment from its payment flags, whatever its saved phase says", async () => {
+    chooseFunding.mockResolvedValueOnce(null);
+    await expect(run()).rejects.toThrow("payment canceled");
+    const saved = JSON.parse(storage.get("plugin-machine-deployment-v1")!);
+    const quote = { ...saved.relayr.quote, transactions: undefined };
+    storage.set("plugin-machine-deployment-v1", JSON.stringify({ ...saved, phase: "quoted", relayr: {
+      signed: saved.relayr.signed, published: true, quote, records: [], payment: quote.payment_info[0], paymentStarted: true, paymentHash: PAYMENT_HASH,
+    } }));
+    expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "submitted", paymentChainId: 1, paymentHash: PAYMENT_HASH });
+    expect(canClearMachineDeployment(loadMachineDeployment()!)).toBe(false);
+    mined = true;
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(send).not.toHaveBeenCalled();
+    expect(chooseFunding).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(1);
+  });
+
+  it("keeps watching a slow but healthy bundle past a minute without a manual resume", async () => {
+    let reads = 0;
+    recordState = (_uuid, chain) => mined && ++reads > 60 ? { state: "Success", data: { hash: destinationHash(chain) } } : { state: "Pending" };
+    const deployed = run();
+    deployed.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(120_000);
+    await expect(deployed).resolves.toSatisfy(machineDeploymentDone);
     expect(send).toHaveBeenCalledTimes(1);
   });
 
@@ -256,18 +295,19 @@ describe("machine Relayr deployment", () => {
 
   it("pins payment state before sending and never pays again after an unknown no-hash result", async () => {
     send.mockImplementation(async () => {
-      expect(loadMachineDeployment()?.relayr).toMatchObject({ paymentStarted: true, payment: payment(1) });
+      expect(loadMachineDeployment()?.relayr).toMatchObject({ phase: "payment-signing", paymentChainId: 1 });
       throw new Error("wallet disconnected after send");
     });
     await expect(run()).rejects.toThrow("without returning its hash");
-    await expect(run()).rejects.toThrow("original deployment is unresolved");
+    await expect(run()).rejects.toMatchObject({ name: "SavedAttemptShownError", message: expect.stringContaining("without returning its hash") });
+    expect(canClearMachineDeployment(loadMachineDeployment()!)).toBe(false);
     expect(send).toHaveBeenCalledTimes(1);
     expect(chooseFunding).toHaveBeenCalledTimes(1);
-    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(1);
   });
 
   it.each<[string, () => void, Parameters<typeof run>[0]]>([
-    ["signature", () => sign.mockRejectedValueOnce(new Error("User denied", { cause: { name: "UserRejectedRequestError" } })), {}],
+    ["signature", () => sign.mockRejectedValueOnce(new Error("User denied", { cause: { name: "UserRejectedRequestError", code: 4001 } })), {}],
     ["direct transaction", () => send.mockRejectedValueOnce(Object.assign(new Error("User rejected the request."), { code: 4001 })), { draft: { ...originalDraft, chainIds: [1] } }],
   ])("shows one readable line when the %s is rejected in the wallet", async (_kind, reject, overrides) => {
     reject();
@@ -275,22 +315,92 @@ describe("machine Relayr deployment", () => {
     expect(loadMachineDeployment()!.steps.every(step => step.status === "pending")).toBe(true);
   });
 
+  it("keeps the wallet's own error when a rejection carries no 4001 code", async () => {
+    sign.mockRejectedValueOnce(new Error("User denied", { cause: { name: "UserRejectedRequestError" } }));
+    await expect(run()).rejects.toThrow(/^User denied$/);
+  });
+
   it("allows review of the same quote after an explicit wallet rejection", async () => {
     send.mockRejectedValueOnce(Object.assign(new Error("User rejected the request.\n\nVersion: viem@2"), { code: 4001 }));
     await expect(run()).rejects.toThrow(/^You canceled in your wallet\.$/);
-    expect(loadMachineDeployment()?.relayr?.paymentStarted).toBeUndefined();
-    await expect(run()).resolves.toMatchObject({ phase: "done" });
-    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(loadMachineDeployment()?.relayr).toMatchObject({ phase: "quoted" });
+    expect(loadMachineDeployment()?.relayr?.paymentChainId).toBeUndefined();
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(posts).toHaveLength(1);
     expect(sign).toHaveBeenCalledTimes(2);
     expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("pays a quote again after a sped-up payment's replacement reverts, remembering only the mined replacement", async () => {
+    const dropped = `0x${"a1".repeat(32)}` as Hex;
+    const replacement = `0x${"a2".repeat(32)}` as Hex;
+    send.mockImplementation(async () => {
+      if (send.mock.calls.length === 1) return dropped;
+      mined = true;
+      return PAYMENT_HASH;
+    });
+    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+      const rpc = client(chainId);
+      const transaction = rpc.getTransaction.getMockImplementation()!;
+      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+      rpc.waitForTransactionReceipt.mockImplementation((async ({ hash }: { hash: Hex }) => (hash === dropped
+        ? { transactionHash: replacement, status: "reverted" } : { transactionHash: hash, status: "success" })) as never);
+      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        if (hash === dropped) throw new Error("transaction not found");
+        return { ...await transaction({ hash: hash === replacement ? PAYMENT_HASH : hash }), hash };
+      });
+      rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        if (hash === dropped) throw new Error("receipt not found");
+        const found = await receipt({ hash: hash === replacement ? PAYMENT_HASH : hash });
+        return hash === replacement ? { ...found, transactionHash: hash, status: "reverted" } : found;
+      });
+      return rpc;
+    });
+    await expect(run()).rejects.toThrow();
+    expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "payment-reverted", payments: [{ hash: replacement }] });
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(posts).toHaveLength(1);
+  });
+
+  it.each([
+    ["while its destination requests are live", false],
+    ["once every request expired but the payment chain can't prove its deadline", true],
+  ])("lets the user check a payment sent without a hash and resolve the deployment %s", async (_case, expired) => {
+    const requestsDead = NOW + 2.5 * 60 * 60;
+    offers = [payment(1), payment(8453)];
+    chooseFunding.mockResolvedValue(8453);
+    send.mockRejectedValueOnce(new Error("wallet disconnected after send"));
+    await expect(run()).rejects.toThrow("without returning its hash");
+    if (expired) {
+      vi.setSystemTime(requestsDead * 1_000);
+      mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+        const rpc = client(chainId);
+        if (chainId === 8453) rpc.getBlock.mockRejectedValue(new Error("finalized block unavailable"));
+        else rpc.getBlock.mockResolvedValue({ hash: BLOCK_HASH, number: 20n, timestamp: BigInt(requestsDead) });
+        return rpc;
+      });
+    }
+    const shown = await run().then(() => null, (error: unknown) => error as Error & { attempt?: SavedAttempt<unknown> });
+    expect(shown?.name).toBe("SavedAttemptShownError");
+    expect(canClearMachineDeployment(loadMachineDeployment()!)).toBe(false);
+    const attempt = shown!.attempt!;
+    const outcome = await savedAttempts.recover(attempt, client(attempt.chainId) as unknown as WriteHoldClient);
+    expect(outcome.status).toBe("check");
+    if (outcome.status !== "check") return;
+    await expect(savedAttempts.retire(attempt, { by: "check", outcome })).resolves.toMatchObject({ retired: true });
+    await expect(run()).rejects.toThrow("may already have run");
+    expect(canClearMachineDeployment(loadMachineDeployment()!)).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(1);
   });
 
   it("checks a no-hash payment's original destination transactions without paying again", async () => {
     send.mockImplementation(async () => { mined = true; throw new Error("wallet response lost"); });
     await expect(run()).rejects.toThrow("without returning its hash");
-    await expect(run()).resolves.toMatchObject({ phase: "done" });
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(1);
     expect(chooseFunding).toHaveBeenCalledTimes(1);
   });
 
@@ -310,7 +420,7 @@ describe("machine Relayr deployment", () => {
   });
 
   it("rejects a payment runtime mismatch before review or wallet send", async () => {
-    getCode.mockImplementation(async ({ address }: { address: Address }) => address.toLowerCase() === ACCOUNT.toLowerCase() ? "0x" : address.toLowerCase() === RELAYR_PAYMENT_ADDRESS ? "0x6001" : "0x6000");
+    mocks.runtime.mockRejectedValueOnce(new Error("The Relayr payment contract does not match its verified runtime."));
     await expect(run()).rejects.toThrow("verified runtime");
     expect(review.mock.calls.some(([request]) => request.kind === "payment")).toBe(false);
     expect(send).not.toHaveBeenCalled();
@@ -327,7 +437,7 @@ describe("machine Relayr deployment", () => {
     await expect(run()).rejects.toThrow("canceled");
     connectedAccount = OTHER;
     await expect(run({ account: OTHER })).rejects.toThrow("wallet that started");
-    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(1);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -336,7 +446,7 @@ describe("machine Relayr deployment", () => {
     if (failure === "blocked") localStorageMock.getItem.mockImplementation(() => { throw new Error("blocked"); });
     if (failure === "silent write loss") localStorageMock.setItem.mockImplementation(() => {});
     await expect(run()).rejects.toThrow(/saved deployment|browser storage|recovery/u);
-    expect(sign).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled(); expect(mocks.post).not.toHaveBeenCalled();
+    expect(sign).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled(); expect(posts).toHaveLength(0);
   });
 
   it("rejects tampered saved calls before another wallet action", async () => {
@@ -348,7 +458,7 @@ describe("machine Relayr deployment", () => {
     await expect(run()).rejects.toThrow("saved deployment is invalid");
     expect(sign).toHaveBeenCalledTimes(2);
     expect(send).not.toHaveBeenCalled();
-    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(1);
   });
 
   it("does not open a wallet when another tab holds the deployment lock", async () => {
@@ -365,7 +475,7 @@ describe("machine Relayr deployment", () => {
     await expect(run()).rejects.toThrow("without returning its hash");
     expect(loadMachineDeployment()?.salt).toBe(saved.salt);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(sign).not.toHaveBeenCalled(); expect(mocks.post).not.toHaveBeenCalled();
+    expect(sign).not.toHaveBeenCalled(); expect(posts).toHaveLength(0);
   });
 
   it("waits for a direct revert to finalize before retrying the identical pinned deployment", async () => {
@@ -390,7 +500,7 @@ describe("machine Relayr deployment", () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(latest.steps[0].hash).toBe(destinationHash(1));
     finalizedHeight = 20n;
-    await expect(run()).resolves.toMatchObject({ phase: "done" });
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[1][0]).toEqual(send.mock.calls[0][0]);
     expect(latest).toMatchObject({ salt: saved.salt, calls: saved.calls, startsAtOrAfter: saved.startsAtOrAfter });
@@ -400,10 +510,10 @@ describe("machine Relayr deployment", () => {
     send.mockRejectedValue(new Error("wallet response lost"));
     await expect(run({ draft: { ...originalDraft, chainIds: [1] } })).rejects.toThrow("without returning its hash");
     expect(loadMachineDeployment()?.steps[0].hash).toBeUndefined();
-    await expect(run({ executionHashes: { 1: destinationHash(1) } })).resolves.toMatchObject({ phase: "done" });
+    await expect(run({ executionHashes: { 1: destinationHash(1) } })).resolves.toSatisfy(machineDeploymentDone);
     expect(latest.steps[0]).toMatchObject({ status: "done", hash: destinationHash(1), projectId: "101" });
     expect(send).toHaveBeenCalledTimes(1);
-    expect(mocks.post).not.toHaveBeenCalled();
+    expect(posts).toHaveLength(0);
   });
 
   it("rejects bad or reverted supplied execution hashes without replacing the original proposal or resending", async () => {
@@ -451,129 +561,249 @@ describe("machine Relayr deployment", () => {
       return rpc;
     });
     await expect(run({ draft: { ...originalDraft, chainIds: [1] } })).rejects.toThrow("proposal has not executed");
-    await expect(run({ executionHashes: { 1: destinationHash(1) } })).resolves.toMatchObject({ phase: "done", transport: "direct" });
+    await expect(run({ executionHashes: { 1: destinationHash(1) } })).resolves.toSatisfy(machineDeploymentDone);
+    expect(latest.transport).toBe("direct");
     expect(latest.steps[0]).toMatchObject({ hash: destinationHash(1), reportedHash, projectId: "101" });
     expect(send).toHaveBeenCalledTimes(1);
     expect(sign).not.toHaveBeenCalled();
   });
 
-  it("retries an unknown unpaid POST only after finalized expiration and unused original nonces", async () => {
-    let finalizedTimestamp = NOW;
-    let finalizedNonce = 0n;
+  describe("once the published requests are dead at a finalized block", () => {
     const later = NOW + 48 * 60 * 60;
-    mocks.post.mockRejectedValueOnce(new Error("POST response lost"));
-    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
-      const rpc = client(chainId);
-      const read = rpc.readContract.getMockImplementation()!;
-      rpc.readContract.mockImplementation(async args => args.functionName === "nonces" && "blockNumber" in args ? finalizedNonce : read(args));
-      rpc.getBlock.mockResolvedValue({ hash: BLOCK_HASH, number: 20n, timestamp: BigInt(finalizedTimestamp) });
-      return rpc;
+    let finalizedNonce: bigint;
+    beforeEach(() => {
+      finalizedNonce = 0n;
+      postResponse = () => { throw new TypeError("response lost"); };
+      mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+        const rpc = client(chainId);
+        const read = rpc.readContract.getMockImplementation()!;
+        rpc.readContract.mockImplementation(async args => args.functionName === "nonces" && "blockNumber" in args ? finalizedNonce : read(args));
+        rpc.getBlock.mockResolvedValue({ hash: BLOCK_HASH, number: 20n, timestamp: BigInt(Math.floor(Date.now() / 1_000)) });
+        return rpc;
+      });
     });
-    await expect(run()).rejects.toThrow("POST response lost");
-    const original = snapshot(loadMachineDeployment()!);
-    vi.setSystemTime(later * 1_000);
-    await expect(run()).rejects.toThrow("original deployment is unresolved");
-    finalizedTimestamp = later;
-    finalizedNonce = 1n;
-    await expect(run()).rejects.toThrow("original deployment is unresolved");
-    expect(sign).toHaveBeenCalledTimes(2);
-    expect(mocks.post).toHaveBeenCalledTimes(1);
-    expect(send).not.toHaveBeenCalled();
-    finalizedNonce = 0n;
-    offers = [payment(1, BUNDLE, later + 600)];
-    await expect(run()).resolves.toMatchObject({ phase: "done" });
-    expect(sign).toHaveBeenCalledTimes(4);
-    expect(sign.mock.calls.slice(2).map(([args]) => args.message.nonce)).toEqual([0n, 0n]);
-    expect(mocks.post).toHaveBeenCalledTimes(2);
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(latest).toMatchObject({ salt: original.salt, calls: original.calls, startsAtOrAfter: original.startsAtOrAfter });
-    expect(latest.relayr?.history).toMatchObject([{ published: true, signed: original.relayr!.signed }]);
+
+    it("abandons without signing again when a nonce moved", async () => {
+      await expect(run()).rejects.toThrow("response lost");
+      vi.setSystemTime(later * 1_000);
+      finalizedNonce = 1n;
+      await expect(run()).rejects.toThrow("may already have run");
+      expect(loadMachineDeployment()!.steps.every(step => step.status === "failed")).toBe(true);
+      expect(canClearMachineDeployment(loadMachineDeployment()!)).toBe(true);
+      expect(sign).toHaveBeenCalledTimes(2);
+      expect(posts).toHaveLength(1);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it("signs again at the saved nonces when every request expired unused", async () => {
+      await expect(run()).rejects.toThrow("response lost");
+      const original = snapshot(loadMachineDeployment()!);
+      vi.setSystemTime(later * 1_000);
+      await expect(run()).rejects.toThrow("expired");
+      expect(posts).toHaveLength(1);
+      postResponse = null;
+      offers = [payment(1, BUNDLE, later + 600)];
+      await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+      expect(sign).toHaveBeenCalledTimes(4);
+      expect(sign.mock.calls.slice(2).map(([args]) => args.message.nonce)).toEqual([0n, 0n]);
+      expect(posts).toHaveLength(2);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(latest).toMatchObject({ salt: original.salt, calls: original.calls, startsAtOrAfter: original.startsAtOrAfter });
+      expect(latest.relayr?.superseded).toEqual(original.relayr!.signed);
+    });
   });
 
-  it("retries only the finalized failed Relayr destination after the original payment finalizes", async () => {
+  it("signs only the destination that reverted onchain again at its saved nonce", async () => {
     const nextBundle = "87654321-1234-4321-8123-123456789abc";
     const nextPaymentHash = `0x${"ef".repeat(32)}` as Hex;
     const nextDestinationHash = `0x${"ed".repeat(32)}` as Hex;
-    let paymentFinalizedHeight = 19n;
-    let bundleCount = 0;
-    const paidBundles = new Set<string>();
-    const knownQuotes = new Map<string, RelayrQuote>();
-    const paymentTransactions = new Map<Hex, { payment: RelayrPayment; chainId: number }>();
-    const destinationTransactions = new Map<Hex, RelayrEntry>();
-    mocks.post.mockImplementation(async (entries: RelayrEntry[], onPublished: (quote: RelayrUnboundQuote) => void) => {
-      const bundle = bundleCount++ === 0 ? BUNDLE : nextBundle;
-      const quotedPayments = [payment(1, bundle)];
-      const quote = { ...bound(entries, quotedPayments), bundle_uuid: bundle };
-      knownQuotes.set(bundle, snapshot(quote));
-      for (const entry of entries) destinationTransactions.set(bundle === BUNDLE ? destinationHash(entry.chain) : nextDestinationHash, snapshot(entry));
-      onPublished({ bundle_uuid: bundle, payment_info: quotedPayments, tx_uuids: quote.expectedTransactions.map(item => item.txUuid) });
-      return quote;
-    });
-    mocks.status.mockImplementation(async (quote: RelayrQuote) => quote.expectedTransactions.map(binding => ({
-      tx_uuid: binding.txUuid, request: binding.entry,
-      status: paidBundles.has(quote.bundle_uuid) ? { state: "Confirmed", data: { hash: quote.bundle_uuid === BUNDLE ? destinationHash(binding.chain) : nextDestinationHash } } : { state: "Pending" },
-    })));
-    send.mockImplementation(async () => {
-      const journal = loadMachineDeployment()!.relayr!;
-      const hash = journal.quote!.bundle_uuid === BUNDLE ? PAYMENT_HASH : nextPaymentHash;
-      paidBundles.add(journal.quote!.bundle_uuid);
-      paymentTransactions.set(hash, { payment: snapshot(journal.payment!), chainId: connectedChain });
-      return hash;
-    });
+    bundleIds = [BUNDLE, nextBundle];
+    recordState = (uuid, chain) => !mined ? { state: "Pending" } : { state: "Success", data: { hash: uuid === BUNDLE ? destinationHash(chain) : nextDestinationHash } };
+    send.mockImplementation(async () => { mined = true; return send.mock.calls.length === 1 ? PAYMENT_HASH : nextPaymentHash; });
     mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
       const rpc = client(chainId);
-      rpc.getBlock.mockImplementation(async (...input: unknown[]) => {
-        const query = input[0] as { blockTag?: string };
-        return { hash: BLOCK_HASH, number: query.blockTag === "finalized" && chainId === 1 ? paymentFinalizedHeight : 20n, timestamp: BigInt(NOW) };
-      });
-      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => {
-        const funding = paymentTransactions.get(hash);
-        const entry = destinationTransactions.get(hash);
-        if (!funding && !entry) throw new Error("Unknown fixture transaction");
-        return { hash, to: funding?.payment.target ?? entry!.target, from: ACCOUNT,
-          input: funding?.payment.calldata ?? entry!.data, value: BigInt(funding?.payment.amount ?? entry!.value),
-          chainId: funding?.chainId ?? entry!.chain, blockHash: BLOCK_HASH, blockNumber: 20n };
-      });
+      const transaction = rpc.getTransaction.getMockImplementation()!;
+      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => ({ ...await transaction({ hash: hash === nextPaymentHash ? PAYMENT_HASH : hash }), hash }));
       rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => {
-        if (paymentTransactions.has(hash)) return { transactionHash: hash, blockHash: BLOCK_HASH, blockNumber: 20n, status: "success" };
-        const receipt = deploymentReceipt(chainId);
-        return { ...receipt, transactionHash: hash,
-          ...(hash === destinationHash(10) ? { status: "reverted", logs: [] } : {}) };
+        const found = await receipt({ hash: hash === nextPaymentHash ? PAYMENT_HASH : hash });
+        return { ...found, transactionHash: hash, ...(hash === destinationHash(10) ? { status: "reverted", logs: [] } : {}) };
       });
       return rpc;
     });
 
-    await expect(run()).rejects.toThrow();
+    await expect(run()).rejects.toThrow("did not deploy");
     const original = snapshot(loadMachineDeployment()!);
-    expect(original.steps.map(step => step.status)).toEqual(["done", "failed"]);
-    expect(original.relayr?.paymentHash).toBe(PAYMENT_HASH);
+    expect(original.steps.map(step => step.status)).toEqual(["done", "pending"]);
     expect(send).toHaveBeenCalledTimes(1);
 
-    await expect(run()).rejects.toThrow();
-    expect(sign).toHaveBeenCalledTimes(2);
-    expect(mocks.post).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledTimes(1);
-
-    paymentFinalizedHeight = 20n;
-    await expect(run()).resolves.toMatchObject({ phase: "done" });
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
     expect(sign).toHaveBeenCalledTimes(3);
     expect(sign.mock.calls[2][0].message.nonce).toBe(0n);
     expect(sign.mock.calls[2][0].domain.chainId).toBe(10n);
-    expect(mocks.post).toHaveBeenCalledTimes(2);
-    expect(mocks.post.mock.calls[1][0].map((entry: RelayrEntry) => entry.chain)).toEqual([10]);
+    expect(posts.map(entries => entries.map(entry => entry.chain))).toEqual([[1, 10], [10]]);
     expect(chooseFunding).toHaveBeenCalledTimes(2);
     expect(send).toHaveBeenCalledTimes(2);
     expect(latest).toMatchObject({ salt: original.salt, calls: original.calls, startsAtOrAfter: original.startsAtOrAfter });
     expect(latest.steps[0]).toEqual(original.steps[0]);
-    expect(latest.relayr?.history).toMatchObject([{ paymentHash: PAYMENT_HASH, quote: knownQuotes.get(BUNDLE), signed: original.relayr!.signed }]);
+    expect(latest.relayr?.superseded?.map(item => item.chainId)).toEqual([10]);
     expect(latest.relayr?.quote?.bundle_uuid).toBe(nextBundle);
+  });
+
+  it("retries a reverted destination only once the kept success, the revert and the payment are finalized", async () => {
+    const nextBundle = "87654321-1234-4321-8123-123456789abc";
+    const nextPaymentHash = `0x${"ef".repeat(32)}` as Hex;
+    const nextDestinationHash = `0x${"ed".repeat(32)}` as Hex;
+    let finalizedHeight = 19n;
+    let vanished = false;
+    bundleIds = [BUNDLE, nextBundle];
+    recordState = (uuid, chain) => !mined ? { state: "Pending" } : { state: "Success", data: { hash: uuid === BUNDLE ? destinationHash(chain) : nextDestinationHash } };
+    send.mockImplementation(async () => { mined = true; return send.mock.calls.length === 1 ? PAYMENT_HASH : nextPaymentHash; });
+    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+      const rpc = client(chainId);
+      const transaction = rpc.getTransaction.getMockImplementation()!;
+      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+      rpc.getBlock.mockImplementation(async (...input: unknown[]) => ({ hash: BLOCK_HASH, timestamp: BigInt(NOW),
+        number: (input[0] as { blockTag?: string }).blockTag === "finalized" ? finalizedHeight : 20n }));
+      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => ({ ...await transaction({ hash: hash === nextPaymentHash ? PAYMENT_HASH : hash }), hash }));
+      rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        if (vanished && chainId === 1 && hash === destinationHash(1)) throw new Error("receipt not found");
+        const found = await receipt({ hash: hash === nextPaymentHash ? PAYMENT_HASH : hash });
+        return { ...found, transactionHash: hash, ...(hash === destinationHash(10) ? { status: "reverted", logs: [] } : {}) };
+      });
+      return rpc;
+    });
+
+    await expect(run()).rejects.toThrow("not finalized");
+    expect(loadMachineDeployment()!.steps.map(step => step.status)).toEqual(["done", "failed"]);
+    expect(loadMachineDeployment()!.relayr?.superseded).toBeUndefined();
+    // The kept success's block reorgs away: retrying the other chain must not report the machine deployed.
+    vanished = true;
+    await expect(run()).rejects.toThrow("receipt not found");
+    expect(machineDeploymentDone(latest)).toBe(false);
+    expect(sign).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(1);
+
+    vanished = false;
+    finalizedHeight = 20n;
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(sign).toHaveBeenCalledTimes(3);
+    expect(posts.map(entries => entries.map(entry => entry.chain))).toEqual([[1, 10], [10]]);
+  });
+
+  it("proves a destination the relayer replaced under a new hash before reading its moved nonce as a lost run", async () => {
+    const stuck = `0x${"c1".repeat(32)}` as Hex;
+    const replaced = `0x${"c2".repeat(32)}` as Hex;
+    let resumed = false;
+    recordState = (_uuid, chain) => !mined ? { state: "Pending" } : { state: "Success", data: { hash: chain === 1 ? destinationHash(1) : resumed ? replaced : stuck } };
+    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+      const rpc = client(chainId);
+      const read = rpc.readContract.getMockImplementation()!;
+      const transaction = rpc.getTransaction.getMockImplementation()!;
+      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+      rpc.readContract.mockImplementation(async args => args.functionName === "nonces" && "blockNumber" in args && chainId === 10 && resumed ? 1n : read(args));
+      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        if (hash === stuck) throw new Error("transaction not found");
+        return transaction({ hash });
+      });
+      rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        if (hash === stuck) throw new Error("receipt not found");
+        return { ...await receipt({ hash }), transactionHash: hash };
+      });
+      return rpc;
+    });
+    await expect(run()).rejects.toThrow("still being checked");
+    expect(loadMachineDeployment()!.steps).toMatchObject([{ status: "done" }, { status: "uncertain", hash: stuck }]);
+    resumed = true;
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(latest.steps[1]).toMatchObject({ status: "done", hash: replaced, projectId: "110" });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([["", false], [" saved by the build before the SDK journal", true]])("proves a superseded authorization the original relayer landed after a canceled retry payment%s", async (_saved, legacy) => {
+    const nextBundle = "87654321-1234-4321-8123-123456789abc";
+    const late = `0x${"c3".repeat(32)}` as Hex;
+    let landed = false;
+    bundleIds = [BUNDLE, nextBundle];
+    recordState = (uuid, chain) => !mined || uuid !== BUNDLE ? { state: "Pending" } : { state: "Success", data: { hash: chain === 10 && landed ? late : destinationHash(chain) } };
+    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+      const rpc = client(chainId);
+      const read = rpc.readContract.getMockImplementation()!;
+      const transaction = rpc.getTransaction.getMockImplementation()!;
+      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+      rpc.readContract.mockImplementation(async args => args.functionName === "nonces" && "blockNumber" in args && chainId === 10 && landed ? 1n : read(args));
+      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        const found = await transaction({ hash });
+        const old = latest.relayr?.superseded?.find(item => item.chainId === 10);
+        return hash === late && old ? { ...found, input: old.entry.data } : found;
+      });
+      rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => ({ ...await receipt({ hash }), transactionHash: hash,
+        ...(hash === destinationHash(10) ? { status: "reverted", logs: [] } : {}) }));
+      return rpc;
+    });
+    await expect(run()).rejects.toThrow("did not deploy");
+    chooseFunding.mockResolvedValueOnce(null);
+    await expect(run()).rejects.toThrow("payment canceled");
+    expect(sign).toHaveBeenCalledTimes(3);
+    expect(posts).toHaveLength(2);
+    if (legacy) {
+      // The earlier build kept the replaced attempt, with its quote and records, in history.
+      const saved = JSON.parse(storage.get("plugin-machine-deployment-v1")!) as MachineDeploySession;
+      const [replaced] = saved.relayrSuperseded!;
+      const { relayr, ...rest } = saved;
+      delete rest.relayrSuperseded;
+      storage.set("plugin-machine-deployment-v1", JSON.stringify({ ...rest, phase: "quoted", relayr: {
+        signed: relayr!.signed, published: true, quote: relayr!.quote, records: [], retryNonces: relayr!.retryNonces,
+        history: [{ signed: relayr!.superseded, published: true, previousQuotes: [replaced.quote], records: replaced.records,
+          payment: replaced.quote.payment_info[0], paymentHash: PAYMENT_HASH, paymentStarted: true, paymentConfirmed: true }],
+      } }));
+      expect(loadMachineDeployment()!.relayrSuperseded?.map(item => item.quote.bundle_uuid)).toEqual([BUNDLE]);
+    }
+    landed = true;
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(latest.steps[1]).toMatchObject({ status: "done", hash: late, projectId: "110" });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a paid retry pending rather than retrying it again over its superseded revert", async () => {
+    const nextBundle = "87654321-1234-4321-8123-123456789abc";
+    const nextPaymentHash = `0x${"ef".repeat(32)}` as Hex;
+    bundleIds = [BUNDLE, nextBundle];
+    recordState = (uuid, chain) => !mined || uuid !== BUNDLE ? { state: "Pending" } : { state: "Success", data: { hash: destinationHash(chain) } };
+    send.mockImplementation(async () => { mined = true; return send.mock.calls.length === 1 ? PAYMENT_HASH : nextPaymentHash; });
+    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+      const rpc = client(chainId);
+      const transaction = rpc.getTransaction.getMockImplementation()!;
+      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => ({ ...await transaction({ hash: hash === nextPaymentHash ? PAYMENT_HASH : hash }), hash }));
+      rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => ({ ...await receipt({ hash: hash === nextPaymentHash ? PAYMENT_HASH : hash }),
+        transactionHash: hash, ...(hash === destinationHash(10) ? { status: "reverted", logs: [] } : {}) }));
+      return rpc;
+    });
+    await expect(run()).rejects.toThrow("did not deploy");
+    const retried = run();
+    retried.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(600_000);
+    await expect(retried).rejects.toThrow("still being checked");
+    expect(latest.relayr).toMatchObject({ phase: "executing", quote: { bundle_uuid: nextBundle } });
+    expect(latest.steps[1].status).toBe("uncertain");
+    expect(sign).toHaveBeenCalledTimes(3);
+  });
+
+  it("deploys and clears without Web Locks, on the SDK's fallback lock", async () => {
+    vi.stubGlobal("navigator", {});
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    await expect(clearMachineDeployment()).resolves.toBeUndefined();
+    expect(loadMachineDeployment()).toBeNull();
   });
 
   it("keeps deployed smart-account wallets on the direct path", async () => {
     smartAccount = true;
-    await expect(run()).resolves.toMatchObject({ phase: "done", transport: "direct" });
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(latest.transport).toBe("direct");
     expect(send).toHaveBeenCalledTimes(2);
-    expect(sign).not.toHaveBeenCalled(); expect(mocks.post).not.toHaveBeenCalled(); expect(chooseFunding).not.toHaveBeenCalled();
+    expect(sign).not.toHaveBeenCalled(); expect(posts).toHaveLength(0); expect(chooseFunding).not.toHaveBeenCalled();
   });
 
   it("requires the canonical Create event plus the exact deployed configuration and caller", async () => {

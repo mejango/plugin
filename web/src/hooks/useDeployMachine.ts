@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount, useConfig } from "wagmi";
 import type { Hex } from "viem";
+import type { SavedAttempt } from "@bananapus/nana-sdk-core/review";
 import type { MachineDeploySession } from "@/lib/plugin/deploy-session";
 import type { MachineDeployReview } from "@/lib/plugin/relayr-deploy";
 import type { MachineDraft } from "@/lib/plugin/types";
@@ -21,12 +22,14 @@ export function useDeployMachine() {
   const config = useConfig();
   const { address, isConnected } = useAccount();
   const [restore, setRestore] = useState<{ status: "restoring" } | { status: "blocked"; error: string } | { status: "ready" }>({ status: "restoring" });
-  // canClear is computed with the session it describes; deploy-session stays a lazy chunk.
-  const [saved, setSaved] = useState<{ session: MachineDeploySession; canClear: boolean } | null>(null);
+  // canClear and done are computed with the session they describe; deploy-session stays a lazy chunk.
+  const [saved, setSaved] = useState<{ session: MachineDeploySession; canClear: boolean; done: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [approval, setApproval] = useState<DeploymentApproval | null>(null);
+  // A payment the engine can't authenticate: the SDK's one check, shown only in that failure.
+  const [recovery, setRecovery] = useState<SavedAttempt<unknown> | null>(null);
   const mounted = useRef(false);
   const running = useRef(false);
   const nextPromptId = useRef(0);
@@ -35,10 +38,10 @@ export function useDeployMachine() {
   useEffect(() => {
     mounted.current = true;
     let cancelled = false;
-    void import("@/lib/plugin/deploy-session").then(({ loadMachineDeployment, canClearMachineDeployment }) => {
+    void import("@/lib/plugin/deploy-session").then(({ loadMachineDeployment, canClearMachineDeployment, machineDeploymentDone }) => {
       if (cancelled) return;
       const session = loadMachineDeployment();
-      setSaved(session && { session, canClear: canClearMachineDeployment(session) });
+      setSaved(session && { session, canClear: canClearMachineDeployment(session), done: machineDeploymentDone(session) });
       setRestore({ status: "ready" });
     }).catch(error => {
       if (!cancelled) setRestore({ status: "blocked", error: messageOf(error) });
@@ -79,14 +82,14 @@ export function useDeployMachine() {
     setBusy(true);
     setError(null);
     try {
-      const [{ runMachineDeployment }, { canClearMachineDeployment }] = await Promise.all([
+      const [{ runMachineDeployment }, { canClearMachineDeployment, machineDeploymentDone }] = await Promise.all([
         import("@/lib/plugin/relayr-deploy"), import("@/lib/plugin/deploy-session"),
       ]);
       await runMachineDeployment({
         config, account: address, draft, manual, executionHashes,
         onSession: next => {
           if (!mounted.current) return;
-          setSaved({ session: structuredClone(next), canClear: canClearMachineDeployment(next) });
+          setSaved({ session: structuredClone(next), canClear: canClearMachineDeployment(next), done: machineDeploymentDone(next) });
         },
         onProgress: value => { if (mounted.current) setProgress(value); },
         chooseFunding: async options => {
@@ -95,13 +98,28 @@ export function useDeployMachine() {
         },
         review: async request => (await ask({ kind: "review", request })) === true,
       });
+      if (mounted.current) setRecovery(null);
     } catch (error) {
-      if (mounted.current) setError(messageOf(error));
+      if (!mounted.current) return;
+      if (error instanceof Error && error.name === "SavedAttemptShownError" && "attempt" in error) setRecovery((error as Error & { attempt: SavedAttempt<unknown> }).attempt);
+      setError(messageOf(error));
     } finally {
       running.current = false;
       if (mounted.current) { setBusy(false); setProgress(null); }
     }
   }, [address, ask, config, isConnected, restoring, storageError]);
+
+  /** The SDK retired the shown attempt: the resumed deployment reads it and becomes cancellable. */
+  const onRecoveryRetired = useCallback(() => {
+    setRecovery(null);
+    void deploy();
+  }, [deploy]);
+
+  /** A recovered payment settled meanwhile: the resume follows it, never pays again. Nothing left: the notice goes. */
+  const onRecoveryFollow = useCallback((status: "done" | "none") => {
+    setRecovery(null);
+    if (status === "done") void deploy();
+  }, [deploy]);
 
   const clear = useCallback(async () => {
     if (running.current || restoring) return;
@@ -110,7 +128,7 @@ export function useDeployMachine() {
     try {
       const { clearMachineDeployment } = await import("@/lib/plugin/deploy-session");
       await clearMachineDeployment();
-      if (mounted.current) { setSaved(null); setError(null); }
+      if (mounted.current) { setSaved(null); setError(null); setRecovery(null); }
     } catch (error) {
       if (mounted.current) setError(messageOf(error));
     } finally {
@@ -121,5 +139,6 @@ export function useDeployMachine() {
 
   const session = saved?.session ?? null;
   return { deploy, session, steps: session?.steps ?? [], busy, restoring, error: storageError ?? error,
-    storageBlocked: Boolean(storageError), progress, canClear: saved?.canClear ?? false, clear, approval, answerApproval };
+    storageBlocked: Boolean(storageError), progress, canClear: saved?.canClear ?? false, done: saved?.done ?? false, clear, approval, answerApproval,
+    recovery, onRecoveryRetired, onRecoveryFollow };
 }

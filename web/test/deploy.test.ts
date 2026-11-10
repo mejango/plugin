@@ -54,7 +54,7 @@ describe("cash-out tax deployment compatibility",()=>{
     const configured={...savedDraft,chainIds:[...savedDraft.chainIds]};
     const manual="Original manual",pitchUri=buildPitchUri(configured,manual),startsAtOrAfter=1800000000;
     const data=encodeFunctionData({abi:revDeployerAbi,functionName:"deployFor",args:buildDeployArgs(configured,pitchUri,1,salt,startsAtOrAfter,rate)});
-    const prepared:Omit<MachineDeploySession,"fingerprint">={version:1,id:salt,account:draft.address as `0x${string}`,salt,startsAtOrAfter,pitchUri,transport:"direct",phase:"prepared",draft:configured,manual,calls:[{chainId:1,to:deployerFor(1),data,value:"0",label:"Ethereum"}],steps:[{chainId:1,label:"Ethereum",status:"pending"}]};
+    const prepared:Omit<MachineDeploySession,"fingerprint">={version:1,id:salt,account:draft.address as `0x${string}`,salt,startsAtOrAfter,pitchUri,transport:"direct",draft:configured,manual,calls:[{chainId:1,to:deployerFor(1),data,value:"0",label:"Ethereum"}],steps:[{chainId:1,label:"Ethereum",status:"pending"}]};
     const saved={...prepared,fingerprint:machineDeploymentFingerprint(prepared)};
     expect(validateMachineDeployment(saved).calls[0].data).toBe(data);
     expect(deploymentCashOutTaxRate(data)).toBe(rate);

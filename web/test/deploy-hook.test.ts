@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { runMachineDeployment } from "@/lib/plugin/relayr-deploy";
 import { useDeployMachine } from "@/hooks/useDeployMachine";
 
-const mocks = vi.hoisted(() => ({ run: vi.fn(), load: vi.fn(), clear: vi.fn(), canClear: vi.fn() }));
+const mocks = vi.hoisted(() => ({ run: vi.fn(), load: vi.fn(), clear: vi.fn(), canClear: vi.fn(), done: vi.fn() }));
 vi.mock("wagmi", () => ({ useConfig: () => ({}), useAccount: () => ({ address: "0x1111111111111111111111111111111111111111", isConnected: true }) }));
-vi.mock("@/lib/plugin/deploy-session", () => ({ loadMachineDeployment: mocks.load, clearMachineDeployment: mocks.clear, canClearMachineDeployment: mocks.canClear }));
+vi.mock("@/lib/plugin/deploy-session", () => ({ loadMachineDeployment: mocks.load, clearMachineDeployment: mocks.clear, canClearMachineDeployment: mocks.canClear, machineDeploymentDone: mocks.done }));
 vi.mock("@/lib/plugin/relayr-deploy", () => ({ runMachineDeployment: mocks.run }));
 
 type RunArgs = Parameters<typeof runMachineDeployment>[0];
@@ -77,6 +77,39 @@ describe("deployment UI lifecycle", () => {
     expect(api.approval?.kind).toBe("funding");
     await act(async () => { root!.unmount(); root = null; await running; });
     expect(choice).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it("shows the SDK's check only when the engine stops on an unprovable payment, and resumes once it is retired", async () => {
+    const attempt = { chainId: 8453, account: "0x1111111111111111111111111111111111111111", namespaces: ["machine-relayr-payment"] };
+    mocks.run.mockRejectedValueOnce(Object.assign(new Error("Your wallet may have sent the Relayr payment without returning its hash."), { name: "SavedAttemptShownError", attempt }));
+    await mount();
+    expect(api.recovery).toBeNull();
+    await act(async () => { await api.deploy(); });
+    expect(api.recovery).toBe(attempt);
+    mocks.run.mockResolvedValueOnce(undefined);
+    await act(async () => { api.onRecoveryRetired(); await vi.dynamicImportSettled(); });
+    expect(api.recovery).toBeNull();
+    expect(mocks.run).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["a manual resume completes the deployment", "the saved deployment is cleared"])("drops the shown check once %s", async outcome => {
+    const attempt = { chainId: 8453, account: "0x1111111111111111111111111111111111111111", namespaces: ["machine-relayr-payment"] };
+    mocks.run.mockRejectedValueOnce(Object.assign(new Error("Your wallet may have sent the Relayr payment without returning its hash."), { name: "SavedAttemptShownError", attempt }));
+    await mount();
+    await act(async () => { await api.deploy(); });
+    expect(api.recovery).toBe(attempt);
+    mocks.run.mockResolvedValueOnce(undefined);
+    mocks.clear.mockResolvedValueOnce(undefined);
+    await act(async () => { await (outcome.startsWith("a manual") ? api.deploy() : api.clear()); });
+    expect(api.recovery).toBeNull();
+  });
+
+  it("keeps the check hidden for any other deployment error", async () => {
+    mocks.run.mockRejectedValueOnce(new Error("Relayr returned no usable payment options."));
+    await mount();
+    await act(async () => { await api.deploy(); });
+    expect(api.recovery).toBeNull();
+    expect(api.error).toBe("Relayr returned no usable payment options.");
   });
 
   it("blocks new deployment when saved recovery data cannot be read", async () => {

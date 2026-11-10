@@ -1,9 +1,11 @@
 import { revDeployerAbi } from "@bananapus/nana-sdk-core";
+import { isRelayrLaunchPhase, relayrLaunchInFlight, relayrLaunchPaying, relayrPaymentDetails, relayrSentPaymentsSnapshot, sentRelayrPayment,
+  type RelayrLaunchJournal, type RelayrPayment, type RelayrQuote, type RelayrSignedLaunch, type RelayrTransactionRecord } from "@bananapus/nana-sdk-core/review/relayr";
 import { encodeFunctionData, isAddress, isAddressEqual, keccak256, stringToHex, type Address, type Hex } from "viem";
 import { assertSupportedChainId } from "@/lib/chains";
 import { buildDeployArgs, buildPitchUri, deployerFor, deploymentCashOutTaxRate } from "@/lib/plugin/deploy";
 import type { MachineDraft } from "@/lib/plugin/types";
-import type { RelayrEntry, RelayrPayment, RelayrQuote, RelayrTransactionRecord, RelayrUnboundQuote } from "@/lib/plugin/relayr-protocol";
+import { browserLocks } from "@bananapus/nana-sdk-core/review/locks";
 
 const STORAGE_KEY = "plugin-machine-deployment-v1";
 export const MACHINE_DEPLOY_LOCK = "plugin-machine-deployment";
@@ -19,26 +21,12 @@ export type MachineDeployStep = {
   projectId?: string;
   error?: string;
 };
-export type MachineDeployAuthorization = { chainId: number; nonce: string; deadline: number; entry: RelayrEntry };
-export type MachineDeployRelayrAttempt = {
-  signed: MachineDeployAuthorization[];
-  published?: true;
-  unboundQuote?: RelayrUnboundQuote;
-  quote?: RelayrQuote;
-  previousQuotes?: RelayrQuote[];
-  records: RelayrTransactionRecord[];
-  payment?: RelayrPayment;
-  paymentHash?: Hex;
-  paymentStarted?: true;
-  paymentConfirmed?: true;
-};
 export type MachineDeploySession = {
   version: 1;
   id: Hex;
   fingerprint: Hex;
   account: Address;
   transport: "direct" | "relayr";
-  phase: "prepared" | "signing" | "quoting" | "quoted" | "payment-signing" | "executing" | "unresolved" | "done";
   draft: MachineDraft;
   manual: string;
   salt: Hex;
@@ -46,12 +34,90 @@ export type MachineDeploySession = {
   pitchUri: string;
   calls: MachineDeployCall[];
   steps: MachineDeployStep[];
-  relayr?: MachineDeployRelayrAttempt & {
-    abandonable?: true;
-    retryNonces?: Record<number, string>;
-    history?: MachineDeployRelayrAttempt[];
-  };
+  relayr?: RelayrLaunchJournal;
+  /** Quotes a retry replaced, with their records: a superseded authorization they published can still land and prove its chain. */
+  relayrSuperseded?: { quote: RelayrQuote; records: RelayrTransactionRecord[] }[];
 };
+
+export function machineDeploymentDone(session: Pick<MachineDeploySession, "steps">): boolean {
+  return session.steps.every(step => step.status === "done");
+}
+
+/** The journal saved before the SDK's launch journal: same key, read and kept, never dropped. */
+type LegacyQuote = Omit<RelayrQuote, "transactions"> & { transactions?: RelayrTransactionRecord[] };
+type LegacyRelayrAttempt = {
+  signed: RelayrSignedLaunch[];
+  published?: true;
+  quote?: LegacyQuote;
+  previousQuotes?: LegacyQuote[];
+  records?: RelayrTransactionRecord[];
+  payment?: RelayrPayment;
+  paymentHash?: Hex;
+  paymentStarted?: true;
+  paymentConfirmed?: true;
+  abandonable?: true;
+  retryNonces?: Record<number, string>;
+  history?: { signed: RelayrSignedLaunch[]; quote?: LegacyQuote; previousQuotes?: LegacyQuote[]; records?: RelayrTransactionRecord[] }[];
+};
+
+/** Every quote the earlier build replaced, with its attempt's records, so a late superseded landing can still be proven. */
+function legacySuperseded(legacy: LegacyRelayrAttempt): NonNullable<MachineDeploySession["relayrSuperseded"]> {
+  const replaced = [...(legacy.history ?? []).map(attempt => ({ quotes: [...(attempt.previousQuotes ?? []), ...(attempt.quote ? [attempt.quote] : [])], records: attempt.records })),
+    { quotes: legacy.previousQuotes ?? [], records: legacy.records }];
+  return replaced.flatMap(({ quotes, records }) => quotes.map(quote => ({ quote: { transactions: [], ...quote }, records: records ?? [] })));
+}
+
+function upgradeLegacyJournal(legacy: LegacyRelayrAttempt, account: Address): RelayrLaunchJournal {
+  const superseded = (legacy.history ?? []).flatMap(attempt => attempt.signed);
+  const journal: RelayrLaunchJournal = { account, phase: "signing", signed: legacy.signed, records: legacy.records ?? [],
+    ...(legacy.published || superseded.length ? { published: true as const } : {}),
+    ...(superseded.length ? { superseded } : {}),
+    ...(legacy.retryNonces ? { retryNonces: legacy.retryNonces } : {}),
+    ...(legacy.abandonable ? { abandonable: true as const } : {}),
+    ...(legacy.quote ? { quote: { transactions: [], ...legacy.quote } } : {}) };
+  if (legacy.paymentStarted && legacy.payment && legacy.quote) {
+    const details = relayrPaymentDetails(legacy.payment, { bundleUuid: legacy.quote.bundle_uuid,
+      destinationChainIds: legacy.signed.map(item => item.chainId), nowSeconds: 0 });
+    journal.paymentChainId = details.chainId;
+    journal.paymentDeadline = details.deadline.toString();
+    if (legacy.paymentHash) {
+      journal.payments = [sentRelayrPayment(details, legacy.paymentHash)];
+      journal.paymentHash = legacy.paymentHash;
+      journal.phase = legacy.paymentConfirmed ? "executing" : "submitted";
+    } else journal.phase = "payment-signing";
+  } else journal.phase = journal.quote ? "quoted" : journal.published ? "quoting" : "signing";
+  return journal;
+}
+
+/** A session saved by an earlier build: its top-level phase is derived now, and its journal becomes the SDK's. */
+function upgradeLegacySession(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const session = { ...value } as MachineDeploySession & { phase?: unknown };
+  delete session.phase;
+  const relayr = session.relayr as unknown as (LegacyRelayrAttempt & { phase?: unknown }) | undefined;
+  if (relayr && typeof relayr === "object" && relayr.phase === undefined && Array.isArray(relayr.signed) && isAddress(session.account)) {
+    session.relayr = upgradeLegacyJournal(relayr, session.account);
+    const superseded = legacySuperseded(relayr);
+    if (superseded.length) session.relayrSuperseded = superseded;
+  }
+  return session;
+}
+
+const signedValid = (session: MachineDeploySession, list: unknown, unique: boolean) => Array.isArray(list) &&
+  (!unique || new Set(list.map((item: RelayrSignedLaunch) => item.chainId)).size === list.length) &&
+  list.every((item: RelayrSignedLaunch) => item && typeof item === "object" && session.calls.some(call => call.chainId === item.chainId) &&
+    item.entry?.chain === item.chainId && /^(0|[1-9][0-9]*)$/u.test(item.nonce) && Number.isSafeInteger(item.deadline));
+
+function journalValid(session: MachineDeploySession): boolean {
+  const journal = session.relayr;
+  if (!journal) return true;
+  return typeof journal === "object" && isRelayrLaunchPhase(journal.phase) && isAddress(journal.account) && isAddressEqual(journal.account, session.account) &&
+    signedValid(session, journal.signed, true) && journal.signed.length <= session.calls.length && Array.isArray(journal.records) &&
+    (journal.superseded === undefined || signedValid(session, journal.superseded, false)) &&
+    (journal.payments === undefined || relayrSentPaymentsSnapshot(journal.payments) !== null) &&
+    (!relayrLaunchPaying(journal.phase) || (journal.quote !== undefined && Number.isSafeInteger(journal.paymentChainId))) &&
+    (journal.paymentHash === undefined || /^0x[0-9a-f]{64}$/iu.test(journal.paymentHash));
+}
 
 export function machineDeploymentFingerprint(session: Omit<MachineDeploySession, "fingerprint">): Hex {
   return keccak256(stringToHex(JSON.stringify([
@@ -64,10 +130,9 @@ export function machineDeploymentFingerprint(session: Omit<MachineDeploySession,
 /** Corrupt storage must block a fresh deployment, never look like no saved attempt. */
 export function validateMachineDeployment(value: unknown): MachineDeploySession {
   try {
-    const session = value as MachineDeploySession;
+    const session = upgradeLegacySession(value) as MachineDeploySession;
     if (session?.version !== 1 || !/^0x[0-9a-f]{64}$/iu.test(session.id) || session.salt !== session.id ||
       !isAddress(session.account) || !["direct", "relayr"].includes(session.transport) ||
-      !["prepared", "signing", "quoting", "quoted", "payment-signing", "executing", "unresolved", "done"].includes(session.phase) ||
       !Array.isArray(session.calls) || !session.calls.length || session.calls.length > 4 ||
       !Array.isArray(session.steps) || session.steps.length !== session.calls.length ||
       !Array.isArray(session.draft.chainIds) || session.calls.length !== session.draft.chainIds.length ||
@@ -87,19 +152,10 @@ export function validateMachineDeployment(value: unknown): MachineDeploySession 
         (step.reportedHash !== undefined && !/^0x[0-9a-f]{64}$/iu.test(step.reportedHash)) ||
         (step.status === "done" && (!step.hash || !step.projectId || !/^[1-9][0-9]*$/u.test(step.projectId)))) throw new Error();
     }
-    if ((session.transport === "relayr") !== Boolean(session.relayr) ||
-      (session.phase === "done" && session.steps.some(step => step.status !== "done"))) throw new Error();
-    if (session.relayr && (!Array.isArray(session.relayr.signed) || !Array.isArray(session.relayr.records) ||
-      session.relayr.signed.length > session.calls.length ||
-      new Set(session.relayr.signed.map(item => item.chainId)).size !== session.relayr.signed.length ||
-      session.relayr.signed.some(item => !session.calls.some(call => call.chainId === item.chainId)) ||
-      (session.relayr.published && session.calls.some(call => session.steps.find(step => step.chainId === call.chainId)?.status !== "done" &&
-        !session.relayr!.signed.some(item => item.chainId === call.chainId))) ||
-      (session.relayr.previousQuotes !== undefined && !Array.isArray(session.relayr.previousQuotes)) ||
-      (session.relayr.history !== undefined && !Array.isArray(session.relayr.history)) ||
-      (session.relayr.paymentStarted && (!session.relayr.quote || !session.relayr.payment)) ||
-      (session.relayr.paymentHash && !session.relayr.paymentStarted) ||
-      (session.relayr.paymentHash && !/^0x[0-9a-f]{64}$/iu.test(session.relayr.paymentHash)))) throw new Error();
+    if ((session.transport === "relayr") !== Boolean(session.relayr) || !journalValid(session)) throw new Error();
+    if (session.relayrSuperseded !== undefined && (!session.relayr || !Array.isArray(session.relayrSuperseded) ||
+      !session.relayrSuperseded.every(item => typeof item?.quote?.bundle_uuid === "string" &&
+        Array.isArray(item.quote.expectedTransactions) && Array.isArray(item.records)))) throw new Error();
     return session;
   } catch {
     throw new Error("The saved deployment is invalid. Keep its recovery data and transaction history before starting another machine.");
@@ -132,16 +188,16 @@ export function saveMachineDeployment(session: MachineDeploySession): void {
 }
 
 export function canClearMachineDeployment(session: MachineDeploySession): boolean {
-  if (session.phase === "done") return true;
-  if (session.steps.some(step => ["done", "uncertain", "confirming"].includes(step.status) ||
-    (session.transport === "direct" && step.status === "signing"))) return false;
-  if (session.relayr?.published || session.relayr?.history?.length) return session.relayr.abandonable === true;
-  return !session.relayr?.paymentStarted;
+  if (machineDeploymentDone(session)) return true;
+  if (session.steps.some(step => step.status === "done")) return false;
+  const journal = session.relayr;
+  if (!journal) return !session.steps.some(step => ["uncertain", "confirming", "signing"].includes(step.status));
+  if (journal.published) return journal.abandonable === true;
+  return !relayrLaunchInFlight(journal.phase);
 }
 
 export async function clearMachineDeployment(): Promise<void> {
-  if (typeof navigator === "undefined" || !navigator.locks) throw new Error("This browser needs Web Locks to coordinate deployment recovery.");
-  await navigator.locks.request(MACHINE_DEPLOY_LOCK, { ifAvailable: true }, lock => {
+  await browserLocks().request(MACHINE_DEPLOY_LOCK, { ifAvailable: true }, lock => {
     if (!lock) throw new Error("This deployment is running in another tab.");
     const session = loadMachineDeployment();
     if (session && !canClearMachineDeployment(session)) throw new Error("This deployment may still execute. Check the saved transactions before starting another machine.");
