@@ -197,10 +197,11 @@ export function canClearMachineDeployment(session: MachineDeploySession): boolea
 }
 
 export async function clearMachineDeployment(): Promise<void> {
-  await browserLocks().request(MACHINE_DEPLOY_LOCK, { ifAvailable: true }, lock => {
+  await browserLocks().request(MACHINE_DEPLOY_LOCK, { ifAvailable: true }, async lock => {
     if (!lock) throw new Error("This deployment is running in another tab.");
     const session = loadMachineDeployment();
     if (session && !canClearMachineDeployment(session)) throw new Error("This deployment may still execute. Check the saved transactions before starting another machine.");
+    await lock.assertHeld();
     window.localStorage.removeItem(STORAGE_KEY);
     if (window.localStorage.getItem(STORAGE_KEY) !== null) throw new Error("The saved deployment could not be cleared.");
   });

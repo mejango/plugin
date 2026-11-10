@@ -9,6 +9,7 @@ import { machineProjectIdFromReceipt, runMachineDeployment, type MachineDeployRe
 import type { MachineDraft } from "@/lib/plugin/types";
 import { savedAttempts } from "@/lib/plugin/write-holds";
 import type { SavedAttempt, WriteHoldClient } from "@bananapus/nana-sdk-core/review";
+import { LockLostError } from "@bananapus/nana-sdk-core/review/locks";
 
 const mocks = vi.hoisted(() => ({
   getAccount: vi.fn(), getPublicClient: vi.fn(), getWalletClient: vi.fn(), switchChain: vi.fn(), runtime: vi.fn(),
@@ -76,6 +77,17 @@ const request = vi.fn();
 const readContract = vi.fn();
 const getCode = vi.fn();
 const onSession = vi.fn((session: MachineDeploySession) => { latest = session; });
+/** Each lock grant's handle; a lost grant fails `assertHeld`, as an IndexedDB lease taken by another tab does. */
+let grants = 0;
+let loseNext = false;
+const lost = new Set<number>();
+const loseLock = () => { lost.add(grants); };
+const locks = { request: vi.fn(async (name: string, _options: unknown, fn: (lock: object) => Promise<unknown>) => {
+  const id = ++grants;
+  if (loseNext) { loseNext = false; lost.add(id); }
+  return fn({ name, mode: "exclusive", signal: new AbortController().signal, held: async () => !lost.has(id),
+    assertHeld: async () => { if (lost.has(id)) throw new LockLostError(name); } });
+}) };
 
 function payment(chain = 1, bundle = BUNDLE, deadline = NOW + 600): RelayrPayment {
   return { chain, target: RELAYR_PAYMENT_ADDRESS, token: RELAYR_NATIVE_TOKEN, amount: "1000000000000000", payment_deadline: deadline,
@@ -147,7 +159,8 @@ beforeEach(() => {
   localStorageMock.getItem.mockImplementation(key => storage.get(key) ?? null);
   localStorageMock.setItem.mockImplementation((key, value) => { storage.set(key, value); });
   vi.stubGlobal("window", { localStorage: localStorageMock });
-  vi.stubGlobal("navigator", { locks: { request: vi.fn(async (_name: string, _options: unknown, fn: (lock: object) => Promise<unknown>) => fn({})) } });
+  grants = 0; loseNext = false; lost.clear();
+  vi.stubGlobal("navigator", { locks });
   mocks.getAccount.mockImplementation(() => ({ address: connectedAccount, chainId: connectedChain }));
   mocks.switchChain.mockImplementation(async (_config, { chainId }: { chainId: number }) => { connectedChain = chainId; });
   mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => client(chainId));
@@ -789,6 +802,64 @@ describe("machine Relayr deployment", () => {
     expect(latest.relayr).toMatchObject({ phase: "executing", quote: { bundle_uuid: nextBundle } });
     expect(latest.steps[1].status).toBe("uncertain");
     expect(sign).toHaveBeenCalledTimes(3);
+  });
+
+  describe("once another tab took the deployment lock", () => {
+    const direct: Parameters<typeof run>[0] = { draft: { ...originalDraft, chainIds: [1] } };
+    const refused = () => Object.assign(new Error("User rejected the request."), { code: 4001 });
+
+    it("opens no wallet for a direct deployment and writes nothing", async () => {
+      review.mockImplementation(async () => { loseLock(); return true; });
+      await expect(run(direct)).rejects.toBeInstanceOf(LockLostError);
+      expect(send).not.toHaveBeenCalled();
+      expect(loadMachineDeployment()!.steps).toMatchObject([{ status: "signing" }]);
+    });
+
+    it("signs no deployment authorization", async () => {
+      review.mockImplementation(async () => { loseLock(); return true; });
+      await expect(run()).rejects.toBeInstanceOf(LockLostError);
+      expect(sign).not.toHaveBeenCalled();
+      expect(loadMachineDeployment()!.relayr!.signed).toEqual([]);
+    });
+
+    it("keeps a direct hash the wallet returned, under a fresh lock", async () => {
+      send.mockImplementation(async () => { loseLock(); return destinationHash(1); });
+      await expect(run(direct)).rejects.toBeInstanceOf(LockLostError);
+      expect(loadMachineDeployment()!.steps).toMatchObject([{ status: "confirming", hash: destinationHash(1) }]);
+      expect(latest.steps).toMatchObject([{ status: "confirming", hash: destinationHash(1) }]);
+    });
+
+    it("drops that hash once the saved deployment is no longer this attempt", async () => {
+      send.mockImplementation(async () => { loseLock(); storage.clear(); return destinationHash(1); });
+      await expect(run(direct)).rejects.toBeInstanceOf(LockLostError);
+      expect(loadMachineDeployment()).toBeNull();
+    });
+
+    it("keeps a direct send the wallet refused as unsent", async () => {
+      send.mockImplementation(async () => { loseLock(); throw refused(); });
+      await expect(run(direct)).rejects.toThrow(/^You canceled in your wallet\.$/);
+      expect(loadMachineDeployment()!.steps).toMatchObject([{ status: "pending", error: "You canceled in your wallet." }]);
+    });
+
+    it("keeps the payment hash the wallet returned, under a fresh lock", async () => {
+      send.mockImplementation(async () => { loseLock(); return PAYMENT_HASH; });
+      await expect(run()).rejects.toBeInstanceOf(LockLostError);
+      expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "submitted", paymentHash: PAYMENT_HASH, payments: [{ hash: PAYMENT_HASH, chainId: 1 }] });
+    });
+
+    it("restores a payment the wallet refused, so the same quote can be paid", async () => {
+      send.mockImplementation(async () => { loseLock(); throw refused(); });
+      await expect(run()).rejects.toThrow(/^You canceled in your wallet\.$/);
+      expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "quoted" });
+      expect(loadMachineDeployment()!.relayr!.paymentChainId).toBeUndefined();
+    });
+
+    it("does not clear the saved deployment", async () => {
+      await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+      loseNext = true;
+      await expect(clearMachineDeployment()).rejects.toBeInstanceOf(LockLostError);
+      expect(loadMachineDeployment()).not.toBeNull();
+    });
   });
 
   it("deploys and clears without Web Locks, on the SDK's fallback lock", async () => {
