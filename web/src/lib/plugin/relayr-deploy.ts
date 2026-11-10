@@ -725,12 +725,19 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       await verifyPayment();
       await save({ type: "chosen", paymentChainId: details.chainId, paymentDeadline: details.deadline.toString() });
       await save({ type: "sending" }); // Durable BEFORE the wallet may send, including its no-hash window. Fenced, with no await before the wallet.
-      /** The wallet's outcome, kept for a fresh lock while the saved journal still awaits this payment. */
-      const keep = (event: LaunchEvent) => (saved: MachineDeploySession) => {
-        const target = saved.id === current.id ? saved.relayr : undefined;
-        if (target?.phase !== "payment-signing" || target.quote?.bundle_uuid !== quote.bundle_uuid ||
-          JSON.stringify(target.payments ?? []) !== JSON.stringify(paid)) return undefined;
-        return advanceRelayrLaunch(target, event) ? saved : undefined;
+      /**
+       * An outcome this payment returned, kept for a fresh lock while the saved
+       * journal is still exactly as this attempt last saved it (same deployment,
+       * quote, phase and payments). Call it before `save` advances the journal.
+       */
+      const keep = (event: LaunchEvent) => {
+        const phase = journal.phase, payments = JSON.stringify(journal.payments ?? []);
+        return (saved: MachineDeploySession) => {
+          const target = saved.id === current.id ? saved.relayr : undefined;
+          if (target?.phase !== phase || target.quote?.bundle_uuid !== quote.bundle_uuid ||
+            JSON.stringify(target.payments ?? []) !== payments) return undefined;
+          return advanceRelayrLaunch(target, event) ? saved : undefined;
+        };
       };
       onProgress(`Approve one Relayr payment on ${CHAIN_LABELS[details.chainId]}.`);
       let hash: Hex;
@@ -749,7 +756,10 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       try {
         const mined = (await client.waitForTransactionReceipt({ hash, timeout: 120_000 })).transactionHash ?? hash;
         // A sped-up payment is mined under another hash at the same nonce: it replaces the dropped one, which can never mine.
-        if (mined.toLowerCase() !== hash.toLowerCase()) await save({ type: "sent", payments: [...paid, sentRelayrPayment(details, mined)] });
+        if (mined.toLowerCase() !== hash.toLowerCase()) {
+          const replaced: LaunchEvent = { type: "sent", payments: [...paid, sentRelayrPayment(details, mined)] };
+          await save(replaced, keep(replaced));
+        }
         await verifyRelayrPayment(client, { hash: mined, from: account, payment: details });
       } catch (error) {
         if (error instanceof RelayrPaymentRevertedError) await save({ type: "reverted" });

@@ -22,3 +22,29 @@
 - 7 of the 8 new lost-lock tests failed before the source change; one (a refused direct send kept as unsent) passed trivially before fencing and guards the keep path. The payment-hash test hung before the fix and cascaded "already running" into three later tests; all 56 file tests pass after.
 - `npm run check` on Node 22.23.4: typecheck, lint, knip, 275 tests pass. `npm run build` on Node 22.23.4.
 - `.next/cache` was not cleared (a delete hook blocks `rm -rf`); 6.2.0 is a newly published version, so the same-version tarball cache trap does not apply.
+## Fenced saves after an external await
+After a lost lock, each fenced save in `relayr-deploy.ts` that follows a wallet call, a Relayr HTTP call, receipt polling or replacement detection is either **kept** or safely **dropped**:
+- **Kept:** its outcome is applied under a fresh lock once the old lock ends, but only while the saved record is still exactly what this attempt last saved.
+- **Dropped:** the next resume derives the same state again from the chain or from Relayr.
+
+| Save | External await before it | Lost lock | Why | Test (lapse after the save before the await) |
+|---|---|---|---|---|
+| Direct step `confirming` + hash | wallet `sendTransaction` | **kept** (same id, step still `uncertain`, no hash, waiting marker) | No other record shows the hash. | keeps a direct hash the wallet returned |
+| Direct step `pending` (definite refusal) | wallet `sendTransaction` | **kept** (same guard) | Without it, the step stays "may have sent" and blocks a retry that is safe. | keeps a direct send the wallet refused as unsent |
+| Relayr `sent` H1 | wallet `sendTransaction` | **kept** (same id and quote, `payment-signing`, same earlier payments) | No other record shows the hash. | keeps the payment hash the wallet returned |
+| Relayr `unsent` (definite outcome) | wallet `sendTransaction` | **kept** (same guard) | Without it, the journal stays no-hash `payment-signing` and blocks repaying the same quote. | restores a payment the wallet refused |
+| Relayr `sent` H2 (sped-up replacement) | `waitForTransactionReceipt` | **kept** (same id and quote, `submitted`, payments still naming H1) | Codex pass 1: H1 never mines, so it can't prove the revert or allow a retry. | keeps a replacement payment hash found while the lock lapsed |
+| Relayr `reverted` after receipt polling | `waitForTransactionReceipt` / `verifyRelayrPayment` | dropped | The saved `submitted` hash (H1, or the kept H2) is proven reverted on resume by `proveSavedRelayrPayment`. | H2 test, second run |
+| Relayr `executing` | `verifyRelayrPayment` | dropped | Resume from `submitted` proves the saved payment again and continues. | n/a |
+| `readRecords` (Relayr records) | `pollRelayrBundle` / `readRelayrBundle` | dropped | Fetched again on every resume; Relayr is never proof. | n/a |
+| `quoted` | Relayr `POST /bundle/prepaid` | dropped | Same as a lost HTTP response, which is already handled: the unpaid bundle is never paid, and the same signed entries are quoted again. | existing "persists all exact signed requests before publishing" |
+| Signature + step `pending` | wallet `signTypedData` | dropped | The signature was never published. Resume signs again at the same nonce. | n/a (fence only) |
+| Direct step `done` / `failed` / `uncertain` after the receipt | `waitForTransactionReceipt` / receipt reads | dropped | The hash is already saved, and resume checks it again. | n/a |
+| Reconcile `step` saves, `abandon`, `resign` | receipt / request-state / finalized-block reads | dropped | Re-derived from the chain on resume, by the same rules. | n/a |
+| `revertedRelayrQuote` persist, `refreshSuperseded`, recovery `abandonable` persist | Relayr reads / chain reads | dropped | Read again on resume. | n/a |
+| `chosen`, `sending`, step `signing` / `uncertain` before the wallet | `walletFor` / simulation / review | dropped | A lost lock throws before the wallet opens, so there is no outcome to keep. | opens no wallet / signs no authorization |
+
+Each of the five kept outcomes has a test that fails without its keep:
+- **H2:** fails on c06487d.
+- **Direct refusal:** checked by removing its keep.
+- **The other three:** failed before the first fix.
