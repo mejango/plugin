@@ -92,6 +92,18 @@ describe("deployment UI lifecycle", () => {
     expect(mocks.run).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["a manual resume completes the deployment", "the saved deployment is cleared"])("drops the shown check once %s", async outcome => {
+    const attempt = { chainId: 8453, account: "0x1111111111111111111111111111111111111111", namespaces: ["machine-relayr-payment"] };
+    mocks.run.mockRejectedValueOnce(Object.assign(new Error("Your wallet may have sent the Relayr payment without returning its hash."), { name: "SavedAttemptShownError", attempt }));
+    await mount();
+    await act(async () => { await api.deploy(); });
+    expect(api.recovery).toBe(attempt);
+    mocks.run.mockResolvedValueOnce(undefined);
+    mocks.clear.mockResolvedValueOnce(undefined);
+    await act(async () => { await (outcome.startsWith("a manual") ? api.deploy() : api.clear()); });
+    expect(api.recovery).toBeNull();
+  });
+
   it("keeps the check hidden for any other deployment error", async () => {
     mocks.run.mockRejectedValueOnce(new Error("Relayr returned no usable payment options."));
     await mount();

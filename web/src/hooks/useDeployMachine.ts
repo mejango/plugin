@@ -98,6 +98,7 @@ export function useDeployMachine() {
         },
         review: async request => (await ask({ kind: "review", request })) === true,
       });
+      if (mounted.current) setRecovery(null);
     } catch (error) {
       if (!mounted.current) return;
       if (error instanceof Error && error.name === "SavedAttemptShownError" && "attempt" in error) setRecovery((error as Error & { attempt: SavedAttempt<unknown> }).attempt);
@@ -127,7 +128,7 @@ export function useDeployMachine() {
     try {
       const { clearMachineDeployment } = await import("@/lib/plugin/deploy-session");
       await clearMachineDeployment();
-      if (mounted.current) { setSaved(null); setError(null); }
+      if (mounted.current) { setSaved(null); setError(null); setRecovery(null); }
     } catch (error) {
       if (mounted.current) setError(messageOf(error));
     } finally {
