@@ -6,7 +6,7 @@ import { advanceRelayrLaunch, bindRelayrQuote, FORWARD_REQUEST_TYPES, proveSaved
   relayrLaunchUnfunded, relayrPaymentAttemptOutcome, relayrPaymentDetails, relayrPaymentOptions, relayrRequestStates, relayrRequestsVerdict,
   relayrRetryOption, relayrSessionOutcome, relayrSupportsChains, requireRelayrPaymentRuntime, requireRelayrRetry, resignedRelayrLaunch,
   revertedRelayrQuote, sentRelayrPayment, simulateRelayrPayment, TRUSTED_FORWARDER_ABI, verifyRelayrDestination, verifyRelayrPayment,
-  type RelayrFinalizedClient, type RelayrLaunchJournal, type RelayrPayment, type RelayrProofClient, type RelayrSignedLaunch,
+  type RelayrEntry, type RelayrFinalizedClient, type RelayrLaunchJournal, type RelayrPayment, type RelayrProofClient, type RelayrSignedLaunch,
   type RelayrSignedRequest, type RelayrTransactionRecord } from "@bananapus/nana-sdk-core/review/relayr";
 import { getAccount, getPublicClient, getWalletClient, switchChain, type Config } from "@wagmi/core";
 import { decodeEventLog, decodeFunctionData, encodeFunctionData, formatEther, isAddressEqual, numberToHex,
@@ -407,6 +407,23 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         if (Array.isArray(transactions)) { journal.records = transactions as RelayrTransactionRecord[]; persist(); }
       };
 
+      /** The first candidate proven as its exact signed call, or why none is: an unproven read outranks a revert. */
+      const proveDestination = async (chainId: number, candidates: { entry: RelayrEntry; hash: Hex }[]):
+        Promise<{ receipt: TransactionReceipt; hash: Hex } | { unproven: unknown; reverted: Hex[] }> => {
+        let unproven: unknown = null;
+        const reverted: Hex[] = [];
+        if (!candidates.length) return { unproven, reverted };
+        const client = await clientFor(chainId);
+        for (const candidate of candidates) {
+          try { return { receipt: await verifyRelayrDestination(client, candidate), hash: candidate.hash }; }
+          catch (error) {
+            if (error instanceof RelayrDestinationRevertedError) reverted.push(candidate.hash);
+            if (!unproven || unproven instanceof RelayrDestinationRevertedError) unproven = error;
+          }
+        }
+        return { unproven, reverted };
+      };
+
       /** Receipts count only for the exact signed outer call; an unproven chain is classified by its request, whatever Relayr reports. */
       const reconcile = async (): Promise<boolean> => {
         const bindings = requireQuoteBindings();
@@ -418,22 +435,22 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
           const binding = bindings.find(item => item.chain === signed.chainId)!;
           const matching = original.records.filter(record => String(record.tx_uuid ?? "").toLowerCase() === binding.txUuid.toLowerCase());
           if (matching.length > 1) throw new Error("Relayr returned conflicting transaction records.");
-          const hash = stepOf(signed.chainId).hash ?? (matching[0] ? relayrDestinationHash(matching[0]) : null);
-          let unproven: unknown = null;
-          if (hash) {
-            let receipt: TransactionReceipt | undefined;
-            try { receipt = await verifyRelayrDestination(await clientFor(signed.chainId), { entry: signed.entry, hash }); }
-            catch (error) { unproven = error; }
-            if (receipt) {
-              try { step(signed.chainId, { status: "done", hash, projectId: machineProjectIdFromReceipt(receipt, callOf(signed.chainId), account), error: undefined }); }
-              catch (error) { held = true; retryable = false; step(signed.chainId, { status: "uncertain", hash, error: errorMessage(error) }); }
-              continue;
-            }
+          const saved = stepOf(signed.chainId).hash;
+          const reported = matching[0] ? relayrDestinationHash(matching[0]) : null;
+          const hash = saved ?? reported;
+          // A relayer may replace its transaction: the saved hash and a newly reported one are both checked.
+          const proof = await proveDestination(signed.chainId, [saved, reported].filter((item, index, all): item is Hex =>
+            !!item && all.findIndex(other => other?.toLowerCase() === item.toLowerCase()) === index).map(item => ({ entry: signed.entry, hash: item })));
+          if ("receipt" in proof) {
+            try { step(signed.chainId, { status: "done", hash: proof.hash, projectId: machineProjectIdFromReceipt(proof.receipt, callOf(signed.chainId), account), error: undefined }); }
+            catch (error) { held = true; retryable = false; step(signed.chainId, { status: "uncertain", hash: proof.hash, error: errorMessage(error) }); }
+            continue;
           }
+          const { unproven } = proof;
           const [state] = await relayrRequestStates(chainClient, [signedRequest(signed)]);
           const reverted = unproven instanceof RelayrDestinationRevertedError;
           const named = hash ? { hash } : {};
-          if (reverted && hash) reverts.push({ chainId: signed.chainId, hash });
+          if (reverted) reverts.push(...proof.reverted.map(item => ({ chainId: signed.chainId, hash: item })));
           if (!state.live && state.unused) {
             step(signed.chainId, { status: "failed", ...named, error: reverted ? "Deployment reverted onchain." : "The unused deployment authorization expired." });
             continue;

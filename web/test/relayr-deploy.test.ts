@@ -692,6 +692,35 @@ describe("machine Relayr deployment", () => {
     expect(posts.map(entries => entries.map(entry => entry.chain))).toEqual([[1, 10], [10]]);
   });
 
+  it("proves a destination the relayer replaced under a new hash before reading its moved nonce as a lost run", async () => {
+    const stuck = `0x${"c1".repeat(32)}` as Hex;
+    const replaced = `0x${"c2".repeat(32)}` as Hex;
+    let resumed = false;
+    recordState = (_uuid, chain) => !mined ? { state: "Pending" } : { state: "Success", data: { hash: chain === 1 ? destinationHash(1) : resumed ? replaced : stuck } };
+    mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => {
+      const rpc = client(chainId);
+      const read = rpc.readContract.getMockImplementation()!;
+      const transaction = rpc.getTransaction.getMockImplementation()!;
+      const receipt = rpc.getTransactionReceipt.getMockImplementation()!;
+      rpc.readContract.mockImplementation(async args => args.functionName === "nonces" && "blockNumber" in args && chainId === 10 && resumed ? 1n : read(args));
+      rpc.getTransaction.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        if (hash === stuck) throw new Error("transaction not found");
+        return transaction({ hash });
+      });
+      rpc.getTransactionReceipt.mockImplementation(async ({ hash }: { hash: Hex }) => {
+        if (hash === stuck) throw new Error("receipt not found");
+        return { ...await receipt({ hash }), transactionHash: hash };
+      });
+      return rpc;
+    });
+    await expect(run()).rejects.toThrow("still being checked");
+    expect(loadMachineDeployment()!.steps).toMatchObject([{ status: "done" }, { status: "uncertain", hash: stuck }]);
+    resumed = true;
+    await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+    expect(latest.steps[1]).toMatchObject({ status: "done", hash: replaced, projectId: "110" });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it("deploys and clears without Web Locks, on the SDK's fallback lock", async () => {
     vi.stubGlobal("navigator", {});
     await expect(run()).resolves.toSatisfy(machineDeploymentDone);
