@@ -17,7 +17,7 @@ import { loadMachineDeployment, MACHINE_DEPLOY_LOCK, machineDeploymentDone, mach
   type MachineDeployCall, type MachineDeploySession, type MachineDeployStep } from "@/lib/plugin/deploy-session";
 import type { MachineDraft } from "@/lib/plugin/types";
 import { recoverSaved, strictRetirable } from "@/lib/plugin/write-holds";
-import { browserLocks, LockLostError, type LockHandle } from "@bananapus/nana-sdk-core/review/locks";
+import { browserLocks, keepOutcome, LockLostError, type LockHandle } from "@bananapus/nana-sdk-core/review/locks";
 
 const SAFE_EXECUTE_ABI = parseAbi(["function execTransaction(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,bytes signatures) returns (bool)"]);
 const WALLET_CANCELED = "You canceled in your wallet.";
@@ -134,26 +134,12 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
 }): Promise<MachineDeploySession> {
   if (activeDeployments.has(MACHINE_DEPLOY_LOCK)) throw new Error("This deployment is already running.");
   activeDeployments.add(MACHINE_DEPLOY_LOCK);
-  // A wallet outcome whose save a lost lock refused: applied under a fresh
-  // lock, to the saved record only while it is still this attempt's.
-  let late: ((saved: MachineDeploySession) => MachineDeploySession | undefined) | undefined;
   try {
     return await browserLocks().request(MACHINE_DEPLOY_LOCK, { ifAvailable: true }, async lock => {
       if (!lock) throw new Error("This deployment is already running in another tab.");
       try { return await run(lock); }
       catch (error) { throw isDefiniteWalletRejection(error) ? new Error(WALLET_CANCELED, { cause: error }) : error; }
     });
-  } catch (error) {
-    const settle = late;
-    if (settle) await browserLocks().request(MACHINE_DEPLOY_LOCK, async lock => {
-      const saved = loadMachineDeployment();
-      const next = saved && settle(saved);
-      if (!next) return;
-      await lock!.assertHeld();
-      saveMachineDeployment(next);
-      onSession(clone(next));
-    }).catch(() => undefined); // Unreconciled, the record stays as the lost lock left it.
-    throw error;
   } finally { activeDeployments.delete(MACHINE_DEPLOY_LOCK); }
 
   function requireAccount() {
@@ -231,19 +217,33 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
     }
     const current = session;
     if (!isAddressEqual(current.account, account)) throw new Error("Connect the wallet that started this deployment.");
-    /** `onLost`: what to apply to the saved record under a fresh lock if this save finds the lock lost. */
-    async function persist(onLost?: typeof late) {
-      try { await lock.assertHeld(); }
-      catch (error) { if (onLost && error instanceof LockLostError) late = onLost; throw error; }
+    async function persist() {
+      await lock.assertHeld();
       // Preserve a just-returned wallet hash in the visible recovery state even
       // if storage fails. The earlier durable no-hash marker still blocks replay.
       try { saveMachineDeployment(current); } finally { onSession(clone(current)); }
     }
-    async function step(chainId: number, next: Partial<MachineDeployStep>, onLost?: typeof late) {
+    async function step(chainId: number, next: Partial<MachineDeployStep>) {
       const item = current.steps.find(item => item.chainId === chainId);
       if (!item) throw new Error("The saved deployment chain changed.");
       Object.assign(item, next);
-      await persist(onLost);
+      await persist();
+    }
+    /**
+     * Saves an outcome the wallet returned. Refused for a lost lock (the user
+     * was in the wallet past the lease), the SDK keeps it: once this run ends,
+     * `settle` merges it under a fresh lock into the saved record, only while
+     * that record is still this attempt's. Resolves false when kept.
+     */
+    function keepWalletOutcome(save: () => Promise<void>, settle: (saved: MachineDeploySession) => MachineDeploySession | undefined) {
+      return keepOutcome([lock], save, async () => {
+        const saved = loadMachineDeployment();
+        const next = saved && settle(saved);
+        if (!next) return;
+        await lock.assertHeld();
+        saveMachineDeployment(next);
+        onSession(clone(next));
+      });
     }
     await persist();
     if (machineDeploymentDone(current)) return clone(current);
@@ -344,25 +344,23 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         await simulate(client, call, gas, false);
         requireAccount();
         await step(call.chainId, { status: "uncertain", error: AWAITING_HASH }); // Fenced, with no await before the wallet.
-        /** The wallet's outcome, kept for a fresh lock while the saved step still awaits this attempt's hash. */
-        const keep = (next: Partial<MachineDeployStep>) => (saved: MachineDeploySession) => {
+        /** The wallet's outcome, merged only while the saved step still awaits this attempt's hash. */
+        const keep = (next: Partial<MachineDeployStep>) => keepWalletOutcome(() => step(call.chainId, next), saved => {
           const item = saved.id === current.id ? saved.steps.find(item => item.chainId === call.chainId) : undefined;
           if (item?.status !== "uncertain" || item.hash || item.error !== AWAITING_HASH) return undefined;
           Object.assign(item, next);
           return saved;
-        };
+        });
         let hash: Hex;
         try {
           hash = await wallet.sendTransaction({ account, chain: wallet.chain, to: call.to, data: call.data, value: BigInt(call.value), gas });
         } catch (error) {
           if (!isDefiniteWalletRejection(error)) throw new Error("Your wallet may have sent the deployment without returning its hash. Check its activity; do not deploy again.", { cause: error });
-          const unsent = { status: "pending", error: WALLET_CANCELED } as const;
-          // A lost lock leaves the refusal to the fresh-lock reconcile; the caller still learns nothing was sent.
-          await step(call.chainId, unsent, keep(unsent)).catch(saveError => { if (!(saveError instanceof LockLostError)) throw saveError; });
+          // Kept for a lost lock; the caller still learns nothing was sent.
+          await keep({ status: "pending", error: WALLET_CANCELED });
           throw error;
         }
-        const sent = { status: "confirming", hash, error: undefined } as const;
-        await step(call.chainId, sent, keep(sent));
+        if (!await keep({ status: "confirming", hash, error: undefined })) throw new LockLostError(MACHINE_DEPLOY_LOCK);
         onProgress(`Confirming deployment on ${CHAIN_LABELS[call.chainId]}.`);
         try {
           await client.waitForTransactionReceipt({ hash, timeout: 120_000, onReplaced: () => {
@@ -386,7 +384,7 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       const callOf = (chainId: number) => current.calls.find(call => call.chainId === chainId)!;
       const stepOf = (chainId: number) => current.steps.find(item => item.chainId === chainId)!;
       const open = (chainId: number) => stepOf(chainId).status !== "done";
-      const save = async (event: LaunchEvent, onLost?: typeof late) => { if (advanceRelayrLaunch(journal, event)) await persist(onLost); };
+      const save = async (event: LaunchEvent) => { if (advanceRelayrLaunch(journal, event)) await persist(); };
       const requestOf = (signed: RelayrSignedLaunch) => {
         const call = current.calls.find(call => call.chainId === signed.chainId);
         const request = relayrForwardRequest(signed.entry);
@@ -726,18 +724,18 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
       await save({ type: "chosen", paymentChainId: details.chainId, paymentDeadline: details.deadline.toString() });
       await save({ type: "sending" }); // Durable BEFORE the wallet may send, including its no-hash window. Fenced, with no await before the wallet.
       /**
-       * An outcome this payment returned, kept for a fresh lock while the saved
-       * journal is still exactly as this attempt last saved it (same deployment,
-       * quote, phase and payments). Call it before `save` advances the journal.
+       * An outcome this payment returned, merged only while the saved journal
+       * is still exactly as this attempt last saved it (same deployment,
+       * quote, phase and payments).
        */
       const keep = (event: LaunchEvent) => {
         const phase = journal.phase, payments = JSON.stringify(journal.payments ?? []);
-        return (saved: MachineDeploySession) => {
+        return keepWalletOutcome(() => save(event), saved => {
           const target = saved.id === current.id ? saved.relayr : undefined;
           if (target?.phase !== phase || target.quote?.bundle_uuid !== quote.bundle_uuid ||
             JSON.stringify(target.payments ?? []) !== payments) return undefined;
           return advanceRelayrLaunch(target, event) ? saved : undefined;
-        };
+        });
       };
       onProgress(`Approve one Relayr payment on ${CHAIN_LABELS[details.chainId]}.`);
       let hash: Hex;
@@ -745,20 +743,17 @@ export async function runMachineDeployment({ config, account, draft, manual, exe
         hash = await wallet.sendTransaction({ account, chain: wallet.chain, to: details.target, data: details.calldata, value: details.amount, gas: RELAYR_PAYMENT_GAS });
       } catch (error) {
         const outcome = relayrPaymentAttemptOutcome(error, { sending: true, paid: paid.length > 0 });
-        const unsent: LaunchEvent = { type: "unsent", outcome };
-        // A lost lock leaves the outcome to the fresh-lock reconcile; the caller still learns why nothing was sent.
-        await save(unsent, keep(unsent)).catch(saveError => { if (!(saveError instanceof LockLostError)) throw saveError; });
+        // Kept for a lost lock; the caller still learns why nothing was sent.
+        await keep({ type: "unsent", outcome });
         if (outcome) throw error;
         throw new Error(NO_HASH, { cause: error });
       }
-      const sent: LaunchEvent = { type: "sent", payments: [...paid, sentRelayrPayment(details, hash)] };
-      await save(sent, keep(sent));
+      if (!await keep({ type: "sent", payments: [...paid, sentRelayrPayment(details, hash)] })) throw new LockLostError(MACHINE_DEPLOY_LOCK);
       try {
         const mined = (await client.waitForTransactionReceipt({ hash, timeout: 120_000 })).transactionHash ?? hash;
         // A sped-up payment is mined under another hash at the same nonce: it replaces the dropped one, which can never mine.
         if (mined.toLowerCase() !== hash.toLowerCase()) {
-          const replaced: LaunchEvent = { type: "sent", payments: [...paid, sentRelayrPayment(details, mined)] };
-          await save(replaced, keep(replaced));
+          if (!await keep({ type: "sent", payments: [...paid, sentRelayrPayment(details, mined)] })) throw new LockLostError(MACHINE_DEPLOY_LOCK);
         }
         await verifyRelayrPayment(client, { hash: mined, from: account, payment: details });
       } catch (error) {
