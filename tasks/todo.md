@@ -1,3 +1,16 @@
+# SDK core 6.3.0 adoption (2026-11-10)
+
+- [x] Pin @bananapus/nana-sdk-core 6.3.0 (plugin uses no react package).
+- [x] Delete `late`, `persist(onLost)` and the old `keep` closures in `relayr-deploy.ts`; each wallet outcome (direct hash, direct refusal, payment hash, payment unsent, sped-up replacement hash) saves through `keepOutcome([lock], save, later)`, `later` matching this attempt by identity as before.
+- [x] Move the lost-lock tests onto `lapsingLocksForTests` and add resume regressions: no second deploy send or payment after a kept hash; a refused send or payment pays once more on resume with the same authorizations (nonces); a kept hash survives another tab holding the lock meanwhile.
+- [x] Full `npm run check` and `npm run build` on Node 22.23.4; push; PR; Codex review.
+
+## Plan refinement
+
+- **Objective:** Plugin keeps no lock-lapse reconcile of its own; the SDK keeps the five wallet outcomes PR #4 protected.
+- **System fit:** `payRelayrReviewed` would replace plugin's own review, journal and wagmi wallet path, a rewrite with new UX; the deletion map allows `keepOutcome` for plugin's own saves, which is the smaller change and keeps the journal as the one record.
+- **Verification:** 9 lapse tests fail when the kept outcome is dropped (mutation check); all pass with the SDK path.
+
 # SDK core 6.2.0 adoption (2026-11-10)
 
 - [x] Bump @bananapus/nana-sdk-core to 6.2.0 (plugin uses no react package).

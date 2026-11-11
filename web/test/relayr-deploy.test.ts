@@ -10,6 +10,7 @@ import type { MachineDraft } from "@/lib/plugin/types";
 import { savedAttempts } from "@/lib/plugin/write-holds";
 import type { SavedAttempt, WriteHoldClient } from "@bananapus/nana-sdk-core/review";
 import { LockLostError } from "@bananapus/nana-sdk-core/review/locks";
+import { lapsingLocksForTests } from "@bananapus/nana-sdk-core/testing";
 
 const mocks = vi.hoisted(() => ({
   getAccount: vi.fn(), getPublicClient: vi.fn(), getWalletClient: vi.fn(), switchChain: vi.fn(), runtime: vi.fn(),
@@ -77,17 +78,8 @@ const request = vi.fn();
 const readContract = vi.fn();
 const getCode = vi.fn();
 const onSession = vi.fn((session: MachineDeploySession) => { latest = session; });
-/** Each lock grant's handle; a lost grant fails `assertHeld`, as an IndexedDB lease taken by another tab does. */
-let grants = 0;
-let loseNext = false;
-const lost = new Set<number>();
-const loseLock = () => { lost.add(grants); };
-const locks = { request: vi.fn(async (name: string, _options: unknown, fn: (lock: object) => Promise<unknown>) => {
-  const id = ++grants;
-  if (loseNext) { loseNext = false; lost.add(id); }
-  return fn({ name, mode: "exclusive", signal: new AbortController().signal, held: async () => !lost.has(id),
-    assertHeld: async () => { if (lost.has(id)) throw new LockLostError(name); } });
-}) };
+/** Web Locks as a browser grants them: one holder at a time, never lost while its work runs. */
+const webLocks = { request: async (name: string, _options: unknown, fn: (lock: Lock) => Promise<unknown>) => fn({ name, mode: "exclusive" }) };
 
 function payment(chain = 1, bundle = BUNDLE, deadline = NOW + 600): RelayrPayment {
   return { chain, target: RELAYR_PAYMENT_ADDRESS, token: RELAYR_NATIVE_TOKEN, amount: "1000000000000000", payment_deadline: deadline,
@@ -187,8 +179,7 @@ beforeEach(() => {
   localStorageMock.getItem.mockImplementation(key => storage.get(key) ?? null);
   localStorageMock.setItem.mockImplementation((key, value) => { storage.set(key, value); });
   vi.stubGlobal("window", { localStorage: localStorageMock });
-  grants = 0; loseNext = false; lost.clear();
-  vi.stubGlobal("navigator", { locks });
+  vi.stubGlobal("navigator", { locks: webLocks });
   mocks.getAccount.mockImplementation(() => ({ address: connectedAccount, chainId: connectedChain }));
   mocks.switchChain.mockImplementation(async (_config, { chainId }: { chainId: number }) => { connectedChain = chainId; });
   mocks.getPublicClient.mockImplementation((_config, { chainId }: { chainId: number }) => client(chainId));
@@ -814,6 +805,17 @@ describe("machine Relayr deployment", () => {
   describe("once another tab took the deployment lock", () => {
     const direct: Parameters<typeof run>[0] = { draft: { ...originalDraft, chainIds: [1] } };
     const refused = () => Object.assign(new Error("User rejected the request."), { code: 4001 });
+    /** The SDK's lease, as `navigator.locks`: `lapse()` expires the held lease, as a wallet left open past it does. */
+    let lapsing: ReturnType<typeof lapsingLocksForTests>;
+    const loseLock = () => lapsing.lapse();
+    beforeEach(() => {
+      // The lease polls on real timers; only the clock is pinned.
+      vi.useRealTimers();
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(NOW * 1_000);
+      lapsing = lapsingLocksForTests();
+      vi.stubGlobal("navigator", { locks: lapsing.locks });
+    });
 
     it("opens no wallet for a direct deployment and writes nothing", async () => {
       review.mockImplementation(async () => { loseLock(); return true; });
@@ -874,9 +876,57 @@ describe("machine Relayr deployment", () => {
       expect(loadMachineDeployment()!.relayr!.paymentChainId).toBeUndefined();
     });
 
+    describe("while the wallet was open, through the SDK's kept outcome", () => {
+      it("never sends a kept direct deployment again on resume", async () => {
+        send.mockImplementationOnce(async () => { loseLock(); mined = true; return destinationHash(1); });
+        await expect(run(direct)).rejects.toBeInstanceOf(LockLostError);
+        await expect(run(direct)).resolves.toSatisfy(machineDeploymentDone);
+        expect(send).toHaveBeenCalledTimes(1);
+      });
+
+      it("sends a direct deployment the wallet refused once more on resume", async () => {
+        send.mockImplementationOnce(async () => { loseLock(); throw refused(); });
+        await expect(run(direct)).rejects.toThrow(/^You canceled in your wallet\.$/);
+        await expect(run(direct)).resolves.toSatisfy(machineDeploymentDone);
+        expect(send).toHaveBeenCalledTimes(2);
+      });
+
+      it("never pays a kept Relayr payment again on resume", async () => {
+        send.mockImplementationOnce(async () => { loseLock(); mined = true; return PAYMENT_HASH; });
+        await expect(run()).rejects.toBeInstanceOf(LockLostError);
+        await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+        expect(send).toHaveBeenCalledTimes(1);
+        expect(posts).toHaveLength(1);
+      });
+
+      it("pays a refused quote once on resume, with its saved authorizations at the same nonces", async () => {
+        send.mockImplementationOnce(async () => { loseLock(); throw refused(); });
+        await expect(run()).rejects.toThrow(/^You canceled in your wallet\.$/);
+        const signed = snapshot(loadMachineDeployment()!.relayr!.signed);
+        await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+        expect(send).toHaveBeenCalledTimes(2);
+        expect(sign).toHaveBeenCalledTimes(2);
+        expect(posts).toHaveLength(1);
+        expect(loadMachineDeployment()!.relayr!.signed).toEqual(signed);
+      });
+
+      it("keeps the hash under the fresh lock even after another tab held the lock meanwhile", async () => {
+        send.mockImplementationOnce(async () => {
+          loseLock();
+          await lapsing.otherTab().request("plugin-machine-deployment", async () => undefined);
+          mined = true;
+          return PAYMENT_HASH;
+        });
+        await expect(run()).rejects.toBeInstanceOf(LockLostError);
+        expect(loadMachineDeployment()!.relayr).toMatchObject({ phase: "submitted", paymentHash: PAYMENT_HASH });
+        await expect(run()).resolves.toSatisfy(machineDeploymentDone);
+        expect(send).toHaveBeenCalledTimes(1);
+      });
+    });
+
     it("does not clear the saved deployment", async () => {
       await expect(run()).resolves.toSatisfy(machineDeploymentDone);
-      loseNext = true;
+      localStorageMock.getItem.mockImplementationOnce(key => { loseLock(); return storage.get(key) ?? null; });
       await expect(clearMachineDeployment()).rejects.toBeInstanceOf(LockLostError);
       expect(loadMachineDeployment()).not.toBeNull();
     });
