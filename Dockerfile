@@ -1,5 +1,5 @@
 # Build the Next app, then ship only the standalone server.
-FROM node:22.23.4-alpine AS builder
+FROM node:26.13.1-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS builder
 WORKDIR /app
 
 # The frontend ABI is generated from the Foundry artifact and committed, so the
@@ -21,7 +21,7 @@ ENV NEXT_PUBLIC_PARA_API_KEY=$NEXT_PUBLIC_PARA_API_KEY \
 
 RUN npm run build
 
-FROM node:22.23.4-alpine AS runner
+FROM node:26.13.1-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS runner
 WORKDIR /app
 ENV NODE_ENV=production HOSTNAME=:: PORT=8080
 

@@ -2,7 +2,7 @@
   "name": "plugin-web",
   "private": true,
   "engines": {
-    "node": ">=22"
+    "node": ">=26.13.1"
   },
   "scripts": {
     "dev": "next dev --webpack -p 3004",
