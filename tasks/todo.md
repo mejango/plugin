@@ -61,3 +61,26 @@ Each of the five kept outcomes has a test that fails without its keep:
 - **H2:** fails on c06487d.
 - **Direct refusal:** checked by removing its keep.
 - **The other three:** failed before the first fix.
+
+
+# 2026-11-12: Adopt Node 26.13.1
+
+## Plan refinement
+- **Objective:** Move plugin's configured build and application runtime to the requested Node26.13.1 security release without changing application behavior or dependency versions.
+- **System fit:** Docker owns the hosted Node image and package engines describe the local runtime. Existing wallet, SDK and protocol authority flows remain unchanged; root coordinates delivery and hosting verification.
+- **Reuse and simplicity:** Update existing Docker stages and engine metadata, matching the package-lock root metadata and active setup instructions. Reuse existing checks, with no new abstraction or dependency churn.
+- **Evidence and unknowns:** Fresh main was inspected in an isolated worktree; there is no tracked GitHub Actions workflow. Official Node26.13.1 security release and local verified binary are available; remote Docker tag must be verified before delivery. Existing engine compatibility ranges are not proof of the hosted runtime.
+- **Verification:** Validate exact pins and lockfile dependency parity, run git diff --check and the app's existing npm check/build under Node26.13.1; Metalog also uses the existing browser suite. Report image/platform verification separately from local application checks.
+- **Resource budget:** Prepare independent lightweight checks now, serialize expensive local checks with root's coordinated slot, and avoid new CI scaffolding for this narrow maintenance change. Replan if runtime compatibility fails; preserve existing test deadlines.
+
+- [x] Inventory current main, instructions and runtime owners.
+- [x] Update runtime pins and active setup documentation.
+- [ ] Validate dependencies unchanged and run existing app checks.
+- [ ] Open reviewable PR and report exact head and verification.
+
+## Review
+Pending implementation and checks.
+
+Runtime pin inventory resolved: official Node26.13.1 Alpine multiarch index sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 verified from registry2026-11-12T12:13:46UTC. Both Docker stages pin this index; local .nvmrc selects26.13.1 and the existing minimum-engine style now starts at26.13.1. No independently pinned npm version exists, so validation uses bundled npm11.20.0.
+
+Exact-lock npm ci completed successfully with Node26.13.1 and bundled npm11.20.0. Post-install comparison confirms no dependency lock entries changed. Independent runtime-diff review found no actionable issues. Full application checks are awaiting the coordinated local resource slot; no GitHub Actions workflow exists in this repository.
